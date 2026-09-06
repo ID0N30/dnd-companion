@@ -1,26 +1,97 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-parchment: rgba(44, 30, 24, 0.85); /* Dark leather/burnt parchment, semi-transparent */
+  --color-parchment-dark: rgba(25, 15, 12, 0.9); /* Even darker for contrast */
+  --color-ink: #e8d5b5; /* Light glowing parchment color for text */
+  --color-ink-light: #a88d6c; /* Dimmer gold/brown for secondary text */
+  --color-magic-red: #d93829; /* Burning ember red */
+  --color-magic-gold: #f5d061; /* Glowing magical gold */
+  
+  --font-serif: var(--font-eb-garamond), serif;
+  --font-cinzel: var(--font-cinzel), serif;
 }
 
-@media (prefers-color-scheme: dark) {
+@layer base {
+  html {
+    scrollbar-gutter: stable;
+  }
+
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #000000;
+    --foreground: #e8d5b5;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    /* Soft noise texture for parchment feel */
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-cinzel);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@keyframes shake {
+  0% { transform: translate(1px, 1px) rotate(0deg); }
+  10% { transform: translate(-1px, -2px) rotate(-1deg); }
+  20% { transform: translate(-3px, 0px) rotate(1deg); }
+  30% { transform: translate(3px, 2px) rotate(0deg); }
+  40% { transform: translate(1px, -1px) rotate(1deg); }
+  50% { transform: translate(-1px, 2px) rotate(-1deg); }
+  60% { transform: translate(-3px, 1px) rotate(0deg); }
+  70% { transform: translate(3px, 1px) rotate(-1deg); }
+  80% { transform: translate(-1px, -1px) rotate(1deg); }
+  90% { transform: translate(1px, 2px) rotate(0deg); }
+  100% { transform: translate(1px, -2px) rotate(-1deg); }
+}
+
+.combat-shake {
+  animation: shake 0.5s;
+}
+
+/* Combat mode vignette */
+.combat-vignette::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  box-shadow: inset 0 0 100px rgba(217, 56, 41, 0.2);
+  pointer-events: none;
+  z-index: 50;
+  transition: opacity 0.5s ease-in-out;
+  opacity: 0;
+}
+
+.combat-vignette.active::after {
+  opacity: 1;
+}
+
+@keyframes floatEmber {
+  0% {
+    transform: translateY(0) translateX(0) scale(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.7;
+  }
+  80% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateY(-85vh) translateX(40px) scale(1.2);
+    opacity: 0;
+  }
+}
+
+.ember-particle {
+  position: absolute;
+  bottom: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 40;
+  background: radial-gradient(circle, #f5d061 20%, #d93829 80%, transparent 100%);
+  box-shadow: 0 0 8px #f5d061, 0 0 16px #d93829;
+  animation: floatEmber linear infinite;
 }

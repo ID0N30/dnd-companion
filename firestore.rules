@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Colección de Perfiles de Usuario
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId);
+    }
+
+    // Colección de Salas / Campañas
+    match /rooms/{roomId} {
+      // Cualquier persona puede leer información de salas públicas
+      allow read: if true;
+      
+      // Solo usuarios autenticados pueden crear campañas
+      allow create: if isAuthenticated();
+      
+      // Permitir actualización a usuarios autenticados (necesario para avanzar turnos, actualizar estado de combate, etc.)
+      allow update: if isAuthenticated();
+
+      // Solo el DM creador de la sala puede borrar la campaña
+      allow delete: if isAuthenticated() && (
+        resource.data.dmId == request.auth.uid || 
+        request.auth.uid == request.resource.data.dmId
+      );
+
+      // Subcolección de Personajes en la Sala
+      match /players/{playerId} {
+        allow read: if true;
+        allow create, update: if isAuthenticated();
+        allow delete: if isAuthenticated() && (
+          resource.data.ownerId == request.auth.uid || 
+          resource.data.userId == request.auth.uid || 
+          get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
+        );
+      }
+
+      // Subcolección de Logs de Acciones
+      match /logs/{logId} {
+        allow read: if true;
+        allow create: if isAuthenticated();
+      }
+    }
+  }
+}

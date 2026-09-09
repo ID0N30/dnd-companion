@@ -30,6 +30,7 @@ export type Room = {
   currentTurnIndex: number;
   lastTurnEvent?: { id: string; timestamp: number } | null;
   lastLevelUpEvent?: any;
+  lastItemReceivedEvent?: any;
   hpTerminology?: 'PG' | 'HP';
   currencyMode?: 'standard' | 'all';
   directMessages?: DirectMessage[];

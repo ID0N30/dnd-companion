@@ -427,7 +427,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                   </div>
                 </div>
 
-                <div className={`overflow-y-auto pr-1 space-y-2 font-sans text-xs min-h-[160px] max-h-[220px] ${showLogsMobile ? 'block' : 'hidden lg:block'}`}>
+                <div className="overflow-y-auto pr-1 space-y-2 font-sans text-xs h-[175px] min-h-[175px] shrink-0 block">
                   {filteredLogs.length === 0 ? (
                     <p className="text-ink/50 italic text-center py-4">No hay acciones registradas con los filtros actuales.</p>
                   ) : (

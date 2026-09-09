@@ -126,25 +126,33 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
   useEffect(() => {
     if (!character || !character.id) return;
     try {
-      const stored = localStorage.getItem(`dnd_private_notes_${character.id}`);
-      if (stored) {
-        setNotes(JSON.parse(stored));
+      if (character.notes && character.notes.length > 0) {
+        setNotes(character.notes);
       } else {
-        setNotes([]);
+        const stored = localStorage.getItem(`dnd_private_notes_${character.id}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setNotes(parsed);
+          useStore.getState().saveNotesToCharacter(character.id, parsed);
+        } else {
+          setNotes([]);
+        }
       }
     } catch (e) {
       console.error("Error al cargar notas personales", e);
     }
-  }, [character.id]);
+  }, [character.id, character.notes]);
 
   const saveNotesToStorage = (updatedNotes: PersonalNote[]) => {
-    setNotes(updatedNotes);
-    try {
-      if (character && character.id) {
-        localStorage.setItem(`dnd_private_notes_${character.id}`, JSON.stringify(updatedNotes));
+    const limitedNotes = updatedNotes.slice(0, 10);
+    setNotes(limitedNotes);
+    if (character && character.id) {
+      useStore.getState().saveNotesToCharacter(character.id, limitedNotes);
+      try {
+        localStorage.setItem(`dnd_private_notes_${character.id}`, JSON.stringify(limitedNotes));
+      } catch (e) {
+        console.error("Error al guardar notas personales", e);
       }
-    } catch (e) {
-      console.error("Error al guardar notas personales", e);
     }
   };
 
@@ -157,19 +165,24 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
     e.preventDefault();
     if (!noteModal.title.trim()) return;
 
+    if (!noteModal.editingId && notes.length >= 10) {
+      showAlert("Has alcanzado el límite máximo de 10 notas respaldadas en la nube para este personaje.", "Límite Alcanzado", "warning");
+      return;
+    }
+
     let newNotes: PersonalNote[];
     if (noteModal.editingId) {
       newNotes = notes.map(n => n.id === noteModal.editingId ? {
         ...n,
-        title: noteModal.title.trim(),
-        content: noteModal.content.trim(),
+        title: noteModal.title.trim().slice(0, 60),
+        content: noteModal.content.trim().slice(0, 1000),
         updatedAt: Date.now()
       } : n);
     } else {
       const newNote: PersonalNote = {
         id: Date.now().toString() + Math.random(),
-        title: noteModal.title.trim(),
-        content: noteModal.content.trim(),
+        title: noteModal.title.trim().slice(0, 60),
+        content: noteModal.content.trim().slice(0, 1000),
         createdAt: Date.now(),
         pinned: false
       };
@@ -2018,11 +2031,11 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                     <h2 className="text-2xl font-bold font-cinzel text-ink flex items-center gap-2">
                       <Scroll className="w-6 h-6 text-magic-gold" /> Notas Personales de {character.name}
                     </h2>
-                    <p className="text-xs text-ink-light mt-1 flex items-center gap-1.5 font-sans">
+                    <p className="text-xs text-ink-light mt-1 flex items-center gap-1.5 font-sans flex-wrap">
                       <span className="bg-amber-900/20 text-amber-900 border border-amber-900/30 px-2 py-0.5 rounded font-bold text-[10px] flex items-center gap-1">
-                        🔒 100% Privado
+                        ☁️ Respaldado en Firebase ({notes.length}/10)
                       </span>
-                      Estas notas solo se guardan en tu dispositivo y <strong>NO son visibles por el DM</strong>.
+                      Sincronización automática en la nube para tu personaje. <strong>No son visibles por el DM</strong>.
                     </p>
                   </div>
 
@@ -2098,13 +2111,6 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                               <span className="italic">Editado: {new Date(note.updatedAt).toLocaleDateString()}</span>
                             )}
                           </div>
-                          <button
-                            onClick={() => setDmMessageModal({ open: true, content: `[Nota: ${note.title}]\n${note.content}`.slice(0, 500) })}
-                            className="px-2 py-0.5 bg-magic-gold/20 text-magic-gold border border-magic-gold/40 hover:bg-magic-gold hover:text-black font-bold rounded transition cursor-pointer flex items-center gap-1 text-[11px]"
-                            title="Compartir / Enviar esta nota en privado al DM de la sala"
-                          >
-                            ✉️ Enviar al DM
-                          </button>
                         </div>
                       </div>
                     ))}
@@ -2595,16 +2601,18 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                           className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
                         />
                       </div>
-                      <div>
-                        <label className="block text-cyan-400 mb-1">🔵 Electrum (EP)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={editCurrencyInput.ep}
-                          onChange={e => setEditCurrencyInput({ ...editCurrencyInput, ep: Math.max(0, parseInt(e.target.value) || 0) })}
-                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
-                        />
-                      </div>
+                      {!(useStore.getState().currencyMode === 'standard' || room?.currencyMode === 'standard') && (
+                        <div>
+                          <label className="block text-cyan-400 mb-1">🔵 Electrum (EP)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={editCurrencyInput.ep}
+                            onChange={e => setEditCurrencyInput({ ...editCurrencyInput, ep: Math.max(0, parseInt(e.target.value) || 0) })}
+                            className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                          />
+                        </div>
+                      )}
                       <div>
                         <label className="block text-magic-gold mb-1">🟡 Oro (GP / PO)</label>
                         <input
@@ -2615,16 +2623,18 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                           className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
                         />
                       </div>
-                      <div className="col-span-2">
-                        <label className="block text-indigo-300 mb-1">🟣 Platino (PP)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={editCurrencyInput.pp}
-                          onChange={e => setEditCurrencyInput({ ...editCurrencyInput, pp: Math.max(0, parseInt(e.target.value) || 0) })}
-                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
-                        />
-                      </div>
+                      {!(useStore.getState().currencyMode === 'standard' || room?.currencyMode === 'standard') && (
+                        <div className="col-span-2">
+                          <label className="block text-indigo-300 mb-1">🟣 Platino (PP)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={editCurrencyInput.pp}
+                            onChange={e => setEditCurrencyInput({ ...editCurrencyInput, pp: Math.max(0, parseInt(e.target.value) || 0) })}
+                            className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex justify-end gap-2 pt-3 border-t border-ink/20 font-bold text-xs">
@@ -2686,17 +2696,19 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                           className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
                         />
                       </div>
-                      <div>
-                        <label className="block text-cyan-400 mb-1">Gastar Electrum (EP)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={spendInput.ep || ''}
-                          onChange={e => setSpendInput({ ...spendInput, ep: Math.max(0, parseInt(e.target.value) || 0) })}
-                          placeholder="0"
-                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
-                        />
-                      </div>
+                      {!(useStore.getState().currencyMode === 'standard' || room?.currencyMode === 'standard') && (
+                        <div>
+                          <label className="block text-cyan-400 mb-1">Gastar Electrum (EP)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={spendInput.ep || ''}
+                            onChange={e => setSpendInput({ ...spendInput, ep: Math.max(0, parseInt(e.target.value) || 0) })}
+                            placeholder="0"
+                            className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                          />
+                        </div>
+                      )}
                       <div>
                         <label className="block text-magic-gold mb-1">Gastar Oro (GP / PO)</label>
                         <input
@@ -2708,17 +2720,19 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                           className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
                         />
                       </div>
-                      <div className="col-span-2">
-                        <label className="block text-indigo-300 mb-1">Gastar Platino (PP)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={spendInput.pp || ''}
-                          onChange={e => setSpendInput({ ...spendInput, pp: Math.max(0, parseInt(e.target.value) || 0) })}
-                          placeholder="0"
-                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
-                        />
-                      </div>
+                      {!(useStore.getState().currencyMode === 'standard' || room?.currencyMode === 'standard') && (
+                        <div className="col-span-2">
+                          <label className="block text-indigo-300 mb-1">Gastar Platino (PP)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={spendInput.pp || ''}
+                            onChange={e => setSpendInput({ ...spendInput, pp: Math.max(0, parseInt(e.target.value) || 0) })}
+                            placeholder="0"
+                            className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     <div>

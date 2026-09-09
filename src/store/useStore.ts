@@ -67,6 +67,15 @@ export type Currency = {
   pp: number;
 };
 
+export type PersonalNote = {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: number;
+  updatedAt?: number;
+  pinned?: boolean;
+};
+
 export type CharacterState = {
   id: string;
   name: string;
@@ -79,6 +88,7 @@ export type CharacterState = {
   ownerName?: string;
   inspiration?: boolean;
   currency?: Currency;
+  notes?: PersonalNote[];
   hp: { current: number; max: number; temp: number };
   ac: number;
   proficiencyBonus: number;
@@ -305,6 +315,7 @@ export interface StoreState {
   
   updateCurrency: (playerId?: string, updates?: Partial<Currency>) => void;
   spendCurrency: (playerId?: string, spend?: Partial<Currency>, reason?: string) => void;
+  saveNotesToCharacter: (playerId: string, notes: PersonalNote[]) => void;
 
   logs: LogEntry[];
   addLog: (message: string) => void;
@@ -495,6 +506,8 @@ export const useStore = create<StoreState>((set, get) => ({
   updateCurrency: (playerId, updates) => {
     if (!updates) return;
     const targetId = playerId || get().activePlayerId;
+    let logMsg = '';
+    let playerRoomId = '';
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
@@ -506,14 +519,22 @@ export const useStore = create<StoreState>((set, get) => ({
           gp: Math.max(0, updates.gp !== undefined ? updates.gp : currentCur.gp),
           pp: Math.max(0, updates.pp !== undefined ? updates.pp : currentCur.pp),
         };
+        logMsg = `💰 ${p.name} actualizó su monedero: ${newCur.gp} GP, ${newCur.sp} SP, ${newCur.cp} CP.`;
+        playerRoomId = p.roomId || '';
         return { ...p, currency: newCur };
       })
     }));
+    if (logMsg) {
+      get().addLog(logMsg);
+      if (playerRoomId) addRoomLog(playerRoomId, logMsg);
+    }
   },
 
   spendCurrency: (playerId, spend, reason) => {
     if (!spend) return;
     const targetId = playerId || get().activePlayerId;
+    let logMsg = '';
+    let playerRoomId = '';
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
@@ -533,18 +554,32 @@ export const useStore = create<StoreState>((set, get) => ({
         };
 
         const spentParts: string[] = [];
-        if (spendPP > 0) spentParts.push(`${spendPP} PP (Platino)`);
-        if (spendGP > 0) spentParts.push(`${spendGP} GP (Oro)`);
-        if (spendEP > 0) spentParts.push(`${spendEP} EP (Electrum)`);
-        if (spendSP > 0) spentParts.push(`${spendSP} SP (Plata)`);
-        if (spendCP > 0) spentParts.push(`${spendCP} CP (Cobre)`);
+        if (spendPP > 0) spentParts.push(`${spendPP} PP`);
+        if (spendGP > 0) spentParts.push(`${spendGP} GP`);
+        if (spendEP > 0) spentParts.push(`${spendEP} EP`);
+        if (spendSP > 0) spentParts.push(`${spendSP} SP`);
+        if (spendCP > 0) spentParts.push(`${spendCP} CP`);
 
         if (spentParts.length > 0) {
           const reasonText = reason ? ` [${reason}]` : '';
-          get().addLog(`💰 ${p.name} ha gastado ${spentParts.join(', ')}${reasonText}.`);
+          logMsg = `💰 ${p.name} ha gastado ${spentParts.join(', ')}${reasonText}.`;
+          playerRoomId = p.roomId || '';
         }
 
         return { ...p, currency: newCur };
+      })
+    }));
+    if (logMsg) {
+      get().addLog(logMsg);
+      if (playerRoomId) addRoomLog(playerRoomId, logMsg);
+    }
+  },
+
+  saveNotesToCharacter: (playerId, notes) => {
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== playerId) return p;
+        return { ...p, notes: notes.slice(0, 10) };
       })
     }));
   },
@@ -571,20 +606,27 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   addItemToPlayer: (playerId, item) => {
+    let targetPlayer: CharacterState | undefined;
+    const event = {
+      id: 'item_evt_' + Date.now(),
+      playerId,
+      itemName: item.name,
+      quantity: item.quantity,
+      timestamp: Date.now()
+    };
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
+        targetPlayer = p;
         get().addLog(`🎁 El DM ha otorgado a ${p.name}: ${item.name} x${item.quantity}`);
         return { ...p, inventory: [...p.inventory, item] };
       }),
-      lastItemReceivedEvent: {
-        id: 'item_evt_' + Date.now(),
-        playerId,
-        itemName: item.name,
-        quantity: item.quantity,
-        timestamp: Date.now()
-      }
+      lastItemReceivedEvent: event
     }));
+    if (targetPlayer?.roomId) {
+      addRoomLog(targetPlayer.roomId, `🎁 El DM otorgó a ${targetPlayer.name} el objeto: "${item.name}" (x${item.quantity}).`);
+      updateRoomState(targetPlayer.roomId, { lastItemReceivedEvent: event });
+    }
   },
 
   removeItemFromPlayer: (playerId, itemId) => {
@@ -1234,7 +1276,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const effMaxHP = player.hp.max + player.modifiers.filter(m => m.targetStat === 'hp_max').reduce((acc, m) => acc + (m.value || 0), 0);
       const newCurrHP = Math.min(effMaxHP, player.hp.current + hpHealed);
       extraLog = ` 🩹 Recuperó ${hpHealed} HP (1d10 [${dieRoll}] + Nivel ${player.level}). Vida actual: ${newCurrHP}/${effMaxHP}.`;
-      triggerDiceRoll('d10', player.level, `Segundo Aliento (+${hpHealed} HP)`);
+      triggerDiceRoll('d10', player.level, `Segundo Aliento (+${hpHealed} HP)`, dieRoll);
       
       // Update HP immediately
       set((state) => ({

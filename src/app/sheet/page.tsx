@@ -42,7 +42,7 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
     togglePinSkill, toggleEquipItem, useSpellSlot, restoreSpellSlot, setSpellSlotMax, shortRest, longRest, useClassFeature,
     addItem, updateItem, removeItem, addSpell, updateSpell, removeSpell, addCustomClassFeature, updateCustomClassFeature, removeCustomClassFeature, consumeItem,
     lastTurnEvent, lastItemReceivedEvent, rollDeathSave, stabilizePlayer, togglePlayerDeathState, hpTerminology, toggleInspiration, loadFamousDemoCharacter,
-    updateCurrency, spendCurrency, showAlert, showConfirm
+    updateCurrency, spendCurrency, convertPlayerCurrencyToStandard, showAlert, showConfirm
   } = useStore();
 
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -101,12 +101,28 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
   }, [character?.roomId]);
 
   useEffect(() => {
-    if (lastItemReceivedEvent && lastItemReceivedEvent.playerId === character.id) {
-      setItemToast({ open: true, itemName: lastItemReceivedEvent.itemName, quantity: lastItemReceivedEvent.quantity });
-      const timer = setTimeout(() => setItemToast(null), 4000);
-      return () => clearTimeout(timer);
+    if (
+      lastItemReceivedEvent &&
+      lastItemReceivedEvent.playerId === character.id &&
+      (!lastItemReceivedEvent.roomId || lastItemReceivedEvent.roomId === character.roomId)
+    ) {
+      const eventKey = `seen_item_evt_${lastItemReceivedEvent.id || lastItemReceivedEvent.itemName + '_' + lastItemReceivedEvent.timestamp}`;
+      if (typeof window !== 'undefined' && !sessionStorage.getItem(eventKey)) {
+        sessionStorage.setItem(eventKey, 'true');
+        setItemToast({ open: true, itemName: lastItemReceivedEvent.itemName, quantity: lastItemReceivedEvent.quantity });
+      }
     }
-  }, [lastItemReceivedEvent, character.id]);
+  }, [lastItemReceivedEvent, character.id, character.roomId]);
+
+  useEffect(() => {
+    const isStandard = (room?.currencyMode === 'standard' || useStore.getState().currencyMode === 'standard');
+    if (isStandard && character?.id) {
+      const cur = character.currency || { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+      if ((cur.pp || 0) > 0 || (cur.ep || 0) > 0) {
+        convertPlayerCurrencyToStandard(character.id);
+      }
+    }
+  }, [room?.currencyMode, character?.id, character?.currency?.pp, character?.currency?.ep, convertPlayerCurrencyToStandard]);
 
   // Private Personal Notes State (Stored strictly in localStorage for 100% DM privacy)
   type PersonalNote = {
@@ -460,10 +476,18 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
             initial={{ opacity: 0, y: -50, scale: 0.8 }} 
             animate={{ opacity: 1, y: 0, scale: 1 }} 
             exit={{ opacity: 0, y: -20, scale: 0.9 }} 
-            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-magic-gold text-black px-5 py-3 rounded-xl shadow-[0_0_30px_rgba(245,208,97,0.9)] font-sans font-bold flex items-center gap-3 text-sm border-2 border-white w-[90%] md:w-auto justify-center"
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-magic-gold text-black px-5 py-3 rounded-xl shadow-[0_0_30px_rgba(245,208,97,0.9)] font-sans font-bold flex items-center justify-between gap-3 text-sm border-2 border-white w-[90%] md:w-auto"
           >
-            <Package className="w-5 h-5 shrink-0 text-black animate-bounce" />
-            <span>🎁 ¡Has recibido un nuevo objeto del DM: <strong>{itemToast.itemName}</strong> (x{itemToast.quantity})!</span>
+            <div className="flex items-center gap-3">
+              <Package className="w-5 h-5 shrink-0 text-black animate-bounce" />
+              <span>🎁 ¡Has recibido un nuevo objeto del DM: <strong>{itemToast.itemName}</strong> (x{itemToast.quantity})!</span>
+            </div>
+            <button 
+              onClick={() => setItemToast(null)}
+              className="px-3 py-1 bg-black text-white hover:bg-zinc-800 text-xs rounded-lg transition-colors shadow shrink-0 cursor-pointer"
+            >
+              ¡Entendido!
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

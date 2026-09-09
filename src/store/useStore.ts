@@ -292,7 +292,7 @@ export interface StoreState {
   longRest: (playerId?: string) => void;
   useClassFeature: (featureName: string, playerId?: string) => void;
   togglePlayerDeathState: (playerId: string, status: 'dying' | 'stable' | 'revive' | 'dead', healHP?: number) => void;
-  lastItemReceivedEvent?: { id: string; playerId: string; itemName: string; quantity: number; timestamp: number } | null;
+  lastItemReceivedEvent?: { id: string; roomId?: string; playerId: string; itemName: string; quantity: number; timestamp: number } | null;
   
   levelUpPlayer: (playerId: string, targetRoomId?: string) => void;
   levelUpParty: (targetRoomId?: string) => void;
@@ -302,6 +302,7 @@ export interface StoreState {
   setHPTerminology: (terminology: 'PG' | 'HP') => void;
   currencyMode: 'standard' | 'all';
   setCurrencyMode: (currencyMode: 'standard' | 'all') => void;
+  convertPlayerCurrencyToStandard: (playerId: string) => void;
   
   addItem: (item: Item, isTemp: boolean, duration?: number) => void;
   updateItem: (itemId: string, updates: Partial<Item>) => void;
@@ -605,10 +606,44 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
   },
 
+  convertPlayerCurrencyToStandard: (playerId) => {
+    let logMsg = '';
+    let playerRoomId = '';
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== playerId) return p;
+        const cur = p.currency || { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+        if ((cur.pp || 0) <= 0 && (cur.ep || 0) <= 0) return p;
+
+        const extraGPFromPP = (cur.pp || 0) * 10;
+        const extraGPFromEP = Math.floor((cur.ep || 0) * 0.5);
+        const extraSPFromEP = ((cur.ep || 0) % 2) * 5;
+
+        const newCur: Currency = {
+          cp: cur.cp || 0,
+          sp: (cur.sp || 0) + extraSPFromEP,
+          ep: 0,
+          gp: (cur.gp || 0) + extraGPFromPP + extraGPFromEP,
+          pp: 0
+        };
+
+        logMsg = `💰 Se convirtieron las monedas de ${p.name} al modo Estándar (CP/SP/GP): ${newCur.gp} GP, ${newCur.sp} SP, ${newCur.cp} CP.`;
+        playerRoomId = p.roomId || '';
+        return { ...p, currency: newCur };
+      })
+    }));
+    if (logMsg) {
+      get().addLog(logMsg);
+      if (playerRoomId) addRoomLog(playerRoomId, logMsg);
+    }
+  },
+
   addItemToPlayer: (playerId, item) => {
     let targetPlayer: CharacterState | undefined;
+    const targetP = get().players.find(p => p.id === playerId);
     const event = {
       id: 'item_evt_' + Date.now(),
+      roomId: targetP?.roomId || '',
       playerId,
       itemName: item.name,
       quantity: item.quantity,

@@ -13,7 +13,7 @@ import {
 export default function DMPage({ roomId }: { roomId?: string }) {
   const { 
     players, isCombatMode, initiativeOrder, currentTurnIndex, toggleCombatMode, advanceTurn, togglePlayerDeath, togglePlayerDeathState, logs, lastTurnEvent, rollDeathSave, stabilizePlayer, levelUpPlayer, levelUpParty,
-    toggleInspiration, updatePlayerStatsByDM, updatePlayerHPByDM, addItemToPlayer, removeItemFromPlayer, addSpellToPlayer, removeSpellToPlayer, showAlert, showConfirm
+    toggleInspiration, updatePlayerStatsByDM, updatePlayerHPByDM, addItemToPlayer, removeItemFromPlayer, addSpellToPlayer, removeSpellToPlayer, convertPlayerCurrencyToStandard, showAlert, showConfirm
   } = useStore();
   const [turnToast, setTurnToast] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -268,6 +268,14 @@ export default function DMPage({ roomId }: { roomId?: string }) {
         hpTerminology: adminForm.hpTerminology,
         currencyMode: adminForm.currencyMode
       });
+      if (adminForm.currencyMode === 'standard') {
+        const state = useStore.getState();
+        state.players.forEach(p => {
+          if (!p.roomId || p.roomId === effectiveRoomId) {
+            convertPlayerCurrencyToStandard(p.id);
+          }
+        });
+      }
       useStore.setState({ 
         hpTerminology: adminForm.hpTerminology,
         currencyMode: adminForm.currencyMode 
@@ -307,6 +315,19 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                 <Swords className="w-6 h-6 sm:w-8 sm:h-8" /> Panel Maestro
               </h2>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setFullInboxModalOpen(true)}
+                  className="relative flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-2.5 py-1.5 rounded font-bold text-xs shadow hover:scale-105 transition cursor-pointer border border-yellow-300"
+                  title="Abrir Buzón del DM"
+                >
+                  <Mail className="w-4 h-4 text-black" />
+                  <span>Buzón</span>
+                  {effectiveDirectMessages.length > 0 && (
+                    <span className="bg-magic-red text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full shadow animate-bounce ml-0.5">
+                      {effectiveDirectMessages.length}
+                    </span>
+                  )}
+                </button>
                 <button
                   onClick={() => setTutorialOpen(true)}
                   className="flex items-center gap-1 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-2.5 py-1.5 rounded font-bold text-xs shadow hover:scale-105 transition cursor-pointer"
@@ -369,7 +390,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
             });
 
             return (
-              <div className="bg-parchment-dark p-4 sm:p-5 rounded-xl border-2 border-ink/20 shadow-lg flex flex-col overflow-hidden space-y-3">
+              <div className="bg-parchment-dark p-4 sm:p-5 rounded-xl border-2 border-ink/20 shadow-lg flex flex-col overflow-hidden space-y-3 min-h-[260px]">
                 <div className="flex justify-between items-center flex-wrap gap-2">
                   <h2 className="text-lg sm:text-xl font-bold font-cinzel text-ink flex items-center gap-2">
                     <ScrollText className="w-5 h-5 text-magic-red" /> Registro de Acciones ({filteredLogs.length})
@@ -453,84 +474,6 @@ export default function DMPage({ roomId }: { roomId?: string }) {
             );
           })()}
 
-          {/* DM INBOX PANEL (MENSAJES DIRECTOS & TRASFONDOS) */}
-          <div className="bg-parchment-dark p-4 sm:p-5 rounded-xl border-2 border-magic-gold/60 shadow-xl flex flex-col space-y-3 font-sans max-h-[380px]">
-            <div className="flex justify-between items-center border-b border-ink/20 pb-2 flex-wrap gap-2">
-              <h2 className="text-lg sm:text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                <Mail className="w-5 h-5 text-magic-gold" /> Buzón del DM ({filteredInboxMessages.length})
-              </h2>
-              <button
-                onClick={() => setFullInboxModalOpen(true)}
-                className="px-2.5 py-1 bg-magic-gold text-black rounded text-xs font-bold hover:bg-yellow-500 transition shadow flex items-center gap-1 cursor-pointer"
-                title="Ampliar buzón a pantalla completa"
-              >
-                <Maximize2 className="w-3.5 h-3.5" /> Ampliar
-              </button>
-            </div>
-
-            {/* Inline Filter Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-              {/* Search text input */}
-              <div className="relative">
-                <input
-                  type="text"
-                  value={inboxSearchText}
-                  onChange={e => setInboxSearchText(e.target.value)}
-                  placeholder="Buscar mensaje..."
-                  className="w-full p-1.5 pl-7 bg-parchment border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold"
-                />
-                <Search className="w-3.5 h-3.5 text-ink-light absolute left-2 top-2" />
-              </div>
-
-              {/* Player Filter Select */}
-              <div className="relative">
-                <select
-                  value={inboxPlayerFilter}
-                  onChange={e => setInboxPlayerFilter(e.target.value)}
-                  className="w-full p-1.5 pl-7 bg-parchment border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold cursor-pointer"
-                >
-                  <option value="all">👥 Todos los Jugadores</option>
-                  {allPlayerOptions.map(name => (
-                    <option key={name} value={name}>
-                      ⚔️ {name}
-                    </option>
-                  ))}
-                </select>
-                <Filter className="w-3.5 h-3.5 text-ink-light absolute left-2 top-2 pointer-events-none" />
-              </div>
-            </div>
-
-            {filteredInboxMessages.length === 0 ? (
-              <p className="text-xs text-ink-light italic text-center py-4">
-                {effectiveDirectMessages.length === 0 
-                  ? "Buzón vacío. Los jugadores pueden enviarte notas o secretos privados desde su hoja."
-                  : "No se encontraron mensajes con los filtros actuales."}
-              </p>
-            ) : (
-              <div className="space-y-2.5 overflow-y-auto pr-1 max-h-[200px]">
-                {filteredInboxMessages.map((msg) => (
-                  <div key={msg.id} className="p-3 bg-parchment rounded-lg border border-ink/20 shadow-sm space-y-1.5 hover:border-magic-gold/40 transition">
-                    <div className="flex justify-between items-center border-b border-ink/10 pb-1">
-                      <span className="font-bold text-xs text-magic-gold flex items-center gap-1">
-                        👤 {msg.characterName || msg.senderName}
-                      </span>
-                      <div className="flex items-center gap-2 text-[10px] text-ink-light">
-                        <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        <button
-                          onClick={() => handleDeleteDirectMessage(msg.id)}
-                          className="text-ink-light hover:text-magic-red transition p-0.5 cursor-pointer"
-                          title="Eliminar mensaje del buzón"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                    <p className="text-xs text-ink/90 whitespace-pre-wrap leading-relaxed break-words">{msg.content}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Party Overview */}
@@ -1458,11 +1401,11 @@ export default function DMPage({ roomId }: { roomId?: string }) {
               <div className="flex justify-between items-center border-b border-ink/20 pb-3">
                 <div>
                   <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                    <Mail className="w-6 h-6 text-magic-gold" /> Buzón Expandido del DM ({effectiveDirectMessages.length} mensajes)
+                    <Mail className="w-6 h-6 text-magic-gold" /> Buzón del DM ({effectiveDirectMessages.length} mensajes)
                   </h3>
                   <p className="text-xs text-ink-light mt-0.5">Consulta y gestiona todos los mensajes directos, notas secretas y trasfondos enviados por tus jugadores.</p>
                 </div>
-                <button onClick={() => setFullInboxModalOpen(false)} className="p-2 text-ink-light hover:text-ink cursor-pointer" title="Cerrar buzón expandido">
+                <button onClick={() => setFullInboxModalOpen(false)} className="p-2 text-ink-light hover:text-ink cursor-pointer" title="Cerrar buzón">
                   <X className="w-6 h-6" />
                 </button>
               </div>
@@ -1561,6 +1504,23 @@ export default function DMPage({ roomId }: { roomId?: string }) {
 
       {/* TUTORIAL MODAL */}
       <TutorialModal open={tutorialOpen} onClose={() => setTutorialOpen(false)} />
+
+      {/* Floating DM Inbox Button (Positioned next to DiceRoller to prevent overlap) */}
+      <div className="fixed bottom-6 right-20 sm:right-24 z-40">
+        <button
+          onClick={() => setFullInboxModalOpen(true)}
+          className="relative flex items-center gap-2 bg-gradient-to-r from-amber-500 via-gold-500 to-yellow-500 text-black px-4 py-3 rounded-full shadow-[0_0_20px_rgba(245,208,97,0.7)] hover:scale-110 active:scale-95 transition-all cursor-pointer border-2 border-white font-sans font-bold text-sm"
+          title="Abrir Buzón del DM"
+        >
+          <Mail className="w-5 h-5 text-black" />
+          <span className="hidden sm:inline">Buzón DM</span>
+          {effectiveDirectMessages.length > 0 && (
+            <span className="bg-magic-red text-white text-xs font-extrabold px-2 py-0.5 rounded-full shadow border border-white animate-bounce">
+              {effectiveDirectMessages.length}
+            </span>
+          )}
+        </button>
+      </div>
 
     </main>
   );

@@ -66,6 +66,9 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   // Subscribe to Room Data
   useEffect(() => {
     if (!roomId) return;
+    // Clear leftover temporary events from other rooms
+    useStore.setState({ lastItemReceivedEvent: null, lastLevelUpEvent: null, lastTurnEvent: null });
+
     const unsubRoom = subscribeRoom(roomId, (data) => {
       setRoom(data);
       setLoadingRoom(false);
@@ -75,8 +78,8 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
           isCombatMode: data.isCombatMode,
           initiativeOrder: data.initiativeOrder || [],
           currentTurnIndex: data.currentTurnIndex || 0,
-          lastLevelUpEvent: data.lastLevelUpEvent || null,
-          lastItemReceivedEvent: data.lastItemReceivedEvent || null,
+          lastLevelUpEvent: (data.lastLevelUpEvent?.roomId === roomId || !data.lastLevelUpEvent?.roomId) ? data.lastLevelUpEvent : null,
+          lastItemReceivedEvent: data.lastItemReceivedEvent?.roomId === roomId ? data.lastItemReceivedEvent : null,
           hpTerminology: data.hpTerminology || 'HP',
           currencyMode: data.currencyMode || 'all'
         });
@@ -111,7 +114,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       // Filter out kicked flags and demo characters from real room players
       const activeRoomPlayers = roomPlayers.filter(p => !(p as any).kicked && p.id !== 'drizzt_dourden_demo');
 
-      // Preserve user's local owned characters for this user so they are NEVER permanently lost
+      // Preserve user's local owned characters FOR THIS ROOM ONLY so they are NEVER permanently lost
       const currentPlayers = useStore.getState().players;
       const myOwnedLocalChars = currentPlayers.filter(p => user && p.ownerId === user.uid && p.roomId === roomId && p.id !== 'drizzt_dourden_demo');
       
@@ -144,7 +147,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     }
   }, [isDM]);
 
-  // Non-DM Player character selection logic (Scoped strictly to user.uid & room)
+  // Non-DM Player character selection logic (Strictly isolated by user.uid & roomId)
   useEffect(() => {
     if (isDM || !room || !user) return;
     
@@ -153,19 +156,20 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       setActivePlayerId("");
     }
     
-    const validPlayers = players.filter(p => p.id !== 'drizzt_dourden_demo' && (p.roomId === roomId || p.roomId === undefined));
-    const userOwnedPlayers = validPlayers.filter(p => p.ownerId === user.uid || (p.ownerId === undefined && p.id === activePlayerId && p.id !== 'drizzt_dourden_demo'));
-    const activeChar = userOwnedPlayers.find(p => p.id === activePlayerId);
+    // STRICT RULE: Only characters created specifically for THIS room (p.roomId === roomId) can be used!
+    const roomPlayersList = players.filter(p => p.id !== 'drizzt_dourden_demo' && p.roomId === roomId);
+    const myRoomPlayers = roomPlayersList.filter(p => p.ownerId === user.uid);
+    const activeChar = myRoomPlayers.find(p => p.id === activePlayerId);
 
     if (!activeChar) {
-      const livingMyChar = userOwnedPlayers.find(p => !p.isDead) || userOwnedPlayers[0];
-      if (livingMyChar) {
-        setActivePlayerId(livingMyChar.id);
+      const livingChar = myRoomPlayers.find(p => !p.isDead) || myRoomPlayers[0];
+      if (livingChar) {
+        setActivePlayerId(livingChar.id);
       } else {
         setActivePlayerId("");
       }
     }
-  }, [players, activePlayerId, isDM, room, user]);
+  }, [players, activePlayerId, isDM, room, user, roomId]);
 
   // Auto-sync active character to Firestore ONLY when mutated locally
   useEffect(() => {

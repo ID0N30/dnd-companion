@@ -1216,9 +1216,27 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
 
             {/* TAB 2: ACCIONES DE CLASE (D&D 5e) & LORE DM */}
             {activeTab === "class_features" && (() => {
+              const matchFeatureName = (a: string, b: string) => {
+                const cleanA = a.toLowerCase().split('(')[0].trim();
+                const cleanB = b.toLowerCase().split('(')[0].trim();
+                return cleanA === cleanB || a.toLowerCase() === b.toLowerCase();
+              };
+
+              const officialMapped = classFeatures.map(f => {
+                const tracked = (character.customClassFeatures || []).find(c => matchFeatureName(c.name, f.name));
+                if (tracked) {
+                  return { ...f, ...tracked, isCustom: false };
+                }
+                return { ...f, isCustom: false };
+              });
+
+              const purelyCustom = (character.customClassFeatures || []).filter(c =>
+                !classFeatures.some(f => matchFeatureName(f.name, c.name))
+              ).map(f => ({ ...f, isCustom: true }));
+
               const allFeatures: (ClassFeature & { isCustom?: boolean })[] = [
-                ...classFeatures.map(f => ({ ...f, isCustom: false })),
-                ...(character.customClassFeatures || []).map(f => ({ ...f, isCustom: true }))
+                ...officialMapped,
+                ...purelyCustom
               ];
 
               const filteredFeatures = allFeatures.filter(f => {
@@ -1412,26 +1430,28 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
 
                           <p className="text-xs sm:text-sm text-ink/90 leading-relaxed">{feat.description}</p>
 
-                          {feat.usage && (
-                            <div className="pt-2 border-t border-ink/10 flex items-center justify-between text-xs font-bold">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-ink-light">Uso:</span>
-                                <span className="bg-magic-gold/20 text-magic-gold px-2 py-0.5 rounded">{feat.usage}</span>
+                          {(feat.usage || feat.type === 'active') && (
+                            <div className="pt-2 border-t border-ink/10 flex items-center justify-between text-xs font-bold gap-2">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {feat.usage && <span className="text-ink-light">Uso:</span>}
+                                {feat.usage && <span className="bg-magic-gold/20 text-magic-gold px-2 py-0.5 rounded">{feat.usage}</span>}
                               </div>
-                              {feat.maxUses !== undefined && (
-                                <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2">
+                                {feat.maxUses !== undefined && (
                                   <span className="bg-ink/10 text-ink font-mono px-2 py-0.5 rounded">
                                     {curUses} / {feat.maxUses}
                                   </span>
+                                )}
+                                {feat.type === 'active' && (
                                   <button
                                     onClick={() => useClassFeature(feat.name, character.id)}
                                     disabled={curUses !== undefined && curUses <= 0}
-                                    className={`px-2.5 py-1 rounded text-[11px] font-bold text-white transition cursor-pointer ${curUses !== undefined && curUses > 0 ? 'bg-magic-red hover:bg-red-700 shadow-sm' : 'bg-gray-500 opacity-50 cursor-not-allowed'}`}
+                                    className={`px-2.5 py-1 rounded text-[11px] font-bold text-white transition cursor-pointer ${curUses !== undefined && curUses <= 0 ? 'bg-gray-500 opacity-50 cursor-not-allowed' : 'bg-magic-red hover:bg-red-700 shadow-sm'}`}
                                   >
                                     ⚡ Usar
                                   </button>
-                                </div>
-                              )}
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1471,21 +1491,25 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                                     <p className="text-sm text-ink/90 leading-relaxed">{feat.description}</p>
                                   </div>
 
-                                  {feat.usage && (
-                                    <div className="pt-2 border-t border-ink/10 flex items-center justify-between text-xs font-bold">
-                                      <span className="bg-magic-gold/20 text-magic-gold px-2.5 py-1 rounded">Uso: {feat.usage}</span>
-                                      {feat.maxUses !== undefined && (
-                                        <div className="flex items-center gap-2">
+                                  {(feat.usage || feat.type === 'active') && (
+                                    <div className="pt-2 border-t border-ink/10 flex items-center justify-between text-xs font-bold gap-2">
+                                      {feat.usage ? (
+                                        <span className="bg-magic-gold/20 text-magic-gold px-2.5 py-1 rounded">Uso: {feat.usage}</span>
+                                      ) : <div />}
+                                      <div className="flex items-center gap-2">
+                                        {feat.maxUses !== undefined && (
                                           <span className="font-mono text-sm bg-ink/10 px-2 py-0.5 rounded">{curUses} / {feat.maxUses}</span>
+                                        )}
+                                        {feat.type === 'active' && (
                                           <button
                                             onClick={() => useClassFeature(feat.name, character.id)}
                                             disabled={curUses !== undefined && curUses <= 0}
-                                            className={`px-3 py-1 rounded font-bold text-white transition ${curUses !== undefined && curUses > 0 ? 'bg-magic-red hover:bg-red-700' : 'bg-gray-500 opacity-50 cursor-not-allowed'}`}
+                                            className={`px-3 py-1 rounded font-bold text-white transition cursor-pointer ${curUses !== undefined && curUses <= 0 ? 'bg-gray-500 opacity-50 cursor-not-allowed' : 'bg-magic-red hover:bg-red-700'}`}
                                           >
                                             ⚡ Usar Carga
                                           </button>
-                                        </div>
-                                      )}
+                                        )}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
@@ -1890,13 +1914,10 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                 )}
 
                 <div className="bg-parchment p-4 sm:p-6 rounded border border-magic-gold/40 space-y-4">
-                  <div className="flex justify-between items-center border-b border-ink/20 pb-3 flex-wrap gap-2">
+                  <div className="border-b border-ink/20 pb-3 flex justify-between items-center flex-wrap gap-2">
                     <div>
                       <h3 className="text-xl sm:text-2xl font-bold font-cinzel text-magic-gold">Espacios de Hechizo (Spell Slots)</h3>
                     </div>
-                    <button onClick={() => longRest()} className="flex items-center gap-2 bg-magic-gold text-black px-4 py-2 rounded text-xs sm:text-sm font-bold hover:bg-yellow-500 transition cursor-pointer shadow">
-                      <Sun className="w-4 h-4" /> Descanso Largo
-                    </button>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 font-sans">
@@ -2070,11 +2091,20 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                           </p>
                         </div>
 
-                        <div className="text-[10px] text-ink-light border-t border-ink/10 pt-2 flex justify-between items-center">
-                          <span>Creado: {new Date(note.createdAt).toLocaleDateString()} {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          {note.updatedAt && (
-                            <span className="italic">Editado: {new Date(note.updatedAt).toLocaleDateString()}</span>
-                          )}
+                        <div className="text-[10px] text-ink-light border-t border-ink/10 pt-2 flex justify-between items-center flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <span>Creado: {new Date(note.createdAt).toLocaleDateString()} {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            {note.updatedAt && (
+                              <span className="italic">Editado: {new Date(note.updatedAt).toLocaleDateString()}</span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => setDmMessageModal({ open: true, content: `[Nota: ${note.title}]\n${note.content}`.slice(0, 500) })}
+                            className="px-2 py-0.5 bg-magic-gold/20 text-magic-gold border border-magic-gold/40 hover:bg-magic-gold hover:text-black font-bold rounded transition cursor-pointer flex items-center gap-1 text-[11px]"
+                            title="Compartir / Enviar esta nota en privado al DM de la sala"
+                          >
+                            ✉️ Enviar al DM
+                          </button>
                         </div>
                       </div>
                     ))}

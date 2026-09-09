@@ -58,7 +58,7 @@ export const calculateMaxHP = (className: string, level: number, conScore: numbe
 export const CLASS_FEATURES: Record<string, ClassFeature[]> = {
   "Guerrero": [
     { name: "Estilo de Combate", type: "passive", unlockedAtLevel: 1, description: "Adoptas una especialización de combate (Arqueria, Defensa, Duelista o Gran Arma)." },
-    { name: "Segundo Viento (Second Wind)", type: "active", unlockedAtLevel: 1, description: "Recuperas 1d10 + nivel de Guerrero de vida como acción adicional.", usage: "1 por Descanso Corto", maxUses: 1, currentUses: 1, resetOn: "short" },
+    { name: "Segundo Aliento (Second Wind)", type: "active", unlockedAtLevel: 1, description: "Recuperas 1d10 + nivel de Guerrero de vida como acción adicional.", usage: "1 por Descanso Corto", maxUses: 1, currentUses: 1, resetOn: "short" },
     { name: "Acción Oleada (Action Surge)", type: "active", unlockedAtLevel: 2, description: "Puedes realizar una acción adicional durante tu turno.", usage: "1 por Descanso Corto", maxUses: 1, currentUses: 1, resetOn: "short" },
     { name: "Arquetipo Marcial", type: "passive", unlockedAtLevel: 3, description: "Eliges tu especialidad (Campeón, Maestro de Batalla o Caballero Arcano)." },
     { name: "Aumento de Puntuación / Dote", type: "passive", unlockedAtLevel: 4, description: "Incrementas puntuaciones de atributo o seleccionas una dote." },

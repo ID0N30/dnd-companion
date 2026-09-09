@@ -165,6 +165,19 @@ export default function DMPage({ roomId }: { roomId?: string }) {
   const [dmStatsEdit, setDmStatsEdit] = useState<{ str?: number; dex?: number; con?: number; int?: number; wis?: number; cha?: number }>({});
 
   useEffect(() => {
+    if (room) {
+      setAdminForm({
+        name: room.name || "",
+        password: room.password || "",
+        isPublic: room.isPublic ?? true,
+        allowGuests: room.allowGuests ?? true,
+        hpTerminology: (room.hpTerminology || useStore.getState().hpTerminology || 'HP') as 'PG' | 'HP',
+        currencyMode: (room.currencyMode || 'all') as 'standard' | 'all'
+      });
+    }
+  }, [room]);
+
+  useEffect(() => {
     if (inspectedPlayer) {
       setDmHPEdit({ current: inspectedPlayer.hp.current, max: inspectedPlayer.hp.max, temp: inspectedPlayer.hp.temp || 0 });
       setDmStatsEdit({ ...inspectedPlayer.stats });
@@ -244,16 +257,21 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     e.preventDefault();
     const effectiveRoomId = roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
     if (effectiveRoomId) {
+      const finalName = adminForm.name.trim() || room?.name || "Campaña de D&D";
+      const finalPassword = adminForm.password.trim() || room?.password || "";
       await updateCampaignDetails(effectiveRoomId, {
-        name: adminForm.name,
-        hasPassword: Boolean(adminForm.password),
-        password: adminForm.password || "",
+        name: finalName,
+        hasPassword: Boolean(finalPassword),
+        password: finalPassword,
         isPublic: adminForm.isPublic,
         allowGuests: adminForm.allowGuests,
         hpTerminology: adminForm.hpTerminology,
         currencyMode: adminForm.currencyMode
       });
-      useStore.setState({ hpTerminology: adminForm.hpTerminology });
+      useStore.setState({ 
+        hpTerminology: adminForm.hpTerminology,
+        currencyMode: adminForm.currencyMode 
+      });
       setAdminModalOpen(false);
       showAlert("Ajustes de la campaña actualizados con éxito.", "Ajustes Guardados", "success");
     }
@@ -409,7 +427,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                   </div>
                 </div>
 
-                <div className={`overflow-y-auto pr-1 space-y-2 font-sans text-xs max-h-[220px] ${showLogsMobile ? 'block' : 'hidden lg:block'}`}>
+                <div className={`overflow-y-auto pr-1 space-y-2 font-sans text-xs min-h-[160px] max-h-[220px] ${showLogsMobile ? 'block' : 'hidden lg:block'}`}>
                   {filteredLogs.length === 0 ? (
                     <p className="text-ink/50 italic text-center py-4">No hay acciones registradas con los filtros actuales.</p>
                   ) : (

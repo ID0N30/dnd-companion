@@ -205,8 +205,8 @@ export const createFamousDrizztCharacter = (): CharacterState => ({
   ],
   customClassFeatures: [
     { name: "Estilo Dos Armas", type: "passive", unlockedAtLevel: 1, description: "Añades tu modificador de atributo al daño del segundo ataque con cimitarra." },
-    { name: "Segundo Viento", type: "active", unlockedAtLevel: 1, description: "Recuperas 1d10+5 HP como acción adicional.", usage: "1 por Descanso Corto" },
-    { name: "Acción Oleada", type: "active", unlockedAtLevel: 2, description: "Realizas una acción adicional en tu turno.", usage: "1 por Descanso Corto" },
+    { name: "Segundo Aliento (Second Wind)", type: "active", unlockedAtLevel: 1, description: "Recuperas 1d10+5 HP como acción adicional.", usage: "1 por Descanso Corto", maxUses: 1, currentUses: 1, resetOn: "short" },
+    { name: "Acción Oleada (Action Surge)", type: "active", unlockedAtLevel: 2, description: "Realizas una acción adicional en tu turno.", usage: "1 por Descanso Corto", maxUses: 1, currentUses: 1, resetOn: "short" },
     { name: "Visión en la Oscuridad Superior (Drow)", type: "passive", unlockedAtLevel: 1, description: "Ves en la oscuridad absoluta hasta 120 pies." }
   ],
   modifiers: [],
@@ -1228,13 +1228,13 @@ export const useStore = create<StoreState>((set, get) => ({
     let hpHealed = 0;
     const normName = featDef.name.toLowerCase();
 
-    if (normName.includes('segundo viento') || normName.includes('second wind')) {
+    if (normName.includes('segundo aliento') || normName.includes('segundo viento') || normName.includes('second wind')) {
       const dieRoll = Math.floor(Math.random() * 10) + 1;
       hpHealed = dieRoll + player.level;
       const effMaxHP = player.hp.max + player.modifiers.filter(m => m.targetStat === 'hp_max').reduce((acc, m) => acc + (m.value || 0), 0);
       const newCurrHP = Math.min(effMaxHP, player.hp.current + hpHealed);
       extraLog = ` 🩹 Recuperó ${hpHealed} HP (1d10 [${dieRoll}] + Nivel ${player.level}). Vida actual: ${newCurrHP}/${effMaxHP}.`;
-      triggerDiceRoll('d10', player.level, `Segundo Viento (+${hpHealed} HP)`);
+      triggerDiceRoll('d10', player.level, `Segundo Aliento (+${hpHealed} HP)`);
       
       // Update HP immediately
       set((state) => ({
@@ -1266,11 +1266,17 @@ export const useStore = create<StoreState>((set, get) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
         const currentCustom = p.customClassFeatures || [];
-        const exists = currentCustom.some(f => f.name === featDef!.name);
+        const matchName = (a: string, b: string) => {
+          const cleanA = a.toLowerCase().split('(')[0].trim();
+          const cleanB = b.toLowerCase().split('(')[0].trim();
+          return cleanA === cleanB || a.toLowerCase() === b.toLowerCase();
+        };
+
+        const exists = currentCustom.some(f => matchName(f.name, featDef!.name));
 
         let updatedList: ClassFeature[];
         if (exists) {
-          updatedList = currentCustom.map(f => f.name === featDef!.name ? { ...f, currentUses: newUses } : f);
+          updatedList = currentCustom.map(f => matchName(f.name, featDef!.name) ? { ...f, currentUses: newUses } : f);
         } else {
           updatedList = [...currentCustom, { ...featDef!, currentUses: newUses }];
         }

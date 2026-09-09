@@ -76,7 +76,8 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
           initiativeOrder: data.initiativeOrder || [],
           currentTurnIndex: data.currentTurnIndex || 0,
           lastLevelUpEvent: data.lastLevelUpEvent || null,
-          hpTerminology: data.hpTerminology || 'HP'
+          hpTerminology: data.hpTerminology || 'HP',
+          currencyMode: data.currencyMode || 'all'
         });
       }
     });

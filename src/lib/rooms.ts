@@ -3,8 +3,18 @@ import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, 
   query, where, orderBy, limit, onSnapshot, serverTimestamp 
 } from "firebase/firestore";
-import { CharacterState, LogEntry } from "@/store/useStore";
+import { useStore, CharacterState, LogEntry } from "@/store/useStore";
 import { logError, saveOfflineCharacterBackup } from "./errorLogger";
+
+export type DirectMessage = {
+  id: string;
+  senderId: string;
+  senderName: string;
+  characterName: string;
+  content: string;
+  timestamp: number;
+  read?: boolean;
+};
 
 export type Room = {
   id: string;
@@ -21,6 +31,8 @@ export type Room = {
   lastTurnEvent?: { id: string; timestamp: number } | null;
   lastLevelUpEvent?: any;
   hpTerminology?: 'PG' | 'HP';
+  currencyMode?: 'standard' | 'all';
+  directMessages?: DirectMessage[];
   createdAt?: any;
 };
 
@@ -174,12 +186,34 @@ export const subscribeRoomPlayers = (roomId: string, callback: (players: Charact
   }
 };
 
+export type LogCategory = 'all' | 'combat' | 'currency' | 'rests' | 'features' | 'rolls' | 'settings';
+
+export const getLogCategory = (message: string): { type: LogCategory; icon: string; badgeClass: string; label: string } => {
+  const msg = message.toLowerCase();
+  if (msg.includes('daño') || msg.includes('hp') || msg.includes('salvación') || msg.includes('moribundo') || msg.includes('fallecido') || msg.includes('revivir') || msg.includes('estabiliz') || msg.includes('turno') || msg.includes('combate') || msg.includes('iniciativa') || msg.includes('⚔️') || msg.includes('🩸') || msg.includes('☠️')) {
+    return { type: 'combat', icon: '⚔️', badgeClass: 'bg-red-950/80 text-red-300 border-red-800', label: 'Combate' };
+  }
+  if (msg.includes('moneda') || msg.includes('gasto') || msg.includes('compr') || msg.includes('oro') || msg.includes('po') || msg.includes('objeto') || msg.includes('inventario') || msg.includes('💰') || msg.includes('🛒') || msg.includes('🎁')) {
+    return { type: 'currency', icon: '💰', badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-800', label: 'Economía' };
+  }
+  if (msg.includes('descanso') || msg.includes('recuper') || msg.includes('⛺') || msg.includes('☕')) {
+    return { type: 'rests', icon: '⛺', badgeClass: 'bg-indigo-950/80 text-indigo-300 border-indigo-800', label: 'Descanso' };
+  }
+  if (msg.includes('lanzó') || msg.includes('conjuro') || msg.includes('hechizo') || msg.includes('rasgo') || msg.includes('usó') || msg.includes('habilidad') || msg.includes('📜') || msg.includes('⚡')) {
+    return { type: 'features', icon: '📜', badgeClass: 'bg-purple-950/80 text-purple-300 border-purple-800', label: 'Conjuros/Rasgos' };
+  }
+  if (msg.includes('d20') || msg.includes('dado') || msg.includes('prueba') || msg.includes('🎲')) {
+    return { type: 'rolls', icon: '🎲', badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-800', label: 'Tirada' };
+  }
+  return { type: 'settings', icon: '⚙️', badgeClass: 'bg-slate-800 text-slate-300 border-slate-700', label: 'General' };
+};
+
 // 5. Subscribe to Room Logs (Real-time Action Log Tracker with limit protection)
 export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) => void) => {
   if (!db || !roomId) return () => {};
   try {
     const logsRef = collection(db, "rooms", roomId, "logs");
-    const q = query(logsRef, orderBy("timestamp", "desc"), limit(30));
+    const q = query(logsRef, orderBy("timestamp", "desc"), limit(150));
     
     return onSnapshot(q, (snapshot) => {
       const logs = snapshot.docs.map(doc => ({
@@ -189,7 +223,7 @@ export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) =
       callback(logs);
     }, (_err) => {
       // Fallback if index error occurs
-      const qSimple = query(logsRef, limit(30));
+      const qSimple = query(logsRef, limit(150));
       return onSnapshot(qSimple, (snapshot) => {
         const logs = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -291,5 +325,64 @@ export const addRoomLog = async (roomId: string, message: string) => {
     });
   } catch (err: any) {
     logError(err, 'addRoomLog', 'INFO');
+  }
+};
+
+// 11. Direct Messages to DM
+export const sendDirectMessageToDM = async (roomId: string, message: Omit<DirectMessage, 'id' | 'timestamp'>) => {
+  if (!db || !roomId) return;
+  try {
+    const roomRef = doc(db, "rooms", roomId);
+    const roomSnap = await getDoc(roomRef);
+    if (!roomSnap.exists()) return;
+    const data = roomSnap.data() as Room;
+    const currentMsgs = data.directMessages || [];
+    
+    // Limit to max 5 active messages per sender to prevent spam / quota overload
+    const userMsgs = currentMsgs.filter(m => m.senderId === message.senderId);
+    if (userMsgs.length >= 5) {
+      useStore.getState().showAlert("⚠️ Has alcanzado el límite máximo de 5 mensajes activos hacia el DM. Por favor espera a que revise tus mensajes.", "Límite de Mensajes", "warning");
+      return;
+    }
+
+    const newMsg: DirectMessage = {
+      ...message,
+      id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      timestamp: Date.now(),
+      read: false
+    };
+
+    const updated = [...currentMsgs, newMsg];
+    await updateDoc(roomRef, { directMessages: cleanFirebaseData(updated) });
+    await addRoomLog(roomId, `✉️ ${message.characterName} ha enviado un mensaje privado / trasfondo al DM.`);
+  } catch (err: any) {
+    logError(err, 'sendDirectMessageToDM', 'WARNING');
+  }
+};
+
+export const deleteDirectMessage = async (roomId: string, messageId: string) => {
+  if (!db || !roomId) return;
+  try {
+    const roomRef = doc(db, "rooms", roomId);
+    const roomSnap = await getDoc(roomRef);
+    if (!roomSnap.exists()) return;
+    const data = roomSnap.data() as Room;
+    const currentMsgs = data.directMessages || [];
+    const updated = currentMsgs.filter(m => m.id !== messageId);
+    await updateDoc(roomRef, { directMessages: cleanFirebaseData(updated) });
+  } catch (err: any) {
+    logError(err, 'deleteDirectMessage', 'WARNING');
+  }
+};
+
+// 12. Delete Entire Room / Campaign (DM Creator Action)
+export const deleteRoom = async (roomId: string) => {
+  if (!db || !roomId) return;
+  try {
+    const roomRef = doc(db, "rooms", roomId);
+    await deleteDoc(roomRef);
+  } catch (err: any) {
+    logError(err, 'deleteRoom', 'CRITICAL');
+    throw err;
   }
 };

@@ -4,6 +4,9 @@ export type ClassFeature = {
   unlockedAtLevel: number;
   description: string;
   usage?: string;
+  maxUses?: number;
+  currentUses?: number;
+  resetOn?: 'short' | 'long' | 'none';
 };
 
 // Official D&D 5e 2 Saving Throws per Class
@@ -55,15 +58,15 @@ export const calculateMaxHP = (className: string, level: number, conScore: numbe
 export const CLASS_FEATURES: Record<string, ClassFeature[]> = {
   "Guerrero": [
     { name: "Estilo de Combate", type: "passive", unlockedAtLevel: 1, description: "Adoptas una especialización de combate (Arqueria, Defensa, Duelista o Gran Arma)." },
-    { name: "Segundo Viento (Second Wind)", type: "active", unlockedAtLevel: 1, description: "Recuperas 1d10 + nivel de Guerrero de vida como acción adicional.", usage: "1 uso por Descanso Corto" },
-    { name: "Acción Oleada (Action Surge)", type: "active", unlockedAtLevel: 2, description: "Puedes realizar una acción adicional durante tu turno.", usage: "1 uso por Descanso Corto" },
+    { name: "Segundo Viento (Second Wind)", type: "active", unlockedAtLevel: 1, description: "Recuperas 1d10 + nivel de Guerrero de vida como acción adicional.", usage: "1 por Descanso Corto", maxUses: 1, currentUses: 1, resetOn: "short" },
+    { name: "Acción Oleada (Action Surge)", type: "active", unlockedAtLevel: 2, description: "Puedes realizar una acción adicional durante tu turno.", usage: "1 por Descanso Corto", maxUses: 1, currentUses: 1, resetOn: "short" },
     { name: "Arquetipo Marcial", type: "passive", unlockedAtLevel: 3, description: "Eliges tu especialidad (Campeón, Maestro de Batalla o Caballero Arcano)." },
     { name: "Aumento de Puntuación / Dote", type: "passive", unlockedAtLevel: 4, description: "Incrementas puntuaciones de atributo o seleccionas una dote." },
     { name: "Ataque Extra", type: "passive", unlockedAtLevel: 5, description: "Puedes atacar dos veces en lugar de una cuando realizas la acción de Atacar." }
   ],
   "Mago": [
     { name: "Lanzamiento de Conjuros", type: "passive", unlockedAtLevel: 1, description: "Capacidad de preparar e inscribir hechizos en tu grimorio usando Inteligencia." },
-    { name: "Recuperación Arcana", type: "active", unlockedAtLevel: 1, description: "Durante un descanso corto, recuperas espacios de conjuro cuyo nivel total sea <= la mitad de tu nivel de Mago.", usage: "1 uso por Descanso Largo" },
+    { name: "Recuperación Arcana", type: "active", unlockedAtLevel: 1, description: "Durante un descanso corto, recuperas espacios de conjuro cuyo nivel total sea <= la mitad de tu nivel de Mago.", usage: "1 por Descanso Largo", maxUses: 1, currentUses: 1, resetOn: "long" },
     { name: "Tradición Arcana", type: "passive", unlockedAtLevel: 2, description: "Eliges tu escuela de magia de especialización (Evocación, Abjuración, etc.)." },
     { name: "Aumento de Puntuación / Dote", type: "passive", unlockedAtLevel: 4, description: "Incrementas puntuaciones de atributo o seleccionas una dote." },
     { name: "Acción Arcana Avanzada", type: "passive", unlockedAtLevel: 5, description: "Acceso a conjuros poderosos de Nivel 3 (ej. Bola de Fuego)." }
@@ -77,12 +80,12 @@ export const CLASS_FEATURES: Record<string, ClassFeature[]> = {
   ],
   "Clérigo": [
     { name: "Dominio Divino", type: "passive", unlockedAtLevel: 1, description: "Eliges la deidad y dominio de tu fe (Vida, Guerra, Luz, Tempestad)." },
-    { name: "Canalizar Divinidad", type: "active", unlockedAtLevel: 2, description: "Expulsas muertos vivientes u obtienes el efecto especial de tu Dominio Divino.", usage: "1 uso por Descanso Corto" },
+    { name: "Canalizar Divinidad", type: "active", unlockedAtLevel: 2, description: "Expulsas muertos vivientes u obtienes el efecto especial de tu Dominio Divino.", usage: "1 por Descanso Corto", maxUses: 1, currentUses: 1, resetOn: "short" },
     { name: "Aumento de Puntuación / Dote", type: "passive", unlockedAtLevel: 4, description: "Incrementas puntuaciones de atributo o seleccionas una dote." },
     { name: "Destrucción de Muertos Vivientes", type: "passive", unlockedAtLevel: 5, description: "Al expulsar muertos vivientes de bajo nivel, son destruidos instantáneamente." }
   ],
   "Bardo": [
-    { name: "Inspiración Bárdica", type: "active", unlockedAtLevel: 1, description: "Otorgas un d6 de inspiración a un aliado que puede sumar a una tirada de ataque, atributo o salvación.", usage: "Usos = Modificador de Carisma" },
+    { name: "Inspiración Bárdica", type: "active", unlockedAtLevel: 1, description: "Otorgas un d6 de inspiración a un aliado que puede sumar a una tirada de ataque, atributo o salvación.", usage: "3 por Descanso Largo", maxUses: 3, currentUses: 3, resetOn: "long" },
     { name: "Todoterreno (Jack of All Trades)", type: "passive", unlockedAtLevel: 2, description: "Añades la mitad de tu bono de competencia a cualquier prueba de habilidad sin competencia." },
     { name: "Colegio Bárdico", type: "passive", unlockedAtLevel: 3, description: "Eliges tu colegio de especialización (Colegio del Valor, Colegio del Conocimiento)." },
     { name: "Fuente de Inspiración", type: "passive", unlockedAtLevel: 5, description: "Recuperas todos los usos de Inspiración Bárdica tras un Descanso Corto o Largo." }

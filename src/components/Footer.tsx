@@ -63,15 +63,15 @@ export default function Footer() {
             <ul className="space-y-2 text-xs font-semibold text-ink-light">
               <li>
                 <a 
-                  href="mailto:soporte@idoneus-software.dev?subject=Soporte%20DnD%20Companion" 
+                  href="mailto:jaomp3@gmail.com?subject=Soporte%20DnD%20Companion" 
                   className="hover:text-magic-gold transition flex items-center gap-1.5"
                 >
-                  <Mail className="w-3.5 h-3.5 text-magic-gold" /> soporte@idoneus-software.dev
+                  <Mail className="w-3.5 h-3.5 text-magic-gold" /> jaomp3@gmail.com
                 </a>
               </li>
               <li>
                 <a 
-                  href="mailto:soporte@idoneus-software.dev?subject=Reporte%20de%20Problema%20DnD%20Companion" 
+                  href="mailto:jaomp3@gmail.com?subject=Reporte%20de%20Problema%20DnD%20Companion" 
                   className="hover:text-magic-gold transition"
                 >
                   Reportar un problema
@@ -139,7 +139,7 @@ export default function Footer() {
               <Code2 className="w-4 h-4" />
             </a>
             <a 
-              href="mailto:soporte@idoneus-software.dev" 
+              href="mailto:jaomp3@gmail.com" 
               className="hover:text-magic-gold transition p-1.5 bg-ink/5 rounded-lg border border-ink/10"
               title="Contacto Directo por Correo"
             >

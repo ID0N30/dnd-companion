@@ -99,7 +99,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
             }
           } else {
             wasKickedRef.current = true;
-            alert("⚡ El DM te ha retirado de la campaña.");
+            useStore.getState().showAlert("⚡ El DM te ha retirado de la campaña.", "Expulsado de la Sala", "warning");
             router.push('/');
             return;
           }

@@ -44,48 +44,48 @@ export default function TutorialModal({ open, onClose }: { open: boolean; onClos
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex gap-1.5 sm:gap-2 border-b border-ink/20 pb-3 mb-4 font-sans font-bold text-xs sm:text-sm overflow-x-auto whitespace-nowrap scrollbar-none">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5 sm:gap-2 border-b border-ink/20 pb-3 mb-4 font-sans font-bold text-xs">
             <button
               onClick={() => setActiveTab("sheet")}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded cursor-pointer transition ${activeTab === 'sheet' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
+              className={`flex items-center justify-center gap-1 px-2.5 py-2 rounded cursor-pointer transition text-center ${activeTab === 'sheet' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
             >
-              <Zap className="w-4 h-4"/> 1. Hoja y Dados 3D
+              <Zap className="w-3.5 h-3.5 shrink-0"/> <span>1. Hoja y Dados</span>
             </button>
             <button
               onClick={() => setActiveTab("inventory")}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded cursor-pointer transition ${activeTab === 'inventory' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
+              className={`flex items-center justify-center gap-1 px-2.5 py-2 rounded cursor-pointer transition text-center ${activeTab === 'inventory' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
             >
-              <Package className="w-4 h-4"/> 2. Inventario y Hechizos
+              <Package className="w-3.5 h-3.5 shrink-0"/> <span>2. Inventario</span>
             </button>
             <button
               onClick={() => setActiveTab("combat")}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded cursor-pointer transition ${activeTab === 'combat' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
+              className={`flex items-center justify-center gap-1 px-2.5 py-2 rounded cursor-pointer transition text-center ${activeTab === 'combat' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
             >
-              <Swords className="w-4 h-4"/> 3. Combate e Iniciativa
+              <Swords className="w-3.5 h-3.5 shrink-0"/> <span>3. Combate</span>
             </button>
             <button
               onClick={() => setActiveTab("dm")}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded cursor-pointer transition ${activeTab === 'dm' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
+              className={`flex items-center justify-center gap-1 px-2.5 py-2 rounded cursor-pointer transition text-center ${activeTab === 'dm' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
             >
-              <Shield className="w-4 h-4"/> 4. Panel Maestro (DM)
+              <Shield className="w-3.5 h-3.5 shrink-0"/> <span>4. Panel DM</span>
             </button>
             <button
               onClick={() => setActiveTab("multiplayer")}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded cursor-pointer transition ${activeTab === 'multiplayer' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
+              className={`flex items-center justify-center gap-1 px-2.5 py-2 rounded cursor-pointer transition text-center col-span-2 sm:col-span-1 ${activeTab === 'multiplayer' ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
             >
-              <Globe className="w-4 h-4"/> 5. Salas Multijugador
+              <Globe className="w-3.5 h-3.5 shrink-0"/> <span>5. Multijugador</span>
             </button>
           </div>
 
           {/* Content Area */}
           <div className="flex-1 overflow-y-auto pr-1 pb-4 space-y-4 text-xs sm:text-sm leading-relaxed">
             
-            {/* TAB 1: HOJA Y DADOS 3D */}
+            {/* TAB 1: HOJA Y DADOS */}
             {activeTab === "sheet" && (
               <div className="space-y-4">
                 <div className="bg-parchment p-4 rounded-lg border border-ink/20 space-y-2">
                   <h3 className="text-lg font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                    <Zap className="w-5 h-5" /> 1. Hoja de Personaje Interactiva y Tiradas 3D
+                    <Zap className="w-5 h-5" /> 1. Hoja de Personaje Interactiva y Tiradas de Dados
                   </h3>
                   <p className="text-ink-light">
                     Tu hoja de personaje calcula automáticamente todos los modificadores de D&D 5ª Edición según tus puntuaciones de atributo, nivel y equipo.
@@ -94,8 +94,8 @@ export default function TutorialModal({ open, onClose }: { open: boolean; onClos
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">🎲 Lanza Dados 3D Animados</span>
-                    <p className="text-ink-light text-xs">Haz clic en cualquier puntuación de atributo (Fuerza, Destreza, etc.) o habilidad para lanzar un dado d20 en 3D con sonido y ver el resultado total instantáneo.</p>
+                    <span className="font-bold text-magic-gold flex items-center gap-1">🎲 Lanza Dados Animados</span>
+                    <p className="text-ink-light text-xs">Haz clic en cualquier puntuación de atributo (Fuerza, Destreza, etc.) o habilidad para lanzar un dado d20 interactivo con sonido y ver el resultado total instantáneo.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
                     <span className="font-bold text-magic-gold flex items-center gap-1">❤️ Gestión de Puntos de Vida (HP) y CA</span>

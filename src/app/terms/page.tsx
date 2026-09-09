@@ -80,8 +80,8 @@ export default function TermsPage() {
           </h2>
           <p>
             Para consultas relacionadas con estos términos, comuníquese formalmente a través de:{" "}
-            <a href="mailto:soporte@idoneus-software.dev" className="text-magic-gold font-bold underline">
-              soporte@idoneus-software.dev
+            <a href="mailto:jaomp3@gmail.com" className="text-magic-gold font-bold underline">
+              jaomp3@gmail.com
             </a>
           </p>
 

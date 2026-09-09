@@ -76,8 +76,8 @@ export default function PrivacyPage() {
           </h2>
           <p>
             Los usuarios pueden solicitar la rectificación, eliminación o acceso a sus datos personales almacenados en la plataforma enviando una solicitud formal al correo del responsable legal:{" "}
-            <a href="mailto:soporte@idoneus-software.dev" className="text-magic-gold font-bold underline">
-              soporte@idoneus-software.dev
+            <a href="mailto:jaomp3@gmail.com" className="text-magic-gold font-bold underline">
+              jaomp3@gmail.com
             </a>
           </p>
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS } from "@/lib/dndClassFeatures";
+import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS, getClassFeaturesForLevel } from "@/lib/dndClassFeatures";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import { addRoomLog, updateRoomState, savePlayerInRoom } from "@/lib/rooms";
 
@@ -226,7 +226,23 @@ export type LevelUpEvent = {
   oldLevel: number;
 };
 
+export type NotificationModalState = {
+  open: boolean;
+  title?: string;
+  message: string;
+  type?: 'info' | 'warning' | 'success' | 'danger';
+  confirmText?: string;
+  cancelText?: string;
+  showCancel?: boolean;
+  onConfirm?: () => void;
+};
+
 export interface StoreState {
+  activeNotification: NotificationModalState | null;
+  showAlert: (message: string, title?: string, type?: 'info' | 'warning' | 'success' | 'danger') => void;
+  showConfirm: (message: string, onConfirm: () => void, title?: string, confirmText?: string, cancelText?: string) => void;
+  closeNotification: () => void;
+
   isCombatMode: boolean;
   initiativeOrder: string[];
   currentTurnIndex: number;
@@ -262,7 +278,11 @@ export interface StoreState {
   useSpellSlot: (level: number) => void;
   restoreSpellSlot: (level: number) => void;
   setSpellSlotMax: (level: number, max: number) => void;
-  longRest: () => void;
+  shortRest: (playerId?: string) => void;
+  longRest: (playerId?: string) => void;
+  useClassFeature: (featureName: string, playerId?: string) => void;
+  togglePlayerDeathState: (playerId: string, status: 'dying' | 'stable' | 'revive' | 'dead', healHP?: number) => void;
+  lastItemReceivedEvent?: { id: string; playerId: string; itemName: string; quantity: number; timestamp: number } | null;
   
   levelUpPlayer: (playerId: string, targetRoomId?: string) => void;
   levelUpParty: (targetRoomId?: string) => void;
@@ -270,6 +290,8 @@ export interface StoreState {
 
   hpTerminology: 'PG' | 'HP';
   setHPTerminology: (terminology: 'PG' | 'HP') => void;
+  currencyMode: 'standard' | 'all';
+  setCurrencyMode: (currencyMode: 'standard' | 'all') => void;
   
   addItem: (item: Item, isTemp: boolean, duration?: number) => void;
   updateItem: (itemId: string, updates: Partial<Item>) => void;
@@ -290,8 +312,39 @@ export interface StoreState {
 }
 
 export const useStore = create<StoreState>((set, get) => ({
+  activeNotification: null,
+  showAlert: (message, title = "Aviso de la Campaña", type = "info") => {
+    set({
+      activeNotification: {
+        open: true,
+        title,
+        message,
+        type,
+        showCancel: false,
+        confirmText: "Entendido"
+      }
+    });
+  },
+  showConfirm: (message, onConfirm, title = "Confirmación Requerida", confirmText = "Confirmar", cancelText = "Cancelar") => {
+    set({
+      activeNotification: {
+        open: true,
+        title,
+        message,
+        type: "warning",
+        showCancel: true,
+        confirmText,
+        cancelText,
+        onConfirm
+      }
+    });
+  },
+  closeNotification: () => set({ activeNotification: null }),
+
   hpTerminology: 'HP',
   setHPTerminology: (hpTerminology) => set({ hpTerminology }),
+  currencyMode: 'all',
+  setCurrencyMode: (currencyMode) => set({ currencyMode }),
   isCombatMode: false,
   initiativeOrder: [],
   currentTurnIndex: 0,
@@ -393,7 +446,7 @@ export const useStore = create<StoreState>((set, get) => ({
   createCharacter: (name, race, charClass, background, level = 1, stats, ownerId, ownerName, roomId) => {
     const existingNames = get().players.map(p => p.name.trim().toLowerCase());
     if (existingNames.includes(name.trim().toLowerCase())) {
-      alert(`⚠️ Ya existe un personaje llamado "${name.trim()}" en esta campaña. Por favor, elige un nombre único.`);
+      get().showAlert(`⚠️ Ya existe un personaje llamado "${name.trim()}" en esta campaña. Por favor, elige un nombre único.`, "Nombre Duplicado", "warning");
       return '';
     }
     const newId = 'player_' + Date.now();
@@ -521,9 +574,16 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
-        get().addLog(`El DM ha otorgado a ${p.name}: ${item.name} x${item.quantity}`);
+        get().addLog(`🎁 El DM ha otorgado a ${p.name}: ${item.name} x${item.quantity}`);
         return { ...p, inventory: [...p.inventory, item] };
-      })
+      }),
+      lastItemReceivedEvent: {
+        id: 'item_evt_' + Date.now(),
+        playerId,
+        itemName: item.name,
+        quantity: item.quantity,
+        timestamp: Date.now()
+      }
     }));
   },
 
@@ -1063,12 +1123,36 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
   },
 
-  longRest: () => {
-    const activeId = get().activePlayerId;
+  shortRest: (playerId) => {
+    const targetId = playerId || get().activePlayerId;
     set((state) => ({
       players: state.players.map(p => {
-        if (p.id !== activeId) return p;
-        get().addLog(`${p.name} tomó un Descanso Largo. Vida y Espacios de Hechizo recuperados.`);
+        if (p.id !== targetId) return p;
+        const updatedFeatures = (p.customClassFeatures || []).map(feat => {
+          if (feat.resetOn === 'short' || feat.usage?.toLowerCase().includes('descanso corto')) {
+            return { ...feat, currentUses: feat.maxUses !== undefined ? feat.maxUses : 1 };
+          }
+          return feat;
+        });
+
+        get().addLog(`☕ ${p.name} realizó un DESCANSO CORTO. Habilidades recuperadas.`);
+        if (p.roomId) {
+          addRoomLog(p.roomId, `☕ ${p.name} realizó un DESCANSO CORTO.`);
+        }
+        return {
+          ...p,
+          customClassFeatures: updatedFeatures
+        };
+      })
+    }));
+  },
+
+  longRest: (playerId) => {
+    const targetId = playerId || get().activePlayerId;
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== targetId) return p;
+        get().addLog(`⛺ ${p.name} tomó un DESCANSO LARGO. Vida, Espacios de Hechizo y Habilidades recuperados.`);
         const newSlots: Record<number, SpellSlot> = {};
         Object.keys(p.spellSlots).forEach((lvlStr) => {
           const lvl = parseInt(lvlStr);
@@ -1078,10 +1162,163 @@ export const useStore = create<StoreState>((set, get) => ({
           .filter(m => m.targetStat === 'hp_max')
           .reduce((acc, m) => acc + (m.value || 0), 0);
 
+        const updatedFeatures = (p.customClassFeatures || []).map(feat => {
+          if (feat.resetOn === 'short' || feat.resetOn === 'long' || feat.usage?.toLowerCase().includes('descanso')) {
+            return { ...feat, currentUses: feat.maxUses !== undefined ? feat.maxUses : 1 };
+          }
+          return feat;
+        });
+
+        if (p.roomId) {
+          addRoomLog(p.roomId, `⛺ ${p.name} completó un DESCANSO LARGO.`);
+        }
+
         return {
           ...p,
-          hp: { ...p.hp, current: effMaxHP },
-          spellSlots: newSlots
+          hp: { ...p.hp, current: effMaxHP, temp: 0 },
+          spellSlots: newSlots,
+          customClassFeatures: updatedFeatures,
+          isDying: false,
+          isStable: false,
+          isDead: false,
+          deathSaves: { successes: 0, failures: 0 }
+        };
+      })
+    }));
+  },
+
+  useClassFeature: (featureName, playerId) => {
+    const targetId = playerId || get().activePlayerId;
+    const player = get().players.find(p => p.id === targetId);
+    if (!player) return;
+
+    // Get all features available for player class & level
+    const officialFeatures = getClassFeaturesForLevel(player.charClass, player.level);
+    const customFeatures = player.customClassFeatures || [];
+
+    // Find target feature definition
+    let featDef = customFeatures.find((f: ClassFeature) => f.name.toLowerCase() === featureName.toLowerCase() || f.name.toLowerCase().startsWith(featureName.toLowerCase()));
+    if (!featDef) {
+      featDef = officialFeatures.find((f: ClassFeature) => f.name.toLowerCase() === featureName.toLowerCase() || f.name.toLowerCase().startsWith(featureName.toLowerCase()));
+    }
+
+    if (!featDef) {
+      // Generic action fallback
+      get().addLog(`⚡ ${player.name} ejecutó la acción: "${featureName}".`);
+      triggerDiceRoll('d20', 0, `Acción: ${featureName} (${player.name})`);
+      if (player.roomId) {
+        addRoomLog(player.roomId, `⚡ ${player.name} ejecutó la acción: "${featureName}".`);
+      }
+      return;
+    }
+
+    // Check usages
+    const hasLimit = featDef.maxUses !== undefined && featDef.maxUses > 0;
+    const currentUses = featDef.currentUses !== undefined ? featDef.currentUses : (featDef.maxUses ?? 1);
+
+    if (hasLimit && currentUses <= 0) {
+      get().showAlert(`⚠️ "${featDef.name}" no tiene más cargas disponibles. Realiza un descanso para recargarlo.`, "Sin Cargas", "warning");
+      return;
+    }
+
+    const newUses = hasLimit ? Math.max(0, currentUses - 1) : currentUses;
+
+    // Special D&D 5e Feature Effects
+    let extraLog = '';
+    let hpHealed = 0;
+    const normName = featDef.name.toLowerCase();
+
+    if (normName.includes('segundo viento') || normName.includes('second wind')) {
+      const dieRoll = Math.floor(Math.random() * 10) + 1;
+      hpHealed = dieRoll + player.level;
+      const effMaxHP = player.hp.max + player.modifiers.filter(m => m.targetStat === 'hp_max').reduce((acc, m) => acc + (m.value || 0), 0);
+      const newCurrHP = Math.min(effMaxHP, player.hp.current + hpHealed);
+      extraLog = ` 🩹 Recuperó ${hpHealed} HP (1d10 [${dieRoll}] + Nivel ${player.level}). Vida actual: ${newCurrHP}/${effMaxHP}.`;
+      triggerDiceRoll('d10', player.level, `Segundo Viento (+${hpHealed} HP)`);
+      
+      // Update HP immediately
+      set((state) => ({
+        players: state.players.map(p => p.id === targetId ? { ...p, hp: { ...p.hp, current: newCurrHP } } : p)
+      }));
+    } else if (normName.includes('inspiración bárdica') || normName.includes('bardic inspiration')) {
+      const dieSize = player.level >= 15 ? 'd12' : player.level >= 10 ? 'd10' : player.level >= 5 ? 'd8' : 'd6';
+      extraLog = ` ⭐ Otorga un ${dieSize} de Inspiración Bárdica a un aliado!`;
+      triggerDiceRoll(dieSize as any, 0, `Inspiración Bárdica (${dieSize})`);
+    } else if (normName.includes('acción oleada') || normName.includes('action surge')) {
+      extraLog = ` ⚡ Gana 1 Acción adicional en su turno!`;
+      triggerDiceRoll('d20', 0, `Acción Oleada (${player.name})`);
+    } else if (normName.includes('recuperación arcana')) {
+      extraLog = ` 🔮 Puede recuperar espacios de conjuro de nivel total <= ${Math.ceil(player.level / 2)}.`;
+    } else {
+      triggerDiceRoll('d20', 0, `${featDef.name} (${player.name})`);
+    }
+
+    const usageMsg = hasLimit ? ` (${newUses}/${featDef.maxUses} usos)` : '';
+    const fullMessage = `⚡ ${player.name} usó la acción de clase: "${featDef.name}"${usageMsg}.${extraLog}`;
+
+    get().addLog(fullMessage);
+    if (player.roomId) {
+      addRoomLog(player.roomId, fullMessage);
+    }
+
+    // Update customClassFeatures list to persist usages for both custom & official features
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== targetId) return p;
+        const currentCustom = p.customClassFeatures || [];
+        const exists = currentCustom.some(f => f.name === featDef!.name);
+
+        let updatedList: ClassFeature[];
+        if (exists) {
+          updatedList = currentCustom.map(f => f.name === featDef!.name ? { ...f, currentUses: newUses } : f);
+        } else {
+          updatedList = [...currentCustom, { ...featDef!, currentUses: newUses }];
+        }
+        return { ...p, customClassFeatures: updatedList };
+      })
+    }));
+  },
+
+  togglePlayerDeathState: (playerId, status, healHP = 1) => {
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== playerId) return p;
+        let isDying = false;
+        let isStable = false;
+        let isDead = false;
+        let deathSaves = { successes: 0, failures: 0 };
+        let newHP = { ...p.hp };
+
+        if (status === 'dying') {
+          isDying = true;
+          newHP.current = 0;
+          get().addLog(`🩸 El DM ha marcado a ${p.name} como MORIBUNDO (0 HP).`);
+        } else if (status === 'stable') {
+          isStable = true;
+          newHP.current = 0;
+          get().addLog(`🛡️ El DM ha ESTABILIZADO a ${p.name} a 0 HP.`);
+        } else if (status === 'revive') {
+          const effMax = p.hp.max + p.modifiers.filter(m => m.targetStat === 'hp_max').reduce((acc, m) => acc + (m.value || 0), 0);
+          newHP.current = Math.min(effMax, Math.max(1, healHP));
+          get().addLog(`💖 El DM ha REVIVIDO a ${p.name} con ${newHP.current} HP.`);
+        } else if (status === 'dead') {
+          isDead = true;
+          newHP.current = 0;
+          deathSaves = { successes: 0, failures: 3 };
+          get().addLog(`☠️ El DM ha marcado a ${p.name} como FALLECIDO.`);
+        }
+
+        if (p.roomId) {
+          addRoomLog(p.roomId, `⚙️ El DM actualizó el estado de salud de ${p.name}.`);
+        }
+
+        return {
+          ...p,
+          hp: newHP,
+          isDying,
+          isStable,
+          isDead,
+          deathSaves
         };
       })
     }));

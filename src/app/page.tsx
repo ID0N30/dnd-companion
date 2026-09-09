@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
+import { useStore } from "@/store/useStore";
 import { subscribePublicRooms, createRoom, verifyRoomPassword, Room } from "@/lib/rooms";
 import AuthModal from "@/components/AuthModal";
 import { 
@@ -14,6 +15,7 @@ import {
 export default function WelcomePage() {
   const router = useRouter();
   const { user, isLoggedIn, isGuest, isFirebaseReady, signInGoogle, signInAsGuest, updateUserDisplayName, logout } = useAuth();
+  const showAlert = useStore((state) => state.showAlert);
   
   const [publicRooms, setPublicRooms] = useState<Room[]>([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -46,7 +48,7 @@ export default function WelcomePage() {
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isLoggedIn || !user) {
-      alert("Debes iniciar sesión con Google para crear una sala y ser DM.");
+      showAlert("Debes iniciar sesión con Google para crear una sala y ser DM.", "Acceso Requerido", "warning");
       return;
     }
     if (!roomForm.name) return;
@@ -63,14 +65,14 @@ export default function WelcomePage() {
       setCreateModalOpen(false);
       router.push(`/room/${roomId}`);
     } catch (err: any) {
-      alert("Error al crear la sala: " + err.message);
+      showAlert("Error al crear la sala: " + err.message, "Error al Crear Sala", "danger");
     }
   };
 
   const handleJoinRoom = async (room: Room) => {
     // Check if guest is trying to join a room that forbids guests
     if (isGuest && !room.allowGuests) {
-      alert("Esta sala requiere que inicies sesión con Google para entrar.");
+      showAlert("Esta sala requiere que inicies sesión con Google para entrar.", "Cuenta Requerida", "warning");
       return;
     }
 
@@ -189,7 +191,7 @@ export default function WelcomePage() {
             <button
               onClick={() => {
                 if (!isLoggedIn) {
-                  alert("Debes iniciar sesión con Google para crear una campaña y ser DM.");
+                  showAlert("Debes iniciar sesión con Google para crear una campaña y ser DM.", "Acceso Requerido", "warning");
                   signInGoogle();
                 } else {
                   setCreateModalOpen(true);
@@ -231,7 +233,7 @@ export default function WelcomePage() {
               <div className="flex gap-1.5 flex-wrap text-[10px]">
                 <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">⭐ Drizzt Do'Urden</span>
                 <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">🛡️ Panel DM Libre</span>
-                <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">📖 Tutorial 3D</span>
+                <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">📖 Tutorial Guiado</span>
               </div>
             </div>
             <Link 
@@ -402,9 +404,9 @@ export default function WelcomePage() {
                 try {
                   await updateUserDisplayName(nameInput);
                   setNameModalOpen(false);
-                  alert("¡Nombre de usuario actualizado con éxito!");
+                  showAlert("¡Nombre de usuario actualizado con éxito!", "Perfil Actualizado", "success");
                 } catch (err: any) {
-                  alert(err.message || "Error al cambiar nombre.");
+                  showAlert(err.message || "Error al cambiar nombre.", "Error al Cambiar Nombre", "danger");
                 }
               }} className="space-y-4">
                 <div>

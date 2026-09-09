@@ -77,8 +77,8 @@ export default function CookiesPage() {
           </h2>
           <p>
             Si tiene dudas sobre el almacenamiento de datos en la aplicación, contáctenos en:{" "}
-            <a href="mailto:soporte@idoneus-software.dev" className="text-magic-gold font-bold underline">
-              soporte@idoneus-software.dev
+            <a href="mailto:jaomp3@gmail.com" className="text-magic-gold font-bold underline">
+              jaomp3@gmail.com
             </a>
           </p>
 

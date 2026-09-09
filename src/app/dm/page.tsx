@@ -3,17 +3,17 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStore, CharacterState, ItemType, Item, Spell } from "@/store/useStore";
-import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, Room } from "@/lib/rooms";
+import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, subscribeRoom, deleteDirectMessage, Room, getLogCategory, LogCategory, DirectMessage, deleteRoom } from "@/lib/rooms";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import TutorialModal from "@/components/TutorialModal";
 import { 
-  Swords, Shield, Heart, Clock, Users, ScrollText, Eye, X, Zap, Package, BookOpen, Sparkles, ChevronDown, ChevronUp, UserX, Settings, Lock, Award, Plus, Trash2, CheckCircle2, Circle, ShieldAlert, FlaskConical, Scroll, Briefcase, Sword, HelpCircle
+  Swords, Shield, Heart, Clock, Users, ScrollText, Eye, X, Zap, Package, BookOpen, Sparkles, ChevronDown, ChevronUp, UserX, Settings, Lock, Award, Plus, Trash2, CheckCircle2, Circle, ShieldAlert, FlaskConical, Scroll, Briefcase, Sword, HelpCircle, Mail, Search, Maximize2, Filter
 } from "lucide-react";
 
 export default function DMPage({ roomId }: { roomId?: string }) {
   const { 
-    players, isCombatMode, initiativeOrder, currentTurnIndex, toggleCombatMode, advanceTurn, togglePlayerDeath, logs, lastTurnEvent, rollDeathSave, stabilizePlayer, levelUpPlayer, levelUpParty,
-    toggleInspiration, updatePlayerStatsByDM, updatePlayerHPByDM, addItemToPlayer, removeItemFromPlayer, addSpellToPlayer, removeSpellToPlayer
+    players, isCombatMode, initiativeOrder, currentTurnIndex, toggleCombatMode, advanceTurn, togglePlayerDeath, togglePlayerDeathState, logs, lastTurnEvent, rollDeathSave, stabilizePlayer, levelUpPlayer, levelUpParty,
+    toggleInspiration, updatePlayerStatsByDM, updatePlayerHPByDM, addItemToPlayer, removeItemFromPlayer, addSpellToPlayer, removeSpellToPlayer, showAlert, showConfirm
   } = useStore();
   const [turnToast, setTurnToast] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -23,6 +23,43 @@ export default function DMPage({ roomId }: { roomId?: string }) {
   const [levelUpConfirm, setLevelUpConfirm] = useState<{ open: boolean; type: 'player' | 'party'; playerId?: string; playerName?: string; currentLevel?: number }>({ open: false, type: 'party' });
 
   const [onlyPresentFilter, setOnlyPresentFilter] = useState(false);
+  const [room, setRoom] = useState<Room | null>(null);
+
+  // DM Action Log Search & Filter States
+  const [logCategoryFilter, setLogCategoryFilter] = useState<LogCategory>('all');
+  const [logSearchText, setLogSearchText] = useState('');
+  const [fullLogModalOpen, setFullLogModalOpen] = useState(false);
+
+  // DM Inbox States & Demo Fallbacks
+  const [inboxPlayerFilter, setInboxPlayerFilter] = useState<string>('all');
+  const [inboxSearchText, setInboxSearchText] = useState<string>('');
+  const [fullInboxModalOpen, setFullInboxModalOpen] = useState<boolean>(false);
+  const [demoMessages, setDemoMessages] = useState<DirectMessage[]>([
+    {
+      id: 'demo_msg_1',
+      senderId: 'drizzt_dourden_demo',
+      senderName: "Drizzt Do'Urden",
+      characterName: "Drizzt Do'Urden",
+      content: 'DM, encontré una extraña runa drow en la cueva. ¿Puedo hacer una prueba de Historia o Arcanos para identificar su origen?',
+      timestamp: Date.now() - 1000 * 60 * 15
+    },
+    {
+      id: 'demo_msg_2',
+      senderId: 'demo_player_2',
+      senderName: 'Gimli',
+      characterName: 'Gimli',
+      content: 'Tengo un mal presagio sobre la puerta de hierro... Me preparo para lanzar un ataque de oportunidad si algo emerge.',
+      timestamp: Date.now() - 1000 * 60 * 45
+    }
+  ]);
+
+  useEffect(() => {
+    if (!roomId) return;
+    const unsub = subscribeRoom(roomId, (roomData) => {
+      setRoom(roomData);
+    });
+    return () => unsub();
+  }, [roomId]);
 
   const isDemo = !roomId;
   const activeId = useStore.getState().activePlayerId;
@@ -30,26 +67,58 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     ? players.filter(p => p.id === activeId || p.id === 'drizzt_dourden_demo')
     : players;
 
+  const effectiveDirectMessages: DirectMessage[] = room?.directMessages || (isDemo ? demoMessages : []);
+
+  const handleDeleteDirectMessage = async (msgId: string) => {
+    const activeRoomId = roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
+    if (activeRoomId) {
+      await deleteDirectMessage(activeRoomId, msgId);
+    } else {
+      setDemoMessages(prev => prev.filter(m => m.id !== msgId));
+    }
+  };
+
+  const playerNamesInParty = players.map(p => p.name);
+  const messageSenderNames = effectiveDirectMessages.map(m => m.characterName || m.senderName);
+  const allPlayerOptions = Array.from(new Set([...playerNamesInParty, ...messageSenderNames])).filter(Boolean);
+
+  const filteredInboxMessages = effectiveDirectMessages.filter(msg => {
+    const senderName = msg.characterName || msg.senderName || '';
+    const matchesPlayer = inboxPlayerFilter === 'all' || 
+      senderName.toLowerCase() === inboxPlayerFilter.toLowerCase() || 
+      msg.senderId === inboxPlayerFilter;
+    const matchesSearch = !inboxSearchText.trim() || 
+      senderName.toLowerCase().includes(inboxSearchText.toLowerCase()) || 
+      msg.content.toLowerCase().includes(inboxSearchText.toLowerCase());
+    return matchesPlayer && matchesSearch;
+  });
+
   const isPlayerOnline = (p: CharacterState) => {
     if (p.isOnline === false) return false;
     if (!p.lastSeen) return true;
     return (Date.now() - p.lastSeen) < 65000;
   };
 
-  const handleCleanAbsentPlayers = async () => {
+  const handleCleanAbsentPlayers = () => {
     const absentPlayers = players.filter(p => !isPlayerOnline(p));
     if (absentPlayers.length === 0) {
-      alert("No hay jugadores ausentes en la campaña.");
+      showAlert("No hay jugadores ausentes en la campaña.", "Sin Ausentes", "info");
       return;
     }
-    if (confirm(`¿Deseas eliminar a los ${absentPlayers.length} personaje(s) ausente(s) de la campaña?`)) {
-      const activeRoomId = roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
-      for (const p of absentPlayers) {
-        if (activeRoomId) {
-          await kickPlayerFromRoom(activeRoomId, p.id, p.name);
+    showConfirm(
+      `¿Deseas eliminar a los ${absentPlayers.length} personaje(s) ausente(s) de la campaña?`,
+      async () => {
+        const activeRoomId = roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
+        for (const p of absentPlayers) {
+          if (activeRoomId) {
+            await kickPlayerFromRoom(activeRoomId, p.id, p.name);
+          }
         }
-      }
-    }
+      },
+      "Limpiar Jugadores Ausentes",
+      "Sí, Limpiar Ausentes",
+      "Cancelar"
+    );
   };
 
   const syncPlayer = (playerId: string) => {
@@ -77,7 +146,8 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     password: "",
     isPublic: true,
     allowGuests: true,
-    hpTerminology: (useStore.getState().hpTerminology || 'HP') as 'PG' | 'HP'
+    hpTerminology: (useStore.getState().hpTerminology || 'HP') as 'PG' | 'HP',
+    currencyMode: (room?.currencyMode || 'all') as 'standard' | 'all'
   });
 
   const inspectedPlayer = players.find(p => p.id === inspectedPlayerId) || players[0];
@@ -130,32 +200,62 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     return base + modSum;
   };
 
-  const handleKickPlayer = async (p: CharacterState) => {
-    if (confirm(`¿Estás seguro de que deseas expulsar a ${p.name} de la campaña?`)) {
-      const roomId = window.location.pathname.split('/')[2] || '';
-      if (roomId) {
-        await kickPlayerFromRoom(roomId, p.id, p.name);
-      } else {
-        useStore.setState({ players: players.filter(item => item.id !== p.id) });
-      }
-    }
+  const handleKickPlayer = (p: CharacterState) => {
+    showConfirm(
+      `¿Estás seguro de que deseas expulsar a ${p.name} de la campaña?`,
+      async () => {
+        const activeRoomId = roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
+        if (activeRoomId) {
+          await kickPlayerFromRoom(activeRoomId, p.id, p.name);
+        } else {
+          useStore.setState({ players: players.filter(item => item.id !== p.id) });
+        }
+      },
+      "Expulsar Jugador",
+      "Sí, Expulsar",
+      "Cancelar"
+    );
+  };
+
+  const handleDeleteCampaign = () => {
+    showConfirm(
+      `⚠️ ATENCIÓN: ¿Estás completamente seguro de que deseas ELIMINAR PERMANENTEMENTE la campaña "${room?.name || 'actual'}"?\n\nSe borrará la sala, el registro de acciones y todos los datos sincronizados para los jugadores. Esta acción no se puede deshacer.`,
+      async () => {
+        const effectiveRoomId = roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
+        if (effectiveRoomId) {
+          await deleteRoom(effectiveRoomId);
+          setAdminModalOpen(false);
+          showAlert("La campaña ha sido eliminada permanentemente.", "Campaña Eliminada", "warning");
+          setTimeout(() => {
+            if (typeof window !== 'undefined') window.location.href = '/';
+          }, 1000);
+        } else {
+          setAdminModalOpen(false);
+          showAlert("Se ha reiniciado la campaña en la Mesa de Pruebas.", "Mesa Reiniciada", "info");
+        }
+      },
+      "🔥 Eliminar Campaña Permanentemente",
+      "Sí, Eliminar Campaña",
+      "Cancelar"
+    );
   };
 
   const handleSaveCampaignSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    const roomId = window.location.pathname.split('/')[2] || '';
-    if (roomId) {
-      await updateCampaignDetails(roomId, {
+    const effectiveRoomId = roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
+    if (effectiveRoomId) {
+      await updateCampaignDetails(effectiveRoomId, {
         name: adminForm.name,
         hasPassword: Boolean(adminForm.password),
         password: adminForm.password || "",
         isPublic: adminForm.isPublic,
         allowGuests: adminForm.allowGuests,
-        hpTerminology: adminForm.hpTerminology
+        hpTerminology: adminForm.hpTerminology,
+        currencyMode: adminForm.currencyMode
       });
       useStore.setState({ hpTerminology: adminForm.hpTerminology });
       setAdminModalOpen(false);
-      alert("Ajustes de la campaña actualizados con éxito.");
+      showAlert("Ajustes de la campaña actualizados con éxito.", "Ajustes Guardados", "success");
     }
   };
 
@@ -241,33 +341,177 @@ export default function DMPage({ roomId }: { roomId?: string }) {
             </button>
           </div>
 
-          {/* Action Logs */}
-          <div className="bg-parchment-dark p-4 sm:p-6 rounded-xl border-2 border-ink/20 shadow-lg flex flex-col overflow-hidden min-h-[130px] max-h-[320px]">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-xl sm:text-2xl font-bold font-cinzel text-ink flex items-center gap-2">
-                <ScrollText className="w-5 h-5 sm:w-6 sm:h-6 text-magic-red" /> Registro de Acciones
+          {/* Action Logs (Advanced Search & Filter) */}
+          {(() => {
+            const filteredLogs = logs.filter(log => {
+              const cat = getLogCategory(log.message);
+              const matchesCategory = logCategoryFilter === 'all' || cat.type === logCategoryFilter;
+              const matchesSearch = !logSearchText.trim() || log.message.toLowerCase().includes(logSearchText.toLowerCase());
+              return matchesCategory && matchesSearch;
+            });
+
+            return (
+              <div className="bg-parchment-dark p-4 sm:p-5 rounded-xl border-2 border-ink/20 shadow-lg flex flex-col overflow-hidden space-y-3">
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                  <h2 className="text-lg sm:text-xl font-bold font-cinzel text-ink flex items-center gap-2">
+                    <ScrollText className="w-5 h-5 text-magic-red" /> Registro de Acciones ({filteredLogs.length})
+                  </h2>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setFullLogModalOpen(true)}
+                      className="px-2.5 py-1 bg-magic-gold text-black rounded text-xs font-bold hover:bg-yellow-500 transition shadow flex items-center gap-1 cursor-pointer"
+                      title="Abrir historial completo en pantalla amplia"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" /> Ampliar
+                    </button>
+                    <button 
+                      onClick={() => setShowLogsMobile(!showLogsMobile)}
+                      className="lg:hidden text-xs text-magic-gold flex items-center gap-1 font-sans font-bold cursor-pointer p-1"
+                    >
+                      {showLogsMobile ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter and Search Bar */}
+                <div className="space-y-2 font-sans text-xs">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={logSearchText}
+                      onChange={e => setLogSearchText(e.target.value)}
+                      placeholder="Buscar por jugador o palabra..."
+                      className="w-full p-1.5 pl-7 bg-parchment border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold"
+                    />
+                    <Search className="w-3.5 h-3.5 text-ink-light absolute left-2 top-2" />
+                  </div>
+
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
+                    {(['all', 'combat', 'currency', 'rests', 'features', 'rolls'] as const).map(catKey => {
+                      const labels: Record<string, string> = {
+                        all: 'Todos',
+                        combat: '⚔️ Combate',
+                        currency: '💰 Economía',
+                        rests: '⛺ Descansos',
+                        features: '📜 Conjuros',
+                        rolls: '🎲 Tiradas'
+                      };
+                      return (
+                        <button
+                          key={catKey}
+                          onClick={() => setLogCategoryFilter(catKey)}
+                          className={`px-2 py-1 rounded text-[10px] font-bold whitespace-nowrap cursor-pointer transition ${logCategoryFilter === catKey ? 'bg-magic-gold text-black shadow' : 'bg-parchment text-ink hover:bg-ink/10'}`}
+                        >
+                          {labels[catKey]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className={`overflow-y-auto pr-1 space-y-2 font-sans text-xs max-h-[220px] ${showLogsMobile ? 'block' : 'hidden lg:block'}`}>
+                  {filteredLogs.length === 0 ? (
+                    <p className="text-ink/50 italic text-center py-4">No hay acciones registradas con los filtros actuales.</p>
+                  ) : (
+                    filteredLogs.map(log => {
+                      const categoryInfo = getLogCategory(log.message);
+                      return (
+                        <div key={log.id} className="p-2.5 bg-parchment border border-ink/15 rounded-lg shadow-sm leading-relaxed space-y-1">
+                          <div className="flex justify-between items-center border-b border-ink/10 pb-0.5">
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${categoryInfo.badgeClass}`}>
+                              {categoryInfo.icon} {categoryInfo.label}
+                            </span>
+                            <span className="text-[10px] text-ink/50 font-mono">
+                              {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="font-bold text-ink text-xs break-words">{log.message}</p>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* DM INBOX PANEL (MENSAJES DIRECTOS & TRASFONDOS) */}
+          <div className="bg-parchment-dark p-4 sm:p-5 rounded-xl border-2 border-magic-gold/60 shadow-xl flex flex-col space-y-3 font-sans max-h-[380px]">
+            <div className="flex justify-between items-center border-b border-ink/20 pb-2 flex-wrap gap-2">
+              <h2 className="text-lg sm:text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                <Mail className="w-5 h-5 text-magic-gold" /> Buzón del DM ({filteredInboxMessages.length})
               </h2>
-              <button 
-                onClick={() => setShowLogsMobile(!showLogsMobile)}
-                className="lg:hidden text-xs text-magic-gold flex items-center gap-1 font-sans font-bold cursor-pointer"
+              <button
+                onClick={() => setFullInboxModalOpen(true)}
+                className="px-2.5 py-1 bg-magic-gold text-black rounded text-xs font-bold hover:bg-yellow-500 transition shadow flex items-center gap-1 cursor-pointer"
+                title="Ampliar buzón a pantalla completa"
               >
-                {showLogsMobile ? 'Ocultar' : `Ver Acciones (${logs.length})`}
-                {showLogsMobile ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
+                <Maximize2 className="w-3.5 h-3.5" /> Ampliar
               </button>
             </div>
 
-            <div className={`overflow-y-auto pr-1 space-y-2 font-sans text-xs sm:text-sm max-h-[240px] ${showLogsMobile ? 'block' : 'hidden lg:block'}`}>
-              {logs.length === 0 ? (
-                <p className="text-ink/50 italic text-center py-3">Esperando acciones de los jugadores...</p>
-              ) : (
-                logs.map(log => (
-                  <div key={log.id} className="p-3 bg-parchment border border-ink/15 rounded-lg shadow-sm leading-relaxed break-words">
-                    <span className="text-[10px] text-ink/50 block font-mono font-bold mb-0.5">{new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                    <span className="font-bold text-ink">{log.message}</span>
-                  </div>
-                ))
-              )}
+            {/* Inline Filter Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              {/* Search text input */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={inboxSearchText}
+                  onChange={e => setInboxSearchText(e.target.value)}
+                  placeholder="Buscar mensaje..."
+                  className="w-full p-1.5 pl-7 bg-parchment border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold"
+                />
+                <Search className="w-3.5 h-3.5 text-ink-light absolute left-2 top-2" />
+              </div>
+
+              {/* Player Filter Select */}
+              <div className="relative">
+                <select
+                  value={inboxPlayerFilter}
+                  onChange={e => setInboxPlayerFilter(e.target.value)}
+                  className="w-full p-1.5 pl-7 bg-parchment border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold cursor-pointer"
+                >
+                  <option value="all">👥 Todos los Jugadores</option>
+                  {allPlayerOptions.map(name => (
+                    <option key={name} value={name}>
+                      ⚔️ {name}
+                    </option>
+                  ))}
+                </select>
+                <Filter className="w-3.5 h-3.5 text-ink-light absolute left-2 top-2 pointer-events-none" />
+              </div>
             </div>
+
+            {filteredInboxMessages.length === 0 ? (
+              <p className="text-xs text-ink-light italic text-center py-4">
+                {effectiveDirectMessages.length === 0 
+                  ? "Buzón vacío. Los jugadores pueden enviarte notas o secretos privados desde su hoja."
+                  : "No se encontraron mensajes con los filtros actuales."}
+              </p>
+            ) : (
+              <div className="space-y-2.5 overflow-y-auto pr-1 max-h-[200px]">
+                {filteredInboxMessages.map((msg) => (
+                  <div key={msg.id} className="p-3 bg-parchment rounded-lg border border-ink/20 shadow-sm space-y-1.5 hover:border-magic-gold/40 transition">
+                    <div className="flex justify-between items-center border-b border-ink/10 pb-1">
+                      <span className="font-bold text-xs text-magic-gold flex items-center gap-1">
+                        👤 {msg.characterName || msg.senderName}
+                      </span>
+                      <div className="flex items-center gap-2 text-[10px] text-ink-light">
+                        <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <button
+                          onClick={() => handleDeleteDirectMessage(msg.id)}
+                          className="text-ink-light hover:text-magic-red transition p-0.5 cursor-pointer"
+                          title="Eliminar mensaje del buzón"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-ink/90 whitespace-pre-wrap leading-relaxed break-words">{msg.content}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -395,26 +639,68 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         <Award className="w-3.5 h-3.5" /> +1 Nivel
                       </button>
 
-                      {/* Death / Revive Toggle Button */}
-                      <button
-                        onClick={() => {
-                          const newStatus = !p.isDead;
-                          if (newStatus) {
-                            if (!window.confirm(`⚠️ ¿Estás seguro de que deseas MATAR a ${p.name}?`)) {
-                              return;
-                            }
-                          }
-                          togglePlayerDeath(p.id, newStatus);
-                          syncPlayer(p.id);
-                        }}
-                        className={`flex items-center gap-1 text-xs font-bold font-sans px-2 py-1.5 rounded transition cursor-pointer shrink-0
-                          ${p.isDead 
-                            ? 'bg-emerald-600 text-white shadow-[0_0_10px_rgba(16,185,129,0.8)]' 
-                            : 'bg-black text-red-400 border border-red-500/40 hover:bg-magic-red hover:text-white'}`}
-                        title={p.isDead ? "Revivir Personaje" : "Matar Personaje"}
-                      >
-                        {p.isDead ? '✨ Revivir' : '💀 Matar'}
-                      </button>
+                      {/* State Quick Controls Dropdown / Buttons */}
+                      <div className="flex gap-1 flex-wrap">
+                        {!p.isDying && !p.isDead && (
+                          <button
+                            onClick={() => {
+                              togglePlayerDeathState(p.id, 'dying');
+                              syncPlayer(p.id);
+                            }}
+                            className="flex items-center gap-1 text-xs font-bold font-sans bg-magic-red/80 text-white px-2 py-1.5 rounded hover:bg-magic-red transition cursor-pointer shrink-0 shadow-sm"
+                            title="Marcar como Moribundo (0 HP)"
+                          >
+                            🩸 Moribundo
+                          </button>
+                        )}
+
+                        {p.isDying && (
+                          <button
+                            onClick={() => {
+                              togglePlayerDeathState(p.id, 'stable');
+                              syncPlayer(p.id);
+                            }}
+                            className="flex items-center gap-1 text-xs font-bold font-sans bg-magic-gold text-black px-2 py-1.5 rounded hover:bg-yellow-500 transition cursor-pointer shrink-0 shadow-sm"
+                            title="Estabilizar a 0 HP"
+                          >
+                            🛡️ Estabilizar
+                          </button>
+                        )}
+
+                        {(p.isDead || p.isDying || p.isStable) && (
+                          <button
+                            onClick={() => {
+                              togglePlayerDeathState(p.id, 'revive');
+                              syncPlayer(p.id);
+                            }}
+                            className="flex items-center gap-1 text-xs font-bold font-sans bg-emerald-600 text-white px-2 py-1.5 rounded hover:bg-emerald-700 transition cursor-pointer shrink-0 shadow-sm"
+                            title="Revivir Personaje"
+                          >
+                            ✨ Revivir
+                          </button>
+                        )}
+
+                        {!p.isDead && (
+                          <button
+                            onClick={() => {
+                              showConfirm(
+                                `⚠️ ¿Estás seguro de que deseas marcar como FALLECIDO a ${p.name}?`,
+                                () => {
+                                  togglePlayerDeathState(p.id, 'dead');
+                                  syncPlayer(p.id);
+                                },
+                                "Declarar Fallecido",
+                                "Sí, Fallecido",
+                                "Cancelar"
+                              );
+                            }}
+                            className="flex items-center gap-1 text-xs font-bold font-sans bg-black text-red-400 border border-red-500/40 px-2 py-1.5 rounded hover:bg-magic-red hover:text-white transition cursor-pointer shrink-0"
+                            title="Declarar Fallecido"
+                          >
+                            ☠️ Fallecido
+                          </button>
+                        )}
+                      </div>
 
                       {/* Kick Player Button */}
                       <button
@@ -472,18 +758,25 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                   )}
 
                   {/* HP & AC summary */}
-                  <div className="flex gap-4 mb-3 justify-around bg-ink/5 p-3 rounded-lg">
-                    <div className="text-center">
-                      <Heart className="w-6 h-6 sm:w-8 sm:h-8 text-magic-red mx-auto mb-1" />
-                      <span className={`font-bold font-sans text-lg sm:text-xl ${effMaxHP !== p.hp.max ? 'text-magic-gold' : ''}`}>
-                        {p.hp.current}/{effMaxHP}
-                      </span>
+                  <div className="grid grid-cols-2 gap-3 mb-3 font-sans">
+                    <div className="flex items-center gap-2.5 bg-parchment-dark p-2.5 rounded-lg border border-magic-red/40 shadow-sm">
+                      <Heart className="w-5 h-5 text-magic-red fill-magic-red shrink-0" />
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-ink-light block font-cinzel">HP / PG</span>
+                        <span className={`font-bold font-mono text-base sm:text-lg leading-tight ${effMaxHP !== p.hp.max ? 'text-magic-gold' : 'text-ink'}`}>
+                          {p.hp.current} / {effMaxHP}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-center">
-                      <Shield className="w-6 h-6 sm:w-8 sm:h-8 text-ink mx-auto mb-1" />
-                      <span className={`font-bold font-sans text-lg sm:text-xl ${effAC !== p.ac ? 'text-magic-gold' : ''}`}>
-                        {effAC}
-                      </span>
+
+                    <div className="flex items-center gap-2.5 bg-parchment-dark p-2.5 rounded-lg border border-magic-gold/40 shadow-sm">
+                      <Shield className="w-5 h-5 text-magic-gold shrink-0" />
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-ink-light block font-cinzel">CA</span>
+                        <span className={`font-bold font-mono text-base sm:text-lg leading-tight ${effAC !== p.ac ? 'text-magic-gold' : 'text-ink'}`}>
+                          {effAC}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -565,6 +858,18 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                   </select>
                 </div>
 
+                <div>
+                  <label className="block font-bold mb-1">Sistema de Monedas D&D</label>
+                  <select 
+                    value={adminForm.currencyMode} 
+                    onChange={e => setAdminForm({...adminForm, currencyMode: e.target.value as 'standard' | 'all'})}
+                    className="w-full p-2.5 bg-parchment border border-ink/30 text-ink rounded font-bold"
+                  >
+                    <option value="all">🪙 Todas las Monedas (CP, SP, EP, GP, PP)</option>
+                    <option value="standard">🪙 Monedas Estándar (CP, SP, GP)</option>
+                  </select>
+                </div>
+
                 <div className="flex items-center gap-2">
                   <input 
                     type="checkbox" 
@@ -587,9 +892,19 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                   <label htmlFor="allowGuestsAdmin" className="font-bold cursor-pointer">Permitir entrada a usuarios invitados</label>
                 </div>
 
-                <div className="flex justify-end gap-3 pt-4 border-t border-ink/20">
-                  <button type="button" onClick={() => setAdminModalOpen(false)} className="px-4 py-2 text-ink-light hover:text-ink font-bold">Cancelar</button>
-                  <button type="submit" className="px-6 py-2 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition shadow">Guardar Ajustes</button>
+                <div className="flex justify-between items-center pt-4 border-t border-ink/20 flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDeleteCampaign}
+                    className="px-3.5 py-2 bg-red-950/40 text-red-400 border border-red-500/40 rounded font-bold hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1.5 text-xs"
+                    title="Eliminar permanentemente esta campaña para todos los jugadores"
+                  >
+                    <Trash2 className="w-4 h-4" /> Eliminar Campaña
+                  </button>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setAdminModalOpen(false)} className="px-4 py-2 text-ink-light hover:text-ink font-bold text-xs cursor-pointer">Cancelar</button>
+                    <button type="submit" className="px-6 py-2 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition shadow cursor-pointer">Guardar Ajustes</button>
+                  </div>
                 </div>
               </form>
             </motion.div>
@@ -668,7 +983,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         onClick={() => {
                           updatePlayerStatsByDM(inspectedPlayer.id, dmStatsEdit);
                           syncPlayer(inspectedPlayer.id);
-                          alert(`Puntuaciones base de ${inspectedPlayer.name} actualizadas por el DM.`);
+                          showAlert(`Puntuaciones base de ${inspectedPlayer.name} actualizadas por el DM.`, "Atributos Guardados", "success");
                         }}
                         className="mt-2 px-3 py-1.5 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer"
                       >
@@ -712,7 +1027,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         onClick={() => {
                           updatePlayerHPByDM(inspectedPlayer.id, dmHPEdit);
                           syncPlayer(inspectedPlayer.id);
-                          alert(`Puntos de Vida de ${inspectedPlayer.name} actualizados.`);
+                          showAlert(`Puntos de Vida de ${inspectedPlayer.name} actualizados.`, "HP Actualizado", "success");
                         }}
                         className="mt-2 px-3 py-1.5 bg-magic-red text-white font-bold text-xs rounded hover:bg-red-700 transition cursor-pointer"
                       >
@@ -966,7 +1281,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                 <button 
                   onClick={() => {
                     if (selectedCombatPlayerIds.length === 0) {
-                      alert("Debes seleccionar al menos 1 jugador para iniciar el combate.");
+                      showAlert("Debes seleccionar al menos 1 jugador para iniciar el combate.", "Selección Vaciada", "warning");
                       return;
                     }
                     toggleCombatMode(true, roomId, selectedCombatPlayerIds);
@@ -1027,6 +1342,201 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* FULL LOG HISTORY MODAL (SCREEN-WIDE AUDIT FOR DM) */}
+      <AnimatePresence>
+        {fullLogModalOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4 font-sans backdrop-blur-sm">
+            <div className="bg-parchment-dark border-4 border-magic-gold p-6 rounded-2xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col text-ink space-y-4">
+              <div className="flex justify-between items-center border-b border-ink/20 pb-3">
+                <div>
+                  <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                    <ScrollText className="w-6 h-6 text-magic-red" /> Historial Completo de la Partida ({logs.length} registros)
+                  </h3>
+                  <p className="text-xs text-ink-light mt-0.5">Consulta cronológica de todos los acontecimientos de la partida.</p>
+                </div>
+                <button onClick={() => setFullLogModalOpen(false)} className="p-2 text-ink-light hover:text-ink cursor-pointer">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Filter & Search Bar */}
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-parchment p-3 rounded-xl border border-ink/20 text-xs">
+                <div className="relative w-full sm:w-64">
+                  <input
+                    type="text"
+                    value={logSearchText}
+                    onChange={e => setLogSearchText(e.target.value)}
+                    placeholder="Buscar por jugador o palabra clave..."
+                    className="w-full p-2 pl-8 bg-parchment-dark border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold"
+                  />
+                  <Search className="w-4 h-4 text-ink-light absolute left-2.5 top-2.5" />
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
+                  {(['all', 'combat', 'currency', 'rests', 'features', 'rolls', 'settings'] as const).map(catKey => {
+                    const labels: Record<string, string> = {
+                      all: 'Todos',
+                      combat: '⚔️ Combate',
+                      currency: '💰 Economía',
+                      rests: '⛺ Descansos',
+                      features: '📜 Conjuros/Rasgos',
+                      rolls: '🎲 Tiradas',
+                      settings: '⚙️ DM'
+                    };
+                    return (
+                      <button
+                        key={catKey}
+                        onClick={() => setLogCategoryFilter(catKey)}
+                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${logCategoryFilter === catKey ? 'bg-magic-gold text-black shadow' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
+                      >
+                        {labels[catKey]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Scrollable Log Cards */}
+              <div className="flex-1 overflow-y-auto pr-2 space-y-2.5">
+                {logs
+                  .filter(log => {
+                    const cat = getLogCategory(log.message);
+                    const matchesCat = logCategoryFilter === 'all' || cat.type === logCategoryFilter;
+                    const matchesSearch = !logSearchText.trim() || log.message.toLowerCase().includes(logSearchText.toLowerCase());
+                    return matchesCat && matchesSearch;
+                  })
+                  .map(log => {
+                    const categoryInfo = getLogCategory(log.message);
+                    return (
+                      <div key={log.id} className="p-3.5 bg-parchment rounded-xl border border-ink/20 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 hover:border-magic-gold/60 transition">
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs font-bold px-2.5 py-1 rounded border shrink-0 ${categoryInfo.badgeClass}`}>
+                            {categoryInfo.icon} {categoryInfo.label}
+                          </span>
+                          <span className="font-bold text-sm text-ink leading-relaxed break-words">{log.message}</span>
+                        </div>
+                        <span className="text-xs text-ink/60 font-mono shrink-0">
+                          {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* FULL DM INBOX MODAL (EXPANDED VIEW & PLAYER FILTER) */}
+      <AnimatePresence>
+        {fullInboxModalOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4 font-sans backdrop-blur-sm">
+            <div className="bg-parchment-dark border-4 border-magic-gold p-6 rounded-2xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col text-ink space-y-4">
+              {/* Header */}
+              <div className="flex justify-between items-center border-b border-ink/20 pb-3">
+                <div>
+                  <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                    <Mail className="w-6 h-6 text-magic-gold" /> Buzón Expandido del DM ({effectiveDirectMessages.length} mensajes)
+                  </h3>
+                  <p className="text-xs text-ink-light mt-0.5">Consulta y gestiona todos los mensajes directos, notas secretas y trasfondos enviados por tus jugadores.</p>
+                </div>
+                <button onClick={() => setFullInboxModalOpen(false)} className="p-2 text-ink-light hover:text-ink cursor-pointer" title="Cerrar buzón expandido">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Filter Controls Bar */}
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-parchment p-3.5 rounded-xl border border-ink/20 text-xs">
+                {/* Player Filter Dropdown */}
+                <div className="flex items-center gap-2 w-full sm:w-auto flex-1 max-w-md">
+                  <span className="font-bold text-ink whitespace-nowrap flex items-center gap-1">
+                    <Filter className="w-4 h-4 text-magic-gold" /> Filtrar por Jugador:
+                  </span>
+                  <select
+                    value={inboxPlayerFilter}
+                    onChange={e => setInboxPlayerFilter(e.target.value)}
+                    className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold cursor-pointer"
+                  >
+                    <option value="all">👥 Todos los Jugadores ({effectiveDirectMessages.length})</option>
+                    {allPlayerOptions.map(name => {
+                      const count = effectiveDirectMessages.filter(m => (m.characterName || m.senderName) === name).length;
+                      return (
+                        <option key={name} value={name}>
+                          ⚔️ {name} ({count} msgs)
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                {/* Text Search Input */}
+                <div className="relative w-full sm:w-64">
+                  <input
+                    type="text"
+                    value={inboxSearchText}
+                    onChange={e => setInboxSearchText(e.target.value)}
+                    placeholder="Buscar contenido de mensaje..."
+                    className="w-full p-2 pl-8 bg-parchment-dark border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold"
+                  />
+                  <Search className="w-4 h-4 text-ink-light absolute left-2.5 top-2.5" />
+                </div>
+
+                {/* Reset Filters Button */}
+                {(inboxPlayerFilter !== 'all' || inboxSearchText !== '') && (
+                  <button
+                    onClick={() => {
+                      setInboxPlayerFilter('all');
+                      setInboxSearchText('');
+                    }}
+                    className="px-3 py-1.5 bg-red-950/20 text-red-600 border border-red-500/40 rounded font-bold hover:bg-magic-red hover:text-white transition cursor-pointer whitespace-nowrap"
+                  >
+                    Restablecer
+                  </button>
+                )}
+              </div>
+
+              {/* Scrollable Message Cards */}
+              <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+                {filteredInboxMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-48 text-center space-y-2">
+                    <Mail className="w-12 h-12 text-ink/20" />
+                    <p className="text-sm font-bold text-ink-light">No hay mensajes en el buzón que coincidan con el filtro.</p>
+                    <p className="text-xs text-ink/50">Prueba seleccionando otro jugador o borrando el texto de búsqueda.</p>
+                  </div>
+                ) : (
+                  filteredInboxMessages.map(msg => (
+                    <div key={msg.id} className="p-4 bg-parchment rounded-xl border border-ink/20 shadow-md space-y-2 hover:border-magic-gold transition">
+                      <div className="flex justify-between items-center border-b border-ink/15 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-magic-gold px-2.5 py-0.5 rounded bg-magic-gold/10 border border-magic-gold/30 flex items-center gap-1.5">
+                            ⚔️ {msg.characterName || msg.senderName}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-ink/60 font-mono">
+                          <span>
+                            📅 {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <button
+                            onClick={() => handleDeleteDirectMessage(msg.id)}
+                            className="px-2 py-1 bg-red-950/20 text-red-600 rounded border border-red-500/30 hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1 font-sans text-xs font-bold"
+                            title="Eliminar este mensaje"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-sm text-ink leading-relaxed whitespace-pre-wrap font-sans bg-parchment-dark/50 p-3 rounded-lg border border-ink/10">
+                        {msg.content}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -4,13 +4,14 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStore, ItemType, Item, Spell } from "@/store/useStore";
-import { getClassFeaturesForLevel } from "@/lib/dndClassFeatures";
-import { triggerDiceRoll } from "@/components/DiceRoller";
+import { getClassFeaturesForLevel, ClassFeature } from "@/lib/dndClassFeatures";
+import DiceRoller, { triggerDiceRoll } from "@/components/DiceRoller";
 import TutorialModal from "@/components/TutorialModal";
 import DMPage from "@/app/dm/page";
+import { sendDirectMessageToDM, subscribeRoom, Room } from "@/lib/rooms";
 import { 
   PenTool, Shield, Heart, Zap, Sparkles, BookOpen, Package, Clock, 
-  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home
+  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X
 } from "lucide-react";
 
 const SKILLS_5E = [
@@ -38,16 +39,25 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
   const { 
     players, activePlayerId, setActivePlayerId, isCombatMode, initiativeOrder, currentTurnIndex,
     advanceTurn, addModifier, removeModifier, updateStat, setBaseStatScore, modifyHPMax, modifyHPCurrent, modifyAC,
-    togglePinSkill, toggleEquipItem, useSpellSlot, restoreSpellSlot, setSpellSlotMax, longRest,
+    togglePinSkill, toggleEquipItem, useSpellSlot, restoreSpellSlot, setSpellSlotMax, shortRest, longRest, useClassFeature,
     addItem, updateItem, removeItem, addSpell, updateSpell, removeSpell, addCustomClassFeature, updateCustomClassFeature, removeCustomClassFeature, consumeItem,
-    lastTurnEvent, rollDeathSave, stabilizePlayer, hpTerminology, toggleInspiration, loadFamousDemoCharacter,
-    updateCurrency, spendCurrency
+    lastTurnEvent, lastItemReceivedEvent, rollDeathSave, stabilizePlayer, togglePlayerDeathState, hpTerminology, toggleInspiration, loadFamousDemoCharacter,
+    updateCurrency, spendCurrency, showAlert, showConfirm
   } = useStore();
 
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"sheet" | "dm">("sheet");
 
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [room, setRoom] = useState<Room | null>(null);
+
+  // New Feature & Interaction States
+  const [restMenuOpen, setRestMenuOpen] = useState(false);
+  const [featureFilter, setFeatureFilter] = useState<'all' | 'active' | 'passive' | 'short' | 'long'>('all');
+  const [featureSearch, setFeatureSearch] = useState('');
+  const [focusFeaturesModalOpen, setFocusFeaturesModalOpen] = useState(false);
+  const [dmMessageModal, setDmMessageModal] = useState({ open: false, content: '' });
+  const [itemToast, setItemToast] = useState<{ open: boolean; itemName: string; quantity: number } | null>(null);
 
   // Currency Modals State
   const [editCurrencyModalOpen, setEditCurrencyModalOpen] = useState(false);
@@ -83,6 +93,21 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
   const [showAllSkills, setShowAllSkills] = useState(false);
   const [turnToast, setTurnToast] = useState(false);
 
+  useEffect(() => {
+    if (character && character.roomId) {
+      const unsub = subscribeRoom(character.roomId, setRoom);
+      return () => unsub();
+    }
+  }, [character?.roomId]);
+
+  useEffect(() => {
+    if (lastItemReceivedEvent && lastItemReceivedEvent.playerId === character.id) {
+      setItemToast({ open: true, itemName: lastItemReceivedEvent.itemName, quantity: lastItemReceivedEvent.quantity });
+      const timer = setTimeout(() => setItemToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastItemReceivedEvent, character.id]);
+
   // Private Personal Notes State (Stored strictly in localStorage for 100% DM privacy)
   type PersonalNote = {
     id: string;
@@ -90,6 +115,7 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
     content: string;
     createdAt: number;
     updatedAt?: number;
+    pinned?: boolean;
   };
 
   const [notes, setNotes] = useState<PersonalNote[]>([]);
@@ -122,6 +148,11 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
     }
   };
 
+  const togglePinNote = (noteId: string) => {
+    const updated = notes.map(n => n.id === noteId ? { ...n, pinned: !n.pinned } : n);
+    saveNotesToStorage(updated);
+  };
+
   const handleSaveNote = (e: React.FormEvent) => {
     e.preventDefault();
     if (!noteModal.title.trim()) return;
@@ -139,7 +170,8 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
         id: Date.now().toString() + Math.random(),
         title: noteModal.title.trim(),
         content: noteModal.content.trim(),
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        pinned: false
       };
       newNotes = [newNote, ...notes];
     }
@@ -149,10 +181,16 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
   };
 
   const handleDeleteNote = (noteId: string) => {
-    if (confirm("¿Estás seguro de que deseas eliminar esta nota personal?")) {
-      const newNotes = notes.filter(n => n.id !== noteId);
-      saveNotesToStorage(newNotes);
-    }
+    showConfirm(
+      "¿Estás seguro de que deseas eliminar esta nota personal?",
+      () => {
+        const newNotes = notes.filter(n => n.id !== noteId);
+        saveNotesToStorage(newNotes);
+      },
+      "Eliminar Nota Personal",
+      "Sí, Eliminar",
+      "Cancelar"
+    );
   };
 
   // Skill Modifier Edit Modal (Pluma Mágica for all skills)
@@ -321,7 +359,7 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
       description: newFeature.desc,
       usage: newFeature.usage || undefined
     });
-    alert(`📜 Libertad de Campaña / Lore DM: Se ha otorgado el rasgo "${newFeature.name}" a ${character.name}.`);
+    showAlert(`📜 Libertad de Campaña / Lore DM: Se ha otorgado el rasgo "${newFeature.name}" a ${character.name}.`, "Rasgo Otorgado", "success");
     setNewFeature({ name: "", type: "active", usage: "", desc: "" });
   };
 
@@ -398,6 +436,21 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
           >
             <Clock className="w-5 h-5 animate-spin shrink-0" />
             <span>¡Pasó 1 Turno! Se actualizaron los efectos temporales.</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Item Received Toast Banner */}
+      <AnimatePresence>
+        {itemToast && itemToast.open && (
+          <motion.div 
+            initial={{ opacity: 0, y: -50, scale: 0.8 }} 
+            animate={{ opacity: 1, y: 0, scale: 1 }} 
+            exit={{ opacity: 0, y: -20, scale: 0.9 }} 
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-magic-gold text-black px-5 py-3 rounded-xl shadow-[0_0_30px_rgba(245,208,97,0.9)] font-sans font-bold flex items-center gap-3 text-sm border-2 border-white w-[90%] md:w-auto justify-center"
+          >
+            <Package className="w-5 h-5 shrink-0 text-black animate-bounce" />
+            <span>🎁 ¡Has recibido un nuevo objeto del DM: <strong>{itemToast.itemName}</strong> (x{itemToast.quantity})!</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -579,12 +632,22 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
             )}
           </div>
 
-          <button
-            onClick={() => setTutorialOpen(true)}
-            className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-3.5 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition cursor-pointer border border-white/40"
-          >
-            <HelpCircle className="w-4 h-4" /> 📖 Tutorial de Inicio
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setDmMessageModal({ open: true, content: '' })}
+              className="flex items-center gap-1.5 bg-parchment-dark text-ink hover:text-magic-gold px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm border border-ink/20 transition cursor-pointer"
+              title="Enviar mensaje directo o trasfondo al DM"
+            >
+              ✉️ Mensaje al DM
+            </button>
+
+            <button
+              onClick={() => setTutorialOpen(true)}
+              className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-3.5 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition cursor-pointer border border-white/40"
+            >
+              <HelpCircle className="w-4 h-4" /> 📖 Tutorial de Inicio
+            </button>
+          </div>
         </div>
 
         {viewMode === "dm" && <DMPage />}
@@ -596,15 +659,59 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                 <div className="flex justify-between items-center md:justify-start gap-3 flex-wrap">
                   <h1 className="text-3xl sm:text-5xl font-bold text-ink drop-shadow-sm font-cinzel">{character.name || "Sin Nombre"}</h1>
                   
-                  {/* Inspiration Toggle Button */}
-                  <button
-                    onClick={() => toggleInspiration(character.id)}
-                    className={`px-3 py-1 rounded-lg border-2 font-sans font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${character.inspiration ? 'bg-magic-gold text-black border-white shadow-[0_0_15px_rgba(245,208,97,0.8)] scale-105' : 'bg-parchment text-ink/60 border-ink/20 hover:border-magic-gold'}`}
-                    title={character.inspiration ? "Tienes Inspiración D&D 5e activa" : "Sin Inspiración (Haz clic para alternar)"}
-                  >
-                    <Sparkles className={`w-4 h-4 ${character.inspiration ? 'fill-black text-black' : 'text-ink/40'}`} />
-                    <span>⭐ Inspiración</span>
-                  </button>
+                  {/* Rests & Inspiration Dropdown Menu */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setRestMenuOpen(!restMenuOpen)}
+                      className={`px-3 py-1.5 rounded-lg border-2 font-sans font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${character.inspiration ? 'bg-magic-gold text-black border-white shadow-[0_0_15px_rgba(245,208,97,0.8)]' : 'bg-parchment text-ink border-ink/20 hover:border-magic-gold'}`}
+                    >
+                      <Sparkles className={`w-4 h-4 ${character.inspiration ? 'fill-black text-black' : 'text-magic-gold'}`} />
+                      <span>⛺ Descansos e Inspiración</span>
+                      <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+                    </button>
+
+                    <AnimatePresence>
+                      {restMenuOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 5, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 5, scale: 0.95 }}
+                          className="absolute left-0 mt-2 w-56 bg-parchment-dark border-2 border-magic-gold rounded-xl shadow-2xl p-2 z-40 font-sans space-y-1"
+                        >
+                          <button
+                            onClick={() => {
+                              toggleInspiration(character.id);
+                              setRestMenuOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between transition cursor-pointer ${character.inspiration ? 'bg-magic-gold text-black' : 'hover:bg-ink/10 text-ink'}`}
+                          >
+                            <span className="flex items-center gap-2">⭐ Inspiración D&D 5e</span>
+                            <span className="text-[10px]">{character.inspiration ? 'ACTIVO' : 'Inactivo'}</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              shortRest(character.id);
+                              setRestMenuOpen(false);
+                            }}
+                            className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-ink/10 text-ink transition cursor-pointer border-t border-ink/10"
+                          >
+                            ☕ Descanso Corto (1 hora)
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              longRest(character.id);
+                              setRestMenuOpen(false);
+                            }}
+                            className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-ink/10 text-ink transition cursor-pointer"
+                          >
+                            ⛺ Descanso Largo (8 horas)
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
                 {!isCombatMode && (
                   <p className="text-sm sm:text-xl text-ink-light font-sans mt-1">
@@ -614,40 +721,66 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
               </div>
           
           <div className="flex gap-4 sm:gap-6 items-center justify-between w-full md:w-auto pt-2 md:pt-0 border-t md:border-0 border-ink/10">
-            {/* Armor Class */}
-            <div className="text-center relative group min-w-[50px]">
-              <Shield className="w-10 h-10 sm:w-12 sm:h-12 text-ink mx-auto" />
-              <span className={`font-bold text-xl sm:text-2xl font-sans block -mt-7 sm:-mt-8 ${effectiveAC !== character.ac ? 'text-magic-gold' : ''}`}>
+            {/* Armor Class (CA) */}
+            <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-parchment-dark rounded-xl border-2 border-magic-gold/60 shadow-md min-w-[85px] sm:min-w-[100px] relative">
+              <div className="flex items-center gap-1 mb-0.5">
+                <Shield className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-magic-gold shrink-0" />
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider font-cinzel text-ink">CA</span>
+              </div>
+              
+              <span className={`font-bold text-2xl sm:text-3xl font-sans font-mono leading-none my-0.5 ${effectiveAC !== character.ac ? 'text-magic-gold' : 'text-ink'}`}>
                 {effectiveAC}
               </span>
-              <span className="text-[10px] sm:text-xs uppercase tracking-widest font-sans block mt-1">CA</span>
+
+              <span className="text-[9px] text-ink-light font-sans font-semibold">Armadura</span>
+
               {isEditing && (
-                <button onClick={() => setStatEdit({ stat: 'ac', value: 0, turns: "" })} className="absolute -top-1 -right-1 p-1 bg-magic-gold rounded-full text-black hover:scale-110 transition cursor-pointer">
-                  <Plus className="w-3.5 h-3.5"/>
+                <button
+                  onClick={() => setStatEdit({ stat: 'ac', value: 0, turns: "" })}
+                  className="absolute -top-2 -right-2 p-1 bg-magic-gold rounded-full text-black hover:scale-110 transition cursor-pointer shadow"
+                  title="Modificar Clase de Armadura"
+                >
+                  <Plus className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
             
-            {/* HP */}
-            <div className="text-center relative group min-w-[70px]">
-              <Heart className="w-10 h-10 sm:w-12 sm:h-12 text-magic-red mx-auto fill-magic-red/20" />
-              <span className={`font-bold text-xl sm:text-2xl font-sans block -mt-7 sm:-mt-8 ${effectiveMaxHP !== character.hp.max ? 'text-magic-gold' : ''}`}>
-                {character.hp.current}/{effectiveMaxHP}
-              </span>
-              <span className="text-[10px] sm:text-xs uppercase tracking-widest font-sans block mt-1">{hpTerminology || 'HP'}</span>
-              
-              <div className="flex gap-1 justify-center mt-1">
+            {/* Puntos de Vida (HP / PG) */}
+            <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-parchment-dark rounded-xl border-2 border-magic-red/60 shadow-md min-w-[130px] sm:min-w-[150px] relative">
+              <div className="flex items-center gap-1.5 mb-1 flex-wrap justify-center">
+                <Heart className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-magic-red fill-magic-red shrink-0" />
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider font-cinzel text-ink">
+                  {hpTerminology || 'HP'}
+                </span>
+                {character.hp.temp > 0 && (
+                  <span className="text-[9px] font-bold bg-amber-500/20 text-amber-600 border border-amber-500/40 px-1.5 py-0.2 rounded">
+                    +{character.hp.temp} Temp
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-baseline gap-1 my-0.5">
+                <span className={`font-bold text-2xl sm:text-3xl font-sans font-mono leading-none ${character.hp.current <= 0 ? 'text-magic-red animate-pulse' : 'text-ink'}`}>
+                  {character.hp.current}
+                </span>
+                <span className="text-sm sm:text-base font-bold text-ink-light">/</span>
+                <span className={`font-bold text-lg sm:text-xl font-sans font-mono ${effectiveMaxHP !== character.hp.max ? 'text-magic-gold' : 'text-ink-light'}`}>
+                  {effectiveMaxHP}
+                </span>
+              </div>
+
+              <div className="flex gap-1 justify-center mt-1.5 w-full">
                 <button 
                   onClick={() => setHPModal({ open: true, type: 'current', amount: 0, turns: "" })}
-                  className="text-[10px] bg-magic-red text-white px-1.5 sm:px-2 py-0.5 rounded font-sans font-bold hover:bg-red-700 transition"
-                  title="Cambiar HP Actual"
+                  className="text-[10px] bg-magic-red text-white px-2 py-0.5 sm:py-1 rounded font-sans font-bold hover:bg-red-700 transition cursor-pointer shadow-sm flex-1 text-center"
+                  title="Ajustar HP Actual / Daño / Curación"
                 >
                   +/- HP
                 </button>
                 {isEditing && (
                   <button 
                     onClick={() => setHPModal({ open: true, type: 'max', amount: 0, turns: "" })}
-                    className="text-[10px] bg-magic-gold text-black px-1.5 sm:px-2 py-0.5 rounded font-sans font-bold hover:bg-yellow-500 transition"
+                    className="text-[10px] bg-parchment text-ink border border-ink/30 px-2 py-0.5 sm:py-1 rounded font-sans font-bold hover:bg-ink/10 transition cursor-pointer shadow-sm flex-1 text-center"
                     title="Modificar HP Máximo"
                   >
                     +Máx
@@ -1082,159 +1215,290 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
             )}
 
             {/* TAB 2: ACCIONES DE CLASE (D&D 5e) & LORE DM */}
-            {activeTab === "class_features" && (
-              <motion.div key="class_features" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-                <div className="border-b border-ink/20 pb-3 flex justify-between items-center flex-wrap gap-2">
-                  <div>
-                    <h3 className="text-2xl font-bold font-cinzel text-magic-gold">Acciones y Rasgos de Clase ({character.charClass})</h3>
-                    <p className="text-xs text-ink-light">Habilidades oficiales de Nivel {character.level} y rasgos otorgados por Lore/DM.</p>
-                  </div>
-                </div>
+            {activeTab === "class_features" && (() => {
+              const allFeatures: (ClassFeature & { isCustom?: boolean })[] = [
+                ...classFeatures.map(f => ({ ...f, isCustom: false })),
+                ...(character.customClassFeatures || []).map(f => ({ ...f, isCustom: true }))
+              ];
 
-                {/* Custom Class Feature Form (Pluma Mágica / Lore DM) */}
-                {isEditing && (
-                  <div className="p-4 bg-parchment border-2 border-magic-gold rounded-xl space-y-3 font-sans shadow-lg">
-                    <div className="flex justify-between items-center border-b border-ink/10 pb-2">
-                      <h4 className="font-bold text-base sm:text-lg text-magic-gold font-cinzel flex items-center gap-2">
-                        <Sparkles className="w-5 h-5"/> Otorgar Rasgo por Lore / DM (Libertad de Campaña)
-                      </h4>
+              const filteredFeatures = allFeatures.filter(f => {
+                const matchesSearch = !featureSearch || f.name.toLowerCase().includes(featureSearch.toLowerCase()) || f.description.toLowerCase().includes(featureSearch.toLowerCase());
+                if (!matchesSearch) return false;
+                if (featureFilter === 'all') return true;
+                if (featureFilter === 'active') return f.type === 'active';
+                if (featureFilter === 'passive') return f.type === 'passive';
+                if (featureFilter === 'short') return f.resetOn === 'short' || (f.usage && f.usage.toLowerCase().includes('corto'));
+                if (featureFilter === 'long') return f.resetOn === 'long' || (f.usage && f.usage.toLowerCase().includes('largo'));
+                return true;
+              });
+
+              return (
+                <motion.div key="class_features" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+                  <div className="border-b border-ink/20 pb-3 flex justify-between items-center flex-wrap gap-2">
+                    <div>
+                      <h3 className="text-2xl font-bold font-cinzel text-magic-gold">Acciones y Rasgos de Clase ({character.charClass})</h3>
+                      <p className="text-xs text-ink-light">Habilidades oficiales de Nivel {character.level} y rasgos otorgados por Lore/DM.</p>
                     </div>
-                    <p className="text-xs text-ink-light italic">
-                      📜 Nota: Esta herramienta permite al DM conceder bendiciones, títulos, artefactos o habilidades por historia sin restricción de nivel.
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <label className="block font-bold mb-1">Nombre del Rasgo</label>
-                        <input
-                          type="text"
-                          value={newFeature.name}
-                          onChange={e => setNewFeature({ ...newFeature, name: e.target.value })}
-                          placeholder="Ej. Bendición del Viento, Don Arcabuce..."
-                          className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold"
-                        />
-                      </div>
-                      <div>
-                        <label className="block font-bold mb-1">Tipo de Habilidad</label>
-                        <select
-                          value={newFeature.type}
-                          onChange={e => setNewFeature({ ...newFeature, type: e.target.value as 'active' | 'passive' })}
-                          className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold cursor-pointer"
-                        >
-                          <option value="active">⚡ Activa</option>
-                          <option value="passive">🛡️ Pasiva</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block font-bold mb-1">Uso / Recarga (Opcional)</label>
-                        <input
-                          type="text"
-                          value={newFeature.usage}
-                          onChange={e => setNewFeature({ ...newFeature, usage: e.target.value })}
-                          placeholder="Ej. 1 por Descanso Largo, Reacción..."
-                          className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
-                        />
-                      </div>
-                      <div className="col-span-full">
-                        <label className="block font-bold mb-1">Descripción del Rasgo</label>
-                        <input
-                          type="text"
-                          value={newFeature.desc}
-                          onChange={e => setNewFeature({ ...newFeature, desc: e.target.value })}
-                          placeholder="Explicación del efecto o bono otorgado..."
-                          className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex justify-end">
+                  </div>
+
+                  {/* Filter & Search Bar + Focus Mode Launcher */}
+                  <div className="bg-parchment p-3 rounded-xl border border-ink/20 flex flex-wrap justify-between items-center gap-3 font-sans shadow-sm">
+                    <div className="flex items-center gap-1.5 flex-wrap text-xs">
                       <button
-                        onClick={handleAddCustomFeature}
-                        className="px-4 py-2 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer flex items-center gap-1 shadow"
+                        onClick={() => setFeatureFilter('all')}
+                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'all' ? 'bg-magic-gold text-black' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
                       >
-                        <Plus className="w-4 h-4"/> Otorgar Rasgo
+                        Todas ({allFeatures.length})
+                      </button>
+                      <button
+                        onClick={() => setFeatureFilter('active')}
+                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'active' ? 'bg-magic-red text-white' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
+                      >
+                        ⚡ Activas
+                      </button>
+                      <button
+                        onClick={() => setFeatureFilter('passive')}
+                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'passive' ? 'bg-ink text-parchment-dark' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
+                      >
+                        🛡️ Pasivas
+                      </button>
+                      <button
+                        onClick={() => setFeatureFilter('short')}
+                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'short' ? 'bg-amber-600 text-white' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
+                      >
+                        ☕ Descanso Corto
+                      </button>
+                      <button
+                        onClick={() => setFeatureFilter('long')}
+                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'long' ? 'bg-indigo-600 text-white' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
+                      >
+                        ⛺ Descanso Largo
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <div className="relative w-full sm:w-48">
+                        <input
+                          type="text"
+                          value={featureSearch}
+                          onChange={e => setFeatureSearch(e.target.value)}
+                          placeholder="Buscar rasgo..."
+                          className="p-1.5 pl-7 text-xs bg-parchment-dark border border-ink/30 rounded text-ink font-bold w-full focus:outline-none focus:border-magic-gold"
+                        />
+                        <Search className="w-3.5 h-3.5 text-ink-light absolute left-2 top-2" />
+                      </div>
+                      <button
+                        onClick={() => setFocusFeaturesModalOpen(true)}
+                        className="px-3 py-1.5 bg-magic-gold text-black text-xs font-bold rounded hover:bg-yellow-500 transition cursor-pointer shadow shrink-0 flex items-center gap-1"
+                        title="Ampliar vista de acciones a pantalla completa"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5" /> Modo Enfoque
                       </button>
                     </div>
                   </div>
-                )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-sans">
-                  {/* Official Class Features */}
-                  {classFeatures.map((feat, idx) => (
-                    <div key={`off_${idx}`} className="p-4 bg-parchment border-2 border-magic-gold/30 rounded-xl space-y-2 relative shadow-md">
-                      <div className="flex justify-between items-start">
-                        <h4 className="font-bold text-lg text-magic-gold font-cinzel">{feat.name}</h4>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
-                            {feat.type === 'active' ? '⚡ Activa' : '🛡️ Pasiva'}
-                          </span>
-                          {isEditing && (
-                            <button
-                              onClick={() => setFeatureEditModal({ open: true, oldName: feat.name, name: feat.name, type: feat.type, usage: feat.usage || '', desc: feat.description })}
-                              className="text-ink-light hover:text-magic-gold p-1 cursor-pointer"
-                              title="Editar Rasgo (Pluma Mágica)"
-                            >
-                              <PenTool className="w-4 h-4" />
-                            </button>
-                          )}
+                  {/* Custom Class Feature Form (Pluma Mágica / Lore DM) */}
+                  {isEditing && (
+                    <div className="p-4 bg-parchment border-2 border-magic-gold rounded-xl space-y-3 font-sans shadow-lg">
+                      <div className="flex justify-between items-center border-b border-ink/10 pb-2">
+                        <h4 className="font-bold text-base sm:text-lg text-magic-gold font-cinzel flex items-center gap-2">
+                          <Sparkles className="w-5 h-5"/> Otorgar Rasgo por Lore / DM (Libertad de Campaña)
+                        </h4>
+                      </div>
+                      <p className="text-xs text-ink-light italic">
+                        📜 Nota: Esta herramienta permite al DM conceder bendiciones, títulos, artefactos o habilidades por historia sin restricción de nivel.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <label className="block font-bold mb-1">Nombre del Rasgo</label>
+                          <input
+                            type="text"
+                            value={newFeature.name}
+                            onChange={e => setNewFeature({ ...newFeature, name: e.target.value })}
+                            placeholder="Ej. Bendición del Viento, Don Arcabuce..."
+                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold mb-1">Tipo de Habilidad</label>
+                          <select
+                            value={newFeature.type}
+                            onChange={e => setNewFeature({ ...newFeature, type: e.target.value as 'active' | 'passive' })}
+                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold cursor-pointer"
+                          >
+                            <option value="active">⚡ Activa</option>
+                            <option value="passive">🛡️ Pasiva</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block font-bold mb-1">Uso / Recarga (Opcional)</label>
+                          <input
+                            type="text"
+                            value={newFeature.usage}
+                            onChange={e => setNewFeature({ ...newFeature, usage: e.target.value })}
+                            placeholder="Ej. 1 por Descanso Largo, Reacción..."
+                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
+                          />
+                        </div>
+                        <div className="col-span-full">
+                          <label className="block font-bold mb-1">Descripción del Rasgo</label>
+                          <input
+                            type="text"
+                            value={newFeature.desc}
+                            onChange={e => setNewFeature({ ...newFeature, desc: e.target.value })}
+                            placeholder="Explicación del efecto o bono otorgado..."
+                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
+                          />
                         </div>
                       </div>
-                      <p className="text-sm text-ink">{feat.description}</p>
-                      {feat.usage && (
-                        <div className="pt-2 border-t border-ink/10 flex items-center gap-2 text-xs font-bold text-ink-light">
-                          <span>Uso:</span>
-                          <span className="bg-magic-gold/20 text-magic-gold px-2 py-0.5 rounded">{feat.usage}</span>
-                        </div>
-                      )}
+                      <div className="flex justify-end">
+                        <button
+                          onClick={handleAddCustomFeature}
+                          className="px-4 py-2 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer flex items-center gap-1 shadow"
+                        >
+                          <Plus className="w-4 h-4"/> Otorgar Rasgo
+                        </button>
+                      </div>
                     </div>
-                  ))}
+                  )}
 
-                  {/* Custom Features granted by Lore/DM */}
-                  {(character.customClassFeatures || []).map((feat, idx) => (
-                    <div key={`cust_${idx}`} className="p-4 bg-parchment-dark border-2 border-magic-gold rounded-xl space-y-2 relative shadow-lg">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-bold text-lg text-magic-gold font-cinzel flex items-center gap-2">
-                            📜 {feat.name}
-                          </h4>
-                          <span className="text-[10px] bg-magic-gold/20 text-magic-gold font-bold px-2 py-0.5 rounded uppercase block mt-1">
-                            Otorgado por Lore / DM
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
-                            {feat.type === 'active' ? '⚡ Activa' : '🛡️ Pasiva'}
-                          </span>
-                          {isEditing && (
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => setFeatureEditModal({ open: true, oldName: feat.name, name: feat.name, type: feat.type, usage: feat.usage || '', desc: feat.description })}
-                                className="text-ink-light hover:text-magic-gold p-1 cursor-pointer"
-                                title="Editar Rasgo (Pluma Mágica)"
-                              >
-                                <PenTool className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => removeCustomClassFeature(feat.name)}
-                                className="text-ink-light hover:text-magic-red p-1 cursor-pointer"
-                                title="Retirar Rasgo"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                  {/* Features Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-sans">
+                    {filteredFeatures.map((feat, idx) => {
+                      const curUses = feat.currentUses ?? feat.maxUses;
+                      return (
+                        <div 
+                          key={idx} 
+                          className={`p-4 rounded-xl border-2 space-y-2.5 relative shadow-md ${feat.isCustom ? 'bg-parchment-dark border-magic-gold' : 'bg-parchment border-magic-gold/30'}`}
+                        >
+                          <div className="flex justify-between items-start gap-2">
+                            <div>
+                              <h4 className="font-bold text-lg text-magic-gold font-cinzel flex items-center gap-2">
+                                {feat.isCustom && <span>📜</span>}
+                                {feat.name}
+                              </h4>
+                              {feat.isCustom && (
+                                <span className="text-[10px] bg-magic-gold/20 text-magic-gold font-bold px-2 py-0.5 rounded uppercase block mt-0.5">
+                                  Otorgado por Lore / DM
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
+                                {feat.type === 'active' ? '⚡ Activa' : '🛡️ Pasiva'}
+                              </span>
+                              {isEditing && (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => setFeatureEditModal({ open: true, oldName: feat.name, name: feat.name, type: feat.type, usage: feat.usage || '', desc: feat.description })}
+                                    className="text-ink-light hover:text-magic-gold p-1 cursor-pointer"
+                                    title="Editar Rasgo (Pluma Mágica)"
+                                  >
+                                    <PenTool className="w-4 h-4" />
+                                  </button>
+                                  {feat.isCustom && (
+                                    <button
+                                      onClick={() => removeCustomClassFeature(feat.name)}
+                                      className="text-ink-light hover:text-magic-red p-1 cursor-pointer"
+                                      title="Retirar Rasgo"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <p className="text-xs sm:text-sm text-ink/90 leading-relaxed">{feat.description}</p>
+
+                          {feat.usage && (
+                            <div className="pt-2 border-t border-ink/10 flex items-center justify-between text-xs font-bold">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-ink-light">Uso:</span>
+                                <span className="bg-magic-gold/20 text-magic-gold px-2 py-0.5 rounded">{feat.usage}</span>
+                              </div>
+                              {feat.maxUses !== undefined && (
+                                <div className="flex items-center gap-2">
+                                  <span className="bg-ink/10 text-ink font-mono px-2 py-0.5 rounded">
+                                    {curUses} / {feat.maxUses}
+                                  </span>
+                                  <button
+                                    onClick={() => useClassFeature(feat.name, character.id)}
+                                    disabled={curUses !== undefined && curUses <= 0}
+                                    className={`px-2.5 py-1 rounded text-[11px] font-bold text-white transition cursor-pointer ${curUses !== undefined && curUses > 0 ? 'bg-magic-red hover:bg-red-700 shadow-sm' : 'bg-gray-500 opacity-50 cursor-not-allowed'}`}
+                                  >
+                                    ⚡ Usar
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
-                      </div>
-                      <p className="text-sm text-ink/90">{feat.description}</p>
-                      {feat.usage && (
-                        <div className="pt-2 border-t border-ink/10 flex items-center gap-2 text-xs font-bold text-ink-light">
-                          <span>Uso:</span>
-                          <span className="bg-magic-gold/20 text-magic-gold px-2 py-0.5 rounded">{feat.usage}</span>
+                      );
+                    })}
+                  </div>
+
+                  {/* Focus Mode Fullscreen Modal */}
+                  <AnimatePresence>
+                    {focusFeaturesModalOpen && (
+                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4">
+                        <div className="bg-parchment-dark border-4 border-magic-gold p-6 rounded-2xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col font-sans">
+                          <div className="flex justify-between items-center border-b border-ink/20 pb-3 mb-4">
+                            <div>
+                              <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                                🔎 Modo Enfoque — Acciones de Clase ({character.charClass})
+                              </h3>
+                              <p className="text-xs text-ink-light">Consulta detallada de todas las habilidades de tu héroe.</p>
+                            </div>
+                            <button onClick={() => setFocusFeaturesModalOpen(false)} className="p-2 text-ink-light hover:text-ink cursor-pointer">
+                              <X className="w-6 h-6" />
+                            </button>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {filteredFeatures.map((feat, idx) => {
+                              const curUses = feat.currentUses ?? feat.maxUses;
+                              return (
+                                <div key={idx} className="p-5 bg-parchment rounded-xl border-2 border-magic-gold/40 shadow-lg flex flex-col justify-between space-y-3">
+                                  <div>
+                                    <div className="flex justify-between items-start gap-2 mb-2">
+                                      <h4 className="font-bold text-xl text-magic-gold font-cinzel">{feat.name}</h4>
+                                      <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
+                                        {feat.type === 'active' ? '⚡ Activa' : '🛡️ Pasiva'}
+                                      </span>
+                                    </div>
+                                    <p className="text-sm text-ink/90 leading-relaxed">{feat.description}</p>
+                                  </div>
+
+                                  {feat.usage && (
+                                    <div className="pt-2 border-t border-ink/10 flex items-center justify-between text-xs font-bold">
+                                      <span className="bg-magic-gold/20 text-magic-gold px-2.5 py-1 rounded">Uso: {feat.usage}</span>
+                                      {feat.maxUses !== undefined && (
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-mono text-sm bg-ink/10 px-2 py-0.5 rounded">{curUses} / {feat.maxUses}</span>
+                                          <button
+                                            onClick={() => useClassFeature(feat.name, character.id)}
+                                            disabled={curUses !== undefined && curUses <= 0}
+                                            className={`px-3 py-1 rounded font-bold text-white transition ${curUses !== undefined && curUses > 0 ? 'bg-magic-red hover:bg-red-700' : 'bg-gray-500 opacity-50 cursor-not-allowed'}`}
+                                          >
+                                            ⚡ Usar Carga
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              );
+            })()}
 
             {/* TAB 3: EQUIPAMIENTO CON BONOS DE CA AUTOMÁTICOS */}
             {activeTab === "equipment" && (
@@ -1261,13 +1525,14 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                 {/* SISTEMA DE MONEDAS D&D 5E */}
                 {(() => {
                   const cur = character.currency || { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+                  const isStandard = room?.currencyMode === 'standard';
                   const totalGPValue = (cur.pp * 10) + cur.gp + (cur.ep * 0.5) + (cur.sp * 0.1) + (cur.cp * 0.01);
                   return (
                     <div className="bg-parchment-dark p-4 sm:p-5 rounded-xl border-2 border-magic-gold/50 shadow-xl font-sans space-y-4">
                       <div className="flex justify-between items-center flex-wrap gap-2 border-b border-ink/10 pb-3">
                         <div>
                           <h4 className="font-bold text-lg sm:text-xl font-cinzel text-magic-gold flex items-center gap-2">
-                            💰 Bolsa de Monedas (D&D 5ª Edición)
+                            💰 Bolsa de Monedas ({isStandard ? 'Estándar CP/SP/GP' : 'D&D 5ª Edición'})
                           </h4>
                           <p className="text-xs text-ink-light">Monedas acumuladas en tu monedero y equivalencia en Piezas de Oro (PO / GP).</p>
                         </div>
@@ -1297,8 +1562,8 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                         </div>
                       </div>
 
-                      {/* Grid de las 5 Monedas D&D 5e */}
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+                      {/* Grid de Monedas */}
+                      <div className={`grid gap-3 text-center ${isStandard ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-5'}`}>
                         {/* CP */}
                         <div className="bg-amber-950/20 border border-amber-700/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm">
                           <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Cobre (CP)</span>
@@ -1314,11 +1579,13 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                         </div>
 
                         {/* EP */}
-                        <div className="bg-cyan-950/20 border border-cyan-500/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm">
-                          <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">Electrum (EP)</span>
-                          <span className="text-2xl font-bold text-cyan-300 font-cinzel my-1">{cur.ep}</span>
-                          <span className="text-[9px] text-ink-light">2 EP = 1 GP</span>
-                        </div>
+                        {!isStandard && (
+                          <div className="bg-cyan-950/20 border border-cyan-500/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm">
+                            <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">Electrum (EP)</span>
+                            <span className="text-2xl font-bold text-cyan-300 font-cinzel my-1">{cur.ep}</span>
+                            <span className="text-[9px] text-ink-light">2 EP = 1 GP</span>
+                          </div>
+                        )}
 
                         {/* GP */}
                         <div className="bg-yellow-950/30 border-2 border-magic-gold/70 p-3 rounded-lg flex flex-col items-center justify-between shadow-md">
@@ -1328,11 +1595,13 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                         </div>
 
                         {/* PP */}
-                        <div className="bg-indigo-950/20 border border-indigo-400/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm col-span-2 sm:col-span-1">
-                          <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Platino (PP)</span>
-                          <span className="text-2xl font-bold text-indigo-200 font-cinzel my-1">{cur.pp}</span>
-                          <span className="text-[9px] text-ink-light">1 PP = 10 GP</span>
-                        </div>
+                        {!isStandard && (
+                          <div className="bg-indigo-950/20 border border-indigo-400/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm col-span-2 sm:col-span-1">
+                            <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Platino (PP)</span>
+                            <span className="text-2xl font-bold text-indigo-200 font-cinzel my-1">{cur.pp}</span>
+                            <span className="text-[9px] text-ink-light">1 PP = 10 GP</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1625,7 +1894,7 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                     <div>
                       <h3 className="text-xl sm:text-2xl font-bold font-cinzel text-magic-gold">Espacios de Hechizo (Spell Slots)</h3>
                     </div>
-                    <button onClick={longRest} className="flex items-center gap-2 bg-magic-gold text-black px-4 py-2 rounded text-xs sm:text-sm font-bold hover:bg-yellow-500 transition cursor-pointer shadow">
+                    <button onClick={() => longRest()} className="flex items-center gap-2 bg-magic-gold text-black px-4 py-2 rounded text-xs sm:text-sm font-bold hover:bg-yellow-500 transition cursor-pointer shadow">
                       <Sun className="w-4 h-4" /> Descanso Largo
                     </button>
                   </div>
@@ -1761,15 +2030,25 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-sans">
-                    {notes.map((note) => (
+                    {[...notes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.createdAt - a.createdAt).map((note) => (
                       <div 
                         key={note.id} 
-                        className="p-5 bg-parchment rounded-xl border border-ink/20 shadow-md hover:border-magic-gold/60 transition flex flex-col justify-between space-y-3"
+                        className={`p-5 bg-parchment rounded-xl border transition flex flex-col justify-between space-y-3 shadow-md ${note.pinned ? 'border-magic-gold shadow-[0_0_15px_rgba(245,208,97,0.3)] bg-amber-950/5' : 'border-ink/20 hover:border-magic-gold/60'}`}
                       >
                         <div>
                           <div className="flex justify-between items-start gap-2 border-b border-ink/10 pb-2 mb-2">
-                            <h3 className="text-lg font-bold text-ink font-cinzel break-words">{note.title}</h3>
+                            <h3 className="text-lg font-bold text-ink font-cinzel break-words flex items-center gap-2">
+                              {note.pinned && <span className="text-xs bg-magic-gold text-black font-bold px-1.5 py-0.5 rounded">📌 Fijada</span>}
+                              {note.title}
+                            </h3>
                             <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => togglePinNote(note.id)}
+                                className={`p-1.5 transition cursor-pointer ${note.pinned ? 'text-magic-gold' : 'text-ink-light opacity-40 hover:opacity-100'}`}
+                                title={note.pinned ? "Desfijar Nota" : "Fijar Nota al Inicio"}
+                              >
+                                <Pin className="w-4 h-4" />
+                              </button>
                               <button 
                                 onClick={() => setNoteModal({ open: true, editingId: note.id, title: note.title, content: note.content })}
                                 className="p-1.5 text-ink-light hover:text-magic-gold transition cursor-pointer"
@@ -2443,11 +2722,80 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* DM DIRECT MESSAGE MODAL */}
+          <AnimatePresence>
+            {dmMessageModal.open && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3 font-sans">
+                <div className="bg-parchment-dark border-4 border-magic-gold p-5 rounded-xl shadow-2xl w-[95%] max-w-lg space-y-4">
+                  <div className="flex justify-between items-center border-b border-ink/20 pb-3">
+                    <h3 className="text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                      ✉️ Enviar Mensaje / Trasfondo al DM
+                    </h3>
+                    <button onClick={() => setDmMessageModal({ open: false, content: '' })} className="p-1 text-ink-light hover:text-ink">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <p className="text-xs text-ink-light">
+                    Envía notas de historia, secretos, intenciones o peticiones privadas a tu Maestro de la Mazmorra (DM). Máximo 500 caracteres (máximo 5 mensajes activos).
+                  </p>
+                  <div>
+                    <textarea
+                      value={dmMessageModal.content}
+                      onChange={(e) => setDmMessageModal({ ...dmMessageModal, content: e.target.value.slice(0, 500) })}
+                      placeholder="Escribe tu mensaje privado para el DM..."
+                      rows={5}
+                      className="w-full p-3 bg-parchment border border-ink/30 rounded-lg text-xs text-ink font-sans leading-relaxed focus:outline-none focus:border-magic-gold"
+                    />
+                    <div className="flex justify-between items-center text-[10px] text-ink-light mt-1">
+                      <span>Solo visible para el DM de la sala.</span>
+                      <span className={dmMessageModal.content.length >= 500 ? 'text-magic-red font-bold' : ''}>
+                        {dmMessageModal.content.length} / 500
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2 border-t border-ink/20">
+                    <button
+                      onClick={() => setDmMessageModal({ open: false, content: '' })}
+                      className="px-4 py-2 text-xs font-bold text-ink-light hover:text-ink cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!dmMessageModal.content.trim()) return;
+                        const roomId = character.roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
+                        if (!roomId) {
+                          showAlert("Debes estar en una sala de campaña para enviar mensajes al DM.", "Sala Requerida", "warning");
+                          return;
+                        }
+                        await sendDirectMessageToDM(roomId, {
+                          senderId: character.id,
+                          senderName: character.name,
+                          characterName: character.name,
+                          content: dmMessageModal.content.trim()
+                        });
+                        showAlert("✉️ Mensaje enviado con éxito al DM.", "Mensaje Enviado", "success");
+                        setDmMessageModal({ open: false, content: '' });
+                      }}
+                      disabled={!dmMessageModal.content.trim()}
+                      className={`px-5 py-2 bg-magic-gold text-black rounded text-xs font-bold hover:bg-yellow-500 transition shadow cursor-pointer ${!dmMessageModal.content.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      Enviar Mensaje
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         </div>
         )}
 
       </div>
+
+      {/* 3D DICE ROLLER LAUNCHER */}
+      <DiceRoller />
 
       {/* TUTORIAL MODAL */}
       <TutorialModal open={tutorialOpen} onClose={() => setTutorialOpen(false)} />

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Shield, Sparkles, Mail, Github, HelpCircle, FileText, Lock, Cookie, ArrowUpRight, Heart } from "lucide-react";
+import { Shield, Sparkles, Mail, Code2, HelpCircle, FileText, Lock, Cookie, ArrowUpRight, Heart } from "lucide-react";
 
 export default function Footer() {
   return (
@@ -136,7 +136,7 @@ export default function Footer() {
               className="hover:text-magic-gold transition p-1.5 bg-ink/5 rounded-lg border border-ink/10"
               title="Repositorio GitHub de DnD Companion"
             >
-              <Github className="w-4 h-4" />
+              <Code2 className="w-4 h-4" />
             </a>
             <a 
               href="mailto:soporte@idoneus-software.dev" 

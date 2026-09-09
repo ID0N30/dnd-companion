@@ -43,3 +43,9 @@ next-env.d.ts
 # personal developer playbook / lessons learned
 .dev_playbook.md
 *.playbook.md
+
+# debug logs & metrics
+firebase-debug.log*
+/metricas
+metricas/
+

@@ -1,7 +1,7 @@
 import { db } from "./firebase";
 import { 
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, 
-  query, where, orderBy, onSnapshot, serverTimestamp 
+  query, where, orderBy, limit, onSnapshot, serverTimestamp 
 } from "firebase/firestore";
 import { CharacterState, LogEntry } from "@/store/useStore";
 import { logError, saveOfflineCharacterBackup } from "./errorLogger";
@@ -49,7 +49,8 @@ export const subscribePublicRooms = (callback: (rooms: Room[]) => void) => {
   try {
     const q = query(
       collection(db, "rooms"),
-      where("isPublic", "==", true)
+      where("isPublic", "==", true),
+      limit(30)
     );
     
     return onSnapshot(q, (snapshot) => {
@@ -173,12 +174,12 @@ export const subscribeRoomPlayers = (roomId: string, callback: (players: Charact
   }
 };
 
-// 5. Subscribe to Room Logs (Real-time Action Log Tracker)
+// 5. Subscribe to Room Logs (Real-time Action Log Tracker with limit protection)
 export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) => void) => {
   if (!db || !roomId) return () => {};
   try {
     const logsRef = collection(db, "rooms", roomId, "logs");
-    const q = query(logsRef, orderBy("timestamp", "desc"));
+    const q = query(logsRef, orderBy("timestamp", "desc"), limit(30));
     
     return onSnapshot(q, (snapshot) => {
       const logs = snapshot.docs.map(doc => ({
@@ -188,7 +189,7 @@ export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) =
       callback(logs);
     }, (_err) => {
       // Fallback if index error occurs
-      const qSimple = query(logsRef);
+      const qSimple = query(logsRef, limit(30));
       return onSnapshot(qSimple, (snapshot) => {
         const logs = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -204,7 +205,9 @@ export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) =
   }
 };
 
-// 6. Save/Update Player Character in Room (Rate-limited + Offline fallback)
+// 6. Save/Update Player Character in Room (Rate-limited + Deduplicated + Offline fallback)
+const lastSavedDataMap = new Map<string, string>();
+
 export const savePlayerInRoom = async (roomId: string, character: CharacterState, forceWrite: boolean = false) => {
   if (!db || !roomId || !character || !character.id) return;
   const writeKey = `${roomId}_${character.id}`;
@@ -213,7 +216,18 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
     saveOfflineCharacterBackup(character);
     return;
   }
+
+  // Deduplicate write: if character state (excluding lastSeen) hasn't changed, skip setDoc
+  const { lastSeen: _ls, ...meaningfulData } = character;
+  const dataString = JSON.stringify(cleanFirebaseData(meaningfulData));
+  const previousDataString = lastSavedDataMap.get(writeKey);
+  
+  if (!forceWrite && previousDataString === dataString) {
+    return;
+  }
+
   lastWriteTimeMap.set(writeKey, Date.now());
+  lastSavedDataMap.set(writeKey, dataString);
 
   try {
     const playerRef = doc(db, "rooms", roomId, "players", character.id);

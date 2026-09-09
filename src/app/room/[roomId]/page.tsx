@@ -106,12 +106,12 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         }
       }
 
-      // Filter out kicked flags from room players for rendering
-      const activeRoomPlayers = roomPlayers.filter(p => !(p as any).kicked);
+      // Filter out kicked flags and demo characters from real room players
+      const activeRoomPlayers = roomPlayers.filter(p => !(p as any).kicked && p.id !== 'drizzt_dourden_demo');
 
-      // Preserve user's local owned characters so they are NEVER permanently lost
+      // Preserve user's local owned characters for this user so they are NEVER permanently lost
       const currentPlayers = useStore.getState().players;
-      const myOwnedLocalChars = currentPlayers.filter(p => user && p.ownerId === user.uid);
+      const myOwnedLocalChars = currentPlayers.filter(p => user && p.ownerId === user.uid && p.roomId === roomId && p.id !== 'drizzt_dourden_demo');
       
       const combined = [...activeRoomPlayers];
       myOwnedLocalChars.forEach(localChar => {
@@ -142,11 +142,17 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     }
   }, [isDM]);
 
-  // Non-DM Player character selection logic (Scoped strictly to user.uid)
+  // Non-DM Player character selection logic (Scoped strictly to user.uid & room)
   useEffect(() => {
     if (isDM || !room || !user) return;
     
-    const userOwnedPlayers = players.filter(p => p.ownerId === user.uid || (!p.ownerId && p.id === activePlayerId));
+    // Clear demo character if active in a real room
+    if (activePlayerId === 'drizzt_dourden_demo') {
+      setActivePlayerId("");
+    }
+    
+    const validPlayers = players.filter(p => p.id !== 'drizzt_dourden_demo' && (p.roomId === roomId || p.roomId === undefined));
+    const userOwnedPlayers = validPlayers.filter(p => p.ownerId === user.uid || (p.ownerId === undefined && p.id === activePlayerId && p.id !== 'drizzt_dourden_demo'));
     const activeChar = userOwnedPlayers.find(p => p.id === activePlayerId);
 
     if (!activeChar) {
@@ -184,7 +190,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     };
 
     updatePresence(true);
-    const interval = setInterval(() => updatePresence(true), 15000);
+    const interval = setInterval(() => updatePresence(true), 45000);
 
     const handleBeforeUnload = () => updatePresence(false);
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -219,7 +225,8 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       newCharForm.level,
       undefined,
       ownerId,
-      ownerName
+      ownerName,
+      roomId
     );
     if (!newId) return;
     
@@ -377,7 +384,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
               </div>
             </div>
           ) : (
-            <CharacterSheetPage />
+            <CharacterSheetPage isDM={isDM} />
           )
         )}
         
@@ -390,13 +397,13 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                 <Users className="w-8 h-8" /> Integrantes de {room.name}
               </h2>
               <span className="text-xs font-bold text-ink-light bg-parchment px-3 py-1.5 rounded border border-ink/20">
-                🟢 {players.filter(p => p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 45000)).length} en línea / {players.length} totales
+                🟢 {players.filter(p => p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 65000)).length} en línea / {players.length} totales
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
               {players.map(p => {
-                const online = p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 45000);
+                const online = p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 65000);
                 return (
                   <div key={p.id} className={`p-6 rounded-xl border-2 shadow-xl space-y-4 ${p.isDead ? 'bg-black/80 border-magic-red text-white' : 'bg-parchment-dark border-magic-gold/40'} ${!online ? 'opacity-70' : ''}`}>
                     <div className="flex justify-between items-start">
@@ -414,15 +421,22 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                           Jugador: {p.ownerName || (p.ownerId ? 'Registrado' : 'Sin asignar')} {p.ownerId === user?.uid ? '✦ (Tuyo)' : ''}
                         </span>
                       </div>
-                      {p.isDead ? (
-                        <span className="text-xs bg-magic-red text-white font-bold px-2.5 py-1 rounded">☠️ Fallecido</span>
-                      ) : (
-                        p.initiative && (
-                          <span className="text-xs bg-magic-gold/20 text-magic-gold font-bold px-2 py-1 rounded">
-                            Iniciativa: {p.initiative.total}
+                      <div className="flex gap-1.5 flex-wrap items-center">
+                        {p.inspiration && (
+                          <span className="text-[10px] bg-magic-gold text-black font-bold px-2 py-0.5 rounded shadow">
+                            ⭐ Inspiración
                           </span>
-                        )
-                      )}
+                        )}
+                        {p.isDead ? (
+                          <span className="text-xs bg-magic-red text-white font-bold px-2.5 py-1 rounded">☠️ Fallecido</span>
+                        ) : (
+                          isCombatMode && p.initiative && (
+                            <span className="text-xs bg-magic-gold/20 text-magic-gold font-bold px-2 py-1 rounded">
+                              Iniciativa: {p.initiative.total}
+                            </span>
+                          )
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex justify-around bg-parchment p-3 rounded text-center border border-ink/10 text-ink">

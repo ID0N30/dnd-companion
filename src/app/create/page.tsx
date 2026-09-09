@@ -4,8 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStore } from "@/store/useStore";
-import { CLASS_SAVING_THROWS, CLASS_HIT_DIE, calculateMaxHP, getClassFeaturesForLevel } from "@/lib/dndClassFeatures";
-import { ArrowRight, ArrowLeft, Save, Shield, Heart, Sparkles, Zap, Award } from "lucide-react";
+import { CLASS_SAVING_THROWS, CLASS_HIT_DIE, calculateMaxHP, getClassFeaturesForLevel, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS } from "@/lib/dndClassFeatures";
+import { ArrowRight, ArrowLeft, Save, Shield, Heart, Sparkles, Zap, Award, Package, BookOpen } from "lucide-react";
 
 const RACES = ["Humano", "Elfo", "Enano", "Mediano", "Dracónido", "Tieflling", "Gnomo", "Semielfo", "Semiorco"];
 const CLASSES = ["Guerrero", "Mago", "Pícaro", "Clérigo", "Bardo", "Bárbaro", "Paladín", "Explorador", "Brujo", "Hechicero", "Monje"];
@@ -219,7 +219,7 @@ export default function CreateCharacterPage() {
                   <h4 className="font-bold text-sm text-ink flex items-center gap-2 font-cinzel">
                     <Sparkles className="w-4 h-4 text-magic-gold" /> Habilidades de Clase Desbloqueadas (Nivel {formData.level})
                   </h4>
-                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1 text-xs">
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1 text-xs">
                     {unlockedFeatures.map((feat, idx) => (
                       <div key={idx} className="p-2 bg-parchment-dark rounded border border-ink/10 flex justify-between items-start">
                         <div>
@@ -233,6 +233,37 @@ export default function CreateCharacterPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* Starting Equipment Preview */}
+                <div className="bg-parchment p-4 rounded border border-ink/20 space-y-3">
+                  <h4 className="font-bold text-sm text-ink flex items-center gap-2 font-cinzel">
+                    <Package className="w-4 h-4 text-magic-gold" /> Equipamiento Inicial Concedido ({formData.charClass})
+                  </h4>
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    {(CLASS_STARTING_EQUIPMENT[formData.charClass] || CLASS_STARTING_EQUIPMENT["Guerrero"]).map((item, idx) => (
+                      <span key={idx} className="bg-parchment-dark px-2.5 py-1 rounded border border-ink/10 font-semibold text-ink flex items-center gap-1">
+                        ✦ {item.name} <span className="text-[10px] text-ink-light">x{item.quantity}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Starting Spells Preview (if spellcaster) */}
+                {(CLASS_STARTING_SPELLS[formData.charClass] || []).length > 0 && (
+                  <div className="bg-parchment p-4 rounded border border-ink/20 space-y-3">
+                    <h4 className="font-bold text-sm text-ink flex items-center gap-2 font-cinzel">
+                      <BookOpen className="w-4 h-4 text-magic-gold" /> Conjuros Iniciales de Nivel 1 ({formData.charClass})
+                    </h4>
+                    <div className="space-y-1 text-xs">
+                      {CLASS_STARTING_SPELLS[formData.charClass].map((spell, idx) => (
+                        <div key={idx} className="p-1.5 bg-parchment-dark rounded border border-ink/10 flex justify-between items-center">
+                          <span className="font-bold text-magic-gold">✨ {spell.name}</span>
+                          <span className="text-[10px] text-ink-light italic">{spell.castingTime}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               </motion.div>
             )}

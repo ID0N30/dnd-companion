@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE } from "@/lib/dndClassFeatures";
+import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS } from "@/lib/dndClassFeatures";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import { addRoomLog, updateRoomState, savePlayerInRoom } from "@/lib/rooms";
 
@@ -59,6 +59,14 @@ export type DeathSaves = {
   failures: number;
 };
 
+export type Currency = {
+  cp: number;
+  sp: number;
+  ep: number;
+  gp: number;
+  pp: number;
+};
+
 export type CharacterState = {
   id: string;
   name: string;
@@ -66,8 +74,11 @@ export type CharacterState = {
   charClass: string;
   background: string;
   level: number;
+  roomId?: string;
   ownerId?: string;
   ownerName?: string;
+  inspiration?: boolean;
+  currency?: Currency;
   hp: { current: number; max: number; temp: number };
   ac: number;
   proficiencyBonus: number;
@@ -105,11 +116,24 @@ export const createDefaultCharacter = (
   level: number = 1,
   stats = { str: 16, dex: 14, con: 14, int: 10, wis: 12, cha: 8 },
   ownerId?: string,
-  ownerName?: string
+  ownerName?: string,
+  roomId?: string
 ): CharacterState => {
   const officialHP = calculateMaxHP(charClass || "Guerrero", level, stats.con);
   const officialProfBonus = Math.floor((level - 1) / 4) + 2;
   const officialSaveTypes = CLASS_SAVING_THROWS[charClass || "Guerrero"] || ["str", "con"];
+
+  const defaultItems = CLASS_STARTING_EQUIPMENT[charClass] || CLASS_STARTING_EQUIPMENT["Guerrero"] || [];
+  const initialInventory: Item[] = defaultItems.map((item, idx) => ({
+    id: 'item_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).substr(2, 4),
+    ...item
+  }));
+
+  const defaultSpells = CLASS_STARTING_SPELLS[charClass] || [];
+  const initialSpells: Spell[] = defaultSpells.map((spell, idx) => ({
+    id: 'spell_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).substr(2, 4),
+    ...spell
+  }));
 
   return {
     id,
@@ -118,11 +142,14 @@ export const createDefaultCharacter = (
     charClass,
     background,
     level,
+    roomId,
     ownerId,
     ownerName,
     createdAt: Date.now(),
     isOnline: true,
     lastSeen: Date.now(),
+    inspiration: false,
+    currency: { cp: 0, sp: 0, ep: 0, gp: 15, pp: 0 },
     hp: { current: officialHP, max: officialHP, temp: 0 },
     ac: 10 + Math.floor((stats.dex - 10) / 2),
     proficiencyBonus: officialProfBonus,
@@ -132,12 +159,8 @@ export const createDefaultCharacter = (
     spellSlots: {
       1: { max: 2, current: 2 }
     },
-    inventory: [
-      { id: '1', name: 'Espada Larga', type: 'weapon', description: 'Arma marcial cuerpo a cuerpo. Daño 1d8 cortante.', quantity: 1, damage: '1d8', equipped: true },
-      { id: '2', name: 'Armadura de Cuero', type: 'armor', description: 'Armadura ligera. Bonificador +2 CA.', quantity: 1, acBonus: 2, equipped: true },
-      { id: '3', name: 'Poción de Curación', type: 'consumable', description: 'Recupera 2d4 + 2 PG al consumirla.', quantity: 2, equipped: false }
-    ],
-    spells: [],
+    inventory: initialInventory,
+    spells: initialSpells,
     customClassFeatures: [],
     modifiers: [],
     isDying: false,
@@ -146,6 +169,52 @@ export const createDefaultCharacter = (
     isDead: false
   };
 };
+
+export const createFamousDrizztCharacter = (): CharacterState => ({
+  id: 'drizzt_dourden_demo',
+  name: "Drizzt Do'Urden",
+  race: "Elfo Oscuro (Drow)",
+  charClass: "Guerrero",
+  background: "Héroe de los Reinos",
+  level: 5,
+  createdAt: Date.now(),
+  isOnline: true,
+  lastSeen: Date.now(),
+  inspiration: true,
+  currency: { cp: 25, sp: 40, ep: 0, gp: 120, pp: 5 },
+  hp: { current: 44, max: 44, temp: 0 },
+  ac: 18,
+  proficiencyBonus: 3,
+  stats: { str: 14, dex: 20, con: 15, int: 14, wis: 16, cha: 14 },
+  savingThrows: ["str", "con", "dex"],
+  pinnedSkills: ["Atletismo", "Acrobacia", "Percepción", "Sigilo"],
+  spellSlots: {
+    1: { max: 2, current: 2 }
+  },
+  inventory: [
+    { id: 'drizzt_item_1', name: 'Cimitarra Hielo (Icingdeath)', type: 'weapon', description: 'Cimitarra mágica legendaria (+1d6 daño de frío, absorbe fuego). Daño 1d6+5 cortante.', quantity: 1, damage: '1d6+5', equipped: true },
+    { id: 'drizzt_item_2', name: 'Cimitarra Centello (Twinkle)', type: 'weapon', description: 'Cimitarra mágica élfica (+1 CA extra al defender). Daño 1d6+5 cortante.', quantity: 1, damage: '1d6+5', acBonus: 1, equipped: true },
+    { id: 'drizzt_item_3', name: 'Arco Largo de Cimitarra', type: 'weapon', description: 'Arco largo de madera fina. Daño 1d8+5 perforante a distancia.', quantity: 1, damage: '1d8+5', equipped: false },
+    { id: 'drizzt_item_4', name: 'Malla de Mithral Drow', type: 'armor', description: 'Armadura ligera de mithral forjada en la Infraoscuridad. Bonificador +3 CA.', quantity: 1, acBonus: 3, equipped: true },
+    { id: 'drizzt_item_5', name: 'Poción de Curación Suprema', type: 'consumable', description: 'Recupera 4d4 + 4 HP al consumirla.', quantity: 2, equipped: false },
+    { id: 'drizzt_item_6', name: 'Figurilla de Guenhwyvar', type: 'quest', description: 'Estatuilla de ónice que invoca a la Pantera Astral Guenhwyvar.', quantity: 1, equipped: false }
+  ],
+  spells: [
+    { id: 'drizzt_spell_1', name: "Fuego de Hada (Faerie Fire)", level: 1, school: "Evocación", description: "Rodea de luz mágica a los enemigos otorgando ventaja en ataques.", castingTime: "1 Acción" },
+    { id: 'drizzt_spell_2', name: "Oscuridad Mágica (Darkness)", level: 2, school: "Evocación", description: "Esfera de 15 pies de oscuridad impenetrable.", castingTime: "1 Acción" }
+  ],
+  customClassFeatures: [
+    { name: "Estilo Dos Armas", type: "passive", unlockedAtLevel: 1, description: "Añades tu modificador de atributo al daño del segundo ataque con cimitarra." },
+    { name: "Segundo Viento", type: "active", unlockedAtLevel: 1, description: "Recuperas 1d10+5 HP como acción adicional.", usage: "1 por Descanso Corto" },
+    { name: "Acción Oleada", type: "active", unlockedAtLevel: 2, description: "Realizas una acción adicional en tu turno.", usage: "1 por Descanso Corto" },
+    { name: "Visión en la Oscuridad Superior (Drow)", type: "passive", unlockedAtLevel: 1, description: "Ves en la oscuridad absoluta hasta 120 pies." }
+  ],
+  modifiers: [],
+  isDying: false,
+  isStable: false,
+  deathSaves: { successes: 0, failures: 0 },
+  isDead: false
+});
 
 export type LevelUpEvent = {
   id: string;
@@ -161,17 +230,26 @@ export interface StoreState {
   isCombatMode: boolean;
   initiativeOrder: string[];
   currentTurnIndex: number;
-  toggleCombatMode: (status?: boolean, targetRoomId?: string) => void;
+  toggleCombatMode: (status?: boolean, targetRoomId?: string, selectedPlayerIds?: string[]) => void;
   advanceTurn: (targetRoomId?: string) => void;
   
   players: CharacterState[];
   activePlayerId: string;
   setActivePlayerId: (id: string) => void;
-  createCharacter: (name: string, race: string, charClass: string, background: string, level?: number, stats?: any, ownerId?: string, ownerName?: string) => string;
+  createCharacter: (name: string, race: string, charClass: string, background: string, level?: number, stats?: any, ownerId?: string, ownerName?: string, roomId?: string) => string;
+  loadFamousDemoCharacter: () => string;
   updateActiveCharacter: (updates: Partial<CharacterState>) => void;
+  toggleInspiration: (playerId?: string, status?: boolean) => void;
   updateStat: (stat: string, value: number, isPermanent: boolean, duration?: number) => void;
   setBaseStatScore: (stat: string, score: number) => void;
+  updatePlayerStatsByDM: (playerId: string, stats: Partial<CharacterState['stats']>) => void;
+  updatePlayerHPByDM: (playerId: string, hpUpdates: Partial<CharacterState['hp']>) => void;
+  addItemToPlayer: (playerId: string, item: Item) => void;
+  removeItemFromPlayer: (playerId: string, itemId: string) => void;
+  addSpellToPlayer: (playerId: string, spell: Spell) => void;
+  removeSpellToPlayer: (playerId: string, spellId: string) => void;
   addCustomClassFeature: (feature: ClassFeature) => void;
+  updateCustomClassFeature: (oldName: string, feature: ClassFeature) => void;
   removeCustomClassFeature: (featureName: string) => void;
   modifyHPMax: (amount: number, isPermanent: boolean, duration?: number) => void;
   modifyHPCurrent: (amount: number) => void;
@@ -194,13 +272,18 @@ export interface StoreState {
   setHPTerminology: (terminology: 'PG' | 'HP') => void;
   
   addItem: (item: Item, isTemp: boolean, duration?: number) => void;
+  updateItem: (itemId: string, updates: Partial<Item>) => void;
   removeItem: (id: string) => void;
   consumeItem: (id: string) => void;
   addSpell: (spell: Spell, isTemp: boolean, duration?: number) => void;
+  updateSpell: (spellId: string, updates: Partial<Spell>) => void;
   removeSpell: (id: string) => void;
   addModifier: (mod: Modifier) => void;
   removeModifier: (id: string) => void;
   
+  updateCurrency: (playerId?: string, updates?: Partial<Currency>) => void;
+  spendCurrency: (playerId?: string, spend?: Partial<Currency>, reason?: string) => void;
+
   logs: LogEntry[];
   addLog: (message: string) => void;
   lastTurnEvent?: { id: string; timestamp: number } | null;
@@ -213,7 +296,7 @@ export const useStore = create<StoreState>((set, get) => ({
   initiativeOrder: [],
   currentTurnIndex: 0,
   
-  toggleCombatMode: (status, targetRoomId) => {
+  toggleCombatMode: (status, targetRoomId, selectedPlayerIds) => {
     const currentStatus = get().isCombatMode;
     const newStatus = status !== undefined ? status : !currentStatus;
     
@@ -227,14 +310,20 @@ export const useStore = create<StoreState>((set, get) => ({
     
     if (newStatus) {
       const now = Date.now();
-      const presentPlayers = get().players.filter(p => {
-        if (p.isOnline === false) return false;
-        if (p.lastSeen && (now - p.lastSeen) > 45000) return false;
-        return true;
-      });
+      let targetIds: string[] = [];
 
-      const targetPlayers = presentPlayers.length > 0 ? presentPlayers : get().players;
-      const targetIds = targetPlayers.map(p => p.id);
+      if (selectedPlayerIds && selectedPlayerIds.length > 0) {
+        targetIds = selectedPlayerIds;
+      } else {
+        const presentPlayers = get().players.filter(p => {
+          if (p.isOnline === false) return false;
+          if (p.lastSeen && (now - p.lastSeen) > 45000) return false;
+          return true;
+        });
+
+        const targetPlayers = presentPlayers.length > 0 ? presentPlayers : get().players;
+        targetIds = targetPlayers.map(p => p.id);
+      }
 
       const updatedPlayers = get().players.map(p => {
         if (!targetIds.includes(p.id)) return p;
@@ -281,14 +370,16 @@ export const useStore = create<StoreState>((set, get) => ({
       set({
         isCombatMode: false,
         initiativeOrder: [],
-        currentTurnIndex: 0
+        currentTurnIndex: 0,
+        lastTurnEvent: null
       });
 
       if (activeRoomId) {
         updateRoomState(activeRoomId, {
           isCombatMode: false,
           initiativeOrder: [],
-          currentTurnIndex: 0
+          currentTurnIndex: 0,
+          lastTurnEvent: null
         });
       }
     }
@@ -299,14 +390,14 @@ export const useStore = create<StoreState>((set, get) => ({
   
   setActivePlayerId: (id) => set({ activePlayerId: id }),
   
-  createCharacter: (name, race, charClass, background, level = 1, stats, ownerId, ownerName) => {
+  createCharacter: (name, race, charClass, background, level = 1, stats, ownerId, ownerName, roomId) => {
     const existingNames = get().players.map(p => p.name.trim().toLowerCase());
     if (existingNames.includes(name.trim().toLowerCase())) {
       alert(`⚠️ Ya existe un personaje llamado "${name.trim()}" en esta campaña. Por favor, elige un nombre único.`);
       return '';
     }
     const newId = 'player_' + Date.now();
-    const newChar = createDefaultCharacter(newId, name, race, charClass, background, level, stats, ownerId, ownerName);
+    const newChar = createDefaultCharacter(newId, name, race, charClass, background, level, stats, ownerId, ownerName, roomId);
     set((state) => ({
       players: [...state.players, newChar],
       activePlayerId: newId
@@ -314,10 +405,157 @@ export const useStore = create<StoreState>((set, get) => ({
     get().addLog(`✨ ¡Nuevo aventurero creado!: ${newChar.name} (${newChar.race} ${newChar.charClass} Nivel ${newChar.level})`);
     return newId;
   },
+
+  loadFamousDemoCharacter: () => {
+    const existing = get().players.find(p => p.id === 'drizzt_dourden_demo');
+    if (existing) {
+      set({ activePlayerId: existing.id });
+      return existing.id;
+    }
+    const drizzt = createFamousDrizztCharacter();
+    set((state) => ({
+      players: [drizzt, ...state.players],
+      activePlayerId: drizzt.id
+    }));
+    get().addLog(`🌟 ¡Héroe Legendario Cargado!: Drizzt Do'Urden (Elfo Oscuro Guerrero Nivel 5) en la Mesa de Prueba.`);
+    return drizzt.id;
+  },
   
   updateActiveCharacter: (updates) => {
     set((state) => ({
       players: state.players.map(p => p.id === state.activePlayerId ? { ...p, ...updates } : p)
+    }));
+  },
+
+  toggleInspiration: (playerId, status) => {
+    const targetId = playerId || get().activePlayerId;
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== targetId) return p;
+        const newStatus = status !== undefined ? status : !p.inspiration;
+        get().addLog(newStatus ? `⭐ ${p.name} ha obtenido INSPIRACIÓN de D&D 5e.` : `⭐ ${p.name} ha usado/perdido su Inspiración.`);
+        return { ...p, inspiration: newStatus };
+      })
+    }));
+  },
+
+  updateCurrency: (playerId, updates) => {
+    if (!updates) return;
+    const targetId = playerId || get().activePlayerId;
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== targetId) return p;
+        const currentCur = p.currency || { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+        const newCur: Currency = {
+          cp: Math.max(0, updates.cp !== undefined ? updates.cp : currentCur.cp),
+          sp: Math.max(0, updates.sp !== undefined ? updates.sp : currentCur.sp),
+          ep: Math.max(0, updates.ep !== undefined ? updates.ep : currentCur.ep),
+          gp: Math.max(0, updates.gp !== undefined ? updates.gp : currentCur.gp),
+          pp: Math.max(0, updates.pp !== undefined ? updates.pp : currentCur.pp),
+        };
+        return { ...p, currency: newCur };
+      })
+    }));
+  },
+
+  spendCurrency: (playerId, spend, reason) => {
+    if (!spend) return;
+    const targetId = playerId || get().activePlayerId;
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== targetId) return p;
+        const cur = p.currency || { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+        const spendCP = Math.max(0, spend.cp || 0);
+        const spendSP = Math.max(0, spend.sp || 0);
+        const spendEP = Math.max(0, spend.ep || 0);
+        const spendGP = Math.max(0, spend.gp || 0);
+        const spendPP = Math.max(0, spend.pp || 0);
+
+        const newCur: Currency = {
+          cp: Math.max(0, cur.cp - spendCP),
+          sp: Math.max(0, cur.sp - spendSP),
+          ep: Math.max(0, cur.ep - spendEP),
+          gp: Math.max(0, cur.gp - spendGP),
+          pp: Math.max(0, cur.pp - spendPP),
+        };
+
+        const spentParts: string[] = [];
+        if (spendPP > 0) spentParts.push(`${spendPP} PP (Platino)`);
+        if (spendGP > 0) spentParts.push(`${spendGP} GP (Oro)`);
+        if (spendEP > 0) spentParts.push(`${spendEP} EP (Electrum)`);
+        if (spendSP > 0) spentParts.push(`${spendSP} SP (Plata)`);
+        if (spendCP > 0) spentParts.push(`${spendCP} CP (Cobre)`);
+
+        if (spentParts.length > 0) {
+          const reasonText = reason ? ` [${reason}]` : '';
+          get().addLog(`💰 ${p.name} ha gastado ${spentParts.join(', ')}${reasonText}.`);
+        }
+
+        return { ...p, currency: newCur };
+      })
+    }));
+  },
+
+  updatePlayerStatsByDM: (playerId, stats) => {
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== playerId) return p;
+        get().addLog(`El DM ha actualizado las estadísticas base de ${p.name}.`);
+        return { ...p, stats: { ...p.stats, ...stats } };
+      })
+    }));
+  },
+
+  updatePlayerHPByDM: (playerId, hpUpdates) => {
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== playerId) return p;
+        const newHP = { ...p.hp, ...hpUpdates };
+        get().addLog(`El DM ha actualizado los Puntos de Vida de ${p.name} (${newHP.current}/${newHP.max} HP, ${newHP.temp || 0} Temp).`);
+        return { ...p, hp: newHP };
+      })
+    }));
+  },
+
+  addItemToPlayer: (playerId, item) => {
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== playerId) return p;
+        get().addLog(`El DM ha otorgado a ${p.name}: ${item.name} x${item.quantity}`);
+        return { ...p, inventory: [...p.inventory, item] };
+      })
+    }));
+  },
+
+  removeItemFromPlayer: (playerId, itemId) => {
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== playerId) return p;
+        const item = p.inventory.find(i => i.id === itemId);
+        if (item) get().addLog(`El DM ha retirado del inventario de ${p.name}: ${item.name}`);
+        return { ...p, inventory: p.inventory.filter(i => i.id !== itemId) };
+      })
+    }));
+  },
+
+  addSpellToPlayer: (playerId, spell) => {
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== playerId) return p;
+        get().addLog(`El DM ha otorgado el conjuro "${spell.name}" a ${p.name}.`);
+        return { ...p, spells: [...p.spells, spell] };
+      })
+    }));
+  },
+
+  removeSpellToPlayer: (playerId, spellId) => {
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== playerId) return p;
+        const spell = p.spells.find(s => s.id === spellId);
+        if (spell) get().addLog(`El DM ha eliminado el conjuro "${spell.name}" del grimorio de ${p.name}.`);
+        return { ...p, spells: p.spells.filter(s => s.id !== spellId) };
+      })
     }));
   },
 
@@ -720,6 +958,25 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
   },
 
+  updateCustomClassFeature: (oldName, feature) => {
+    const activeId = get().activePlayerId;
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== activeId) return p;
+        const currentCustom = p.customClassFeatures || [];
+        const exists = currentCustom.some(f => f.name === oldName);
+        get().addLog(`Rasgo por Lore/DM actualizado en ${p.name}: ${feature.name}`);
+        const updatedList = exists 
+          ? currentCustom.map(f => f.name === oldName ? feature : f)
+          : [...currentCustom, feature];
+        return {
+          ...p,
+          customClassFeatures: updatedList
+        };
+      })
+    }));
+  },
+
   consumeItem: (itemId) => {
     const activeId = get().activePlayerId;
     set((state) => ({
@@ -1021,6 +1278,21 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
+  updateItem: (itemId, updates) => {
+    const activeId = get().activePlayerId;
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== activeId) return p;
+        const item = p.inventory.find(i => i.id === itemId);
+        if (item) get().addLog(`Objeto editado en el inventario de ${p.name}: ${updates.name || item.name}`);
+        return {
+          ...p,
+          inventory: p.inventory.map(i => i.id === itemId ? { ...i, ...updates } : i)
+        };
+      })
+    }));
+  },
+
   removeItem: (id) => {
     const activeId = get().activePlayerId;
     set((state) => ({
@@ -1057,6 +1329,21 @@ export const useStore = create<StoreState>((set, get) => ({
         } : p)
       }));
     }
+  },
+
+  updateSpell: (spellId, updates) => {
+    const activeId = get().activePlayerId;
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== activeId) return p;
+        const spell = p.spells.find(s => s.id === spellId);
+        if (spell) get().addLog(`Conjuro editado en el grimorio de ${p.name}: ${updates.name || spell.name}`);
+        return {
+          ...p,
+          spells: p.spells.map(s => s.id === spellId ? { ...s, ...updates } : s)
+        };
+      })
+    }));
   },
 
   removeSpell: (id) => {

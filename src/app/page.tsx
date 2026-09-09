@@ -8,12 +8,12 @@ import { useAuth } from "@/context/AuthContext";
 import { subscribePublicRooms, createRoom, verifyRoomPassword, Room } from "@/lib/rooms";
 import AuthModal from "@/components/AuthModal";
 import { 
-  Book, Shield, Swords, LogIn, LogOut, Plus, Lock, Globe, Users, Key, AlertCircle, Sparkles, UserCheck 
+  Book, Shield, Swords, LogIn, LogOut, Plus, Lock, Globe, Users, Key, AlertCircle, Sparkles, UserCheck, Search, Edit3
 } from "lucide-react";
 
 export default function WelcomePage() {
   const router = useRouter();
-  const { user, isLoggedIn, isGuest, isFirebaseReady, signInGoogle, signInAsGuest, logout } = useAuth();
+  const { user, isLoggedIn, isGuest, isFirebaseReady, signInGoogle, signInAsGuest, updateUserDisplayName, logout } = useAuth();
   
   const [publicRooms, setPublicRooms] = useState<Room[]>([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -21,6 +21,11 @@ export default function WelcomePage() {
   const [joinModalRoom, setJoinModalRoom] = useState<Room | null>(null);
   const [enteredPassword, setEnteredPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
+
+  // Search & Edit Name States
+  const [searchQuery, setSearchQuery] = useState("");
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [nameInput, setNameInput] = useState("");
 
   // New Room Form
   const [roomForm, setRoomForm] = useState({
@@ -110,10 +115,17 @@ export default function WelcomePage() {
 
         <div className="flex items-center gap-3">
           {isLoggedIn ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <span className="text-ink font-bold hidden sm:inline flex items-center gap-1.5 bg-ink/5 px-3 py-1.5 rounded border border-ink/10">
                 <UserCheck className="w-4 h-4 text-magic-gold" /> {user?.displayName || user?.email}
               </span>
+              <button
+                onClick={() => { setNameInput(user?.displayName || ''); setNameModalOpen(true); }}
+                className="flex items-center gap-1 bg-parchment text-ink hover:text-magic-gold p-1.5 rounded border border-ink/20 transition text-xs font-bold cursor-pointer"
+                title="Editar Nombre de Cuenta"
+              >
+                <Edit3 className="w-3.5 h-3.5" /> <span className="hidden md:inline">Editar Nombre</span>
+              </button>
               <button 
                 onClick={logout}
                 className="flex items-center gap-1.5 bg-ink/10 text-ink hover:text-magic-red p-2 rounded transition font-bold cursor-pointer text-xs"
@@ -151,7 +163,7 @@ export default function WelcomePage() {
         className="z-10 text-center max-w-3xl w-full mb-12"
       >
         <h1 className="text-4xl sm:text-6xl md:text-7xl text-magic-red font-bold mb-4 drop-shadow-md font-cinzel">
-          Dungeon & Dragos
+          Dungeon & Dragons
         </h1>
         <p className="text-lg sm:text-2xl text-ink-light mb-6 italic">
           El grimorio ancestral y sincronizado en tiempo real para tu mesa de D&D
@@ -165,51 +177,75 @@ export default function WelcomePage() {
       <div className="w-full max-w-5xl space-y-8 font-sans">
         
         {/* ROOM CREATION & QUICK ACCESS HEADER */}
-        <div className="flex justify-between items-center flex-wrap gap-4 border-b border-ink/20 pb-4">
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-              <Globe className="w-7 h-7" /> Campañas de Juego Disponibles
-            </h2>
-            <p className="text-xs text-ink-light">Únete a una campaña activa o crea una nueva mesa para tu grupo.</p>
+        <div className="bg-parchment-dark/70 p-4 sm:p-6 rounded-xl border border-ink/20 shadow-md space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                <Globe className="w-7 h-7 text-magic-gold" /> Campañas de Juego Disponibles
+              </h2>
+              <p className="text-xs text-ink-light">Únete a una campaña activa o crea una nueva mesa para tu grupo.</p>
+            </div>
+
+            <button
+              onClick={() => {
+                if (!isLoggedIn) {
+                  alert("Debes iniciar sesión con Google para crear una campaña y ser DM.");
+                  signInGoogle();
+                } else {
+                  setCreateModalOpen(true);
+                }
+              }}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-magic-gold text-black px-5 py-2.5 rounded-lg font-bold hover:bg-yellow-500 transition shadow-md text-sm cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-5 h-5" /> Crear Nueva Campaña (DM)
+            </button>
           </div>
 
-          <button
-            onClick={() => {
-              if (!isLoggedIn) {
-                alert("Debes iniciar sesión con Google para crear una campaña y ser DM.");
-                signInGoogle();
-              } else {
-                setCreateModalOpen(true);
-              }
-            }}
-            className="flex items-center gap-2 bg-magic-gold text-black px-5 py-2.5 rounded-lg font-bold hover:bg-yellow-500 transition shadow-lg text-sm cursor-pointer"
-          >
-            <Plus className="w-5 h-5" /> Crear Nueva Campaña (DM)
-          </button>
+          <div className="relative w-full">
+            <Search className="w-4 h-4 text-ink-light absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Buscar campaña por nombre o Dungeon Master..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-parchment border border-ink/30 text-ink rounded-lg font-sans text-xs font-bold focus:border-magic-gold focus:outline-none shadow-inner"
+            />
+          </div>
         </div>
 
         {/* PUBLIC ROOMS LIST */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           
-          {/* Demo / Off-line Practice Room (Always Available) */}
-          <div className="bg-parchment-dark p-6 rounded-xl border-2 border-magic-gold/50 shadow-xl flex flex-col justify-between space-y-4">
+          {/* Demo / Off-line Test Room (Always Available) */}
+          <div className="bg-parchment-dark p-6 rounded-xl border-2 border-magic-gold shadow-xl flex flex-col justify-between space-y-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 bg-magic-gold text-black text-[9px] font-bold px-3 py-1 rounded-bl uppercase font-sans">
+              ✦ DEMO & TUTORIAL
+            </div>
             <div>
-              <div className="flex justify-between items-start mb-2">
-                <h3 className="text-xl font-bold text-magic-gold font-cinzel">Sala de Práctica Local</h3>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded font-bold uppercase">Libre</span>
+              <div className="flex justify-between items-start mb-2 pt-1">
+                <h3 className="text-xl font-bold text-magic-gold font-cinzel">Mesa de Prueba (Demo)</h3>
               </div>
-              <p className="text-xs text-ink-light mb-3">Prueba la hoja de personaje interactiva y el panel de DM local en vivo.</p>
+              <p className="text-xs text-ink-light mb-3 leading-relaxed">
+                Experimenta con el héroe legendario <strong>Drizzt Do'Urden</strong> (Elfo Oscuro Nivel 5), prueba el Panel Maestro (DM) libre y consulta el <strong>Tutorial Inicial Guiado</strong>.
+              </p>
+              <div className="flex gap-1.5 flex-wrap text-[10px]">
+                <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">⭐ Drizzt Do'Urden</span>
+                <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">🛡️ Panel DM Libre</span>
+                <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">📖 Tutorial 3D</span>
+              </div>
             </div>
             <Link 
-              href="/sheet" 
-              className="w-full text-center py-2.5 bg-ink text-parchment-dark font-bold rounded hover:bg-magic-gold hover:text-black transition text-sm block"
+              href="/sheet?demo=true" 
+              className="w-full text-center py-2.5 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition text-sm block shadow cursor-pointer"
             >
-              Entrar a Práctica
+              Entrar a Mesa de Prueba
             </Link>
           </div>
 
           {/* Realtime Rooms from Firestore */}
-          {publicRooms.map(room => (
+          {publicRooms
+            .filter(room => room.name.toLowerCase().includes(searchQuery.toLowerCase()) || room.dmName.toLowerCase().includes(searchQuery.toLowerCase()))
+            .map(room => (
             <div key={room.id} className="bg-parchment-dark p-6 rounded-xl border-2 border-ink/20 shadow-xl flex flex-col justify-between space-y-4">
               <div>
                 <div className="flex justify-between items-start mb-2">
@@ -293,6 +329,10 @@ export default function WelcomePage() {
                   <label className="block font-bold mb-1">Contraseña de Acceso (Opcional)</label>
                   <input 
                     type="password" 
+                    name="room_creation_pass_code"
+                    autoComplete="new-password"
+                    data-1p-ignore="true"
+                    data-lpignore="true"
                     value={roomForm.password}
                     onChange={e => setRoomForm({...roomForm, password: e.target.value})}
                     placeholder="Dejar vacío para entrada libre"
@@ -310,7 +350,7 @@ export default function WelcomePage() {
         )}
       </AnimatePresence>
 
-      {/* JOIN PASSWORD MODAL */}
+      {/* JOIN PASSWORD MODAL (Wrapped in Form for Enter Key & Anti-Autofill) */}
       <AnimatePresence>
         {joinModalRoom && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
@@ -320,21 +360,71 @@ export default function WelcomePage() {
               </h3>
               <p className="text-xs text-ink-light">Ingresa la contraseña proporcionada por el DM para unirte a <strong>{joinModalRoom.name}</strong>.</p>
 
-              <div>
-                <input 
-                  type="password" 
-                  value={enteredPassword}
-                  onChange={e => setEnteredPassword(e.target.value)}
-                  placeholder="Contraseña de la sala..."
-                  className="w-full p-2.5 bg-parchment border border-ink/30 text-ink rounded font-bold"
-                />
-                {passwordError && <p className="text-xs text-magic-red mt-1 font-bold">{passwordError}</p>}
-              </div>
+              <form onSubmit={async (e) => { e.preventDefault(); await submitJoinPassword(); }} className="space-y-4">
+                <div>
+                  <input 
+                    type="password"
+                    name="room_access_pass_code"
+                    autoComplete="new-password"
+                    data-1p-ignore="true"
+                    data-lpignore="true"
+                    value={enteredPassword}
+                    onChange={e => setEnteredPassword(e.target.value)}
+                    placeholder="Contraseña de la sala..."
+                    className="w-full p-2.5 bg-parchment border border-ink/30 text-ink rounded font-bold"
+                    autoFocus
+                  />
+                  {passwordError && <p className="text-xs text-magic-red mt-1 font-bold">{passwordError}</p>}
+                </div>
 
-              <div className="flex justify-end gap-3 pt-4">
-                <button onClick={() => setJoinModalRoom(null)} className="px-4 py-2 text-ink-light hover:text-ink font-bold">Cancelar</button>
-                <button onClick={submitJoinPassword} className="px-6 py-2 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition shadow">Ingresar</button>
-              </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={() => setJoinModalRoom(null)} className="px-4 py-2 text-ink-light hover:text-ink font-bold">Cancelar</button>
+                  <button type="submit" className="px-6 py-2 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition shadow">Ingresar</button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* EDIT DISPLAY NAME MODAL */}
+      <AnimatePresence>
+        {nameModalOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-parchment-dark border-4 border-magic-gold rounded-xl p-6 max-w-md w-full shadow-2xl font-sans space-y-4">
+              <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                <Edit3 className="w-6 h-6" /> Editar Nombre de Usuario
+              </h3>
+              <p className="text-xs text-ink-light">Este es el nombre visible para otros jugadores y maestros en las salas.</p>
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                try {
+                  await updateUserDisplayName(nameInput);
+                  setNameModalOpen(false);
+                  alert("¡Nombre de usuario actualizado con éxito!");
+                } catch (err: any) {
+                  alert(err.message || "Error al cambiar nombre.");
+                }
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold mb-1">Nombre Visible</label>
+                  <input 
+                    type="text"
+                    required
+                    value={nameInput}
+                    onChange={e => setNameInput(e.target.value)}
+                    placeholder="Nuevo nombre visible..."
+                    className="w-full p-2.5 bg-parchment border border-ink/30 text-ink rounded font-bold"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={() => setNameModalOpen(false)} className="px-4 py-2 text-ink-light hover:text-ink font-bold">Cancelar</button>
+                  <button type="submit" className="px-6 py-2 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition shadow">Guardar Nombre</button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}

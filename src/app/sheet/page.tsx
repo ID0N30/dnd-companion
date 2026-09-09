@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { useStore, ItemType } from "@/store/useStore";
+import { useStore, ItemType, Item, Spell } from "@/store/useStore";
 import { getClassFeaturesForLevel } from "@/lib/dndClassFeatures";
 import { triggerDiceRoll } from "@/components/DiceRoller";
+import TutorialModal from "@/components/TutorialModal";
+import DMPage from "@/app/dm/page";
 import { 
   PenTool, Shield, Heart, Zap, Sparkles, BookOpen, Package, Clock, 
-  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle
+  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home
 } from "lucide-react";
 
 const SKILLS_5E = [
@@ -31,14 +34,38 @@ const SKILLS_5E = [
   { name: "Persuasión", stat: "cha" },
 ];
 
-export default function CharacterSheetPage() {
+export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } = {}) {
   const { 
     players, activePlayerId, setActivePlayerId, isCombatMode, initiativeOrder, currentTurnIndex,
     advanceTurn, addModifier, removeModifier, updateStat, setBaseStatScore, modifyHPMax, modifyHPCurrent, modifyAC,
     togglePinSkill, toggleEquipItem, useSpellSlot, restoreSpellSlot, setSpellSlotMax, longRest,
-    addItem, removeItem, addSpell, removeSpell, addCustomClassFeature, removeCustomClassFeature, consumeItem,
-    lastTurnEvent, rollDeathSave, stabilizePlayer, hpTerminology
+    addItem, updateItem, removeItem, addSpell, updateSpell, removeSpell, addCustomClassFeature, updateCustomClassFeature, removeCustomClassFeature, consumeItem,
+    lastTurnEvent, rollDeathSave, stabilizePlayer, hpTerminology, toggleInspiration, loadFamousDemoCharacter,
+    updateCurrency, spendCurrency
   } = useStore();
+
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"sheet" | "dm">("sheet");
+
+  const [isDemoMode, setIsDemoMode] = useState(false);
+
+  // Currency Modals State
+  const [editCurrencyModalOpen, setEditCurrencyModalOpen] = useState(false);
+  const [editCurrencyInput, setEditCurrencyInput] = useState({ cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 });
+
+  const [spendModalOpen, setSpendModalOpen] = useState(false);
+  const [spendInput, setSpendInput] = useState({ cp: 0, sp: 0, ep: 0, gp: 0, pp: 0, reason: "" });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const isDemo = params.get('demo') === 'true';
+      setIsDemoMode(isDemo);
+      if (isDemo) {
+        loadFamousDemoCharacter();
+      }
+    }
+  }, []);
 
   const character = players.find(p => p.id === activePlayerId) || players[0] || {
     id: 'default', name: 'Aventurero', race: 'Humano', charClass: 'Guerrero', background: 'Soldado', level: 1,
@@ -234,12 +261,33 @@ export default function CharacterSheetPage() {
   
   // Custom Feature Form (Lore / DM freedom)
   const [newFeature, setNewFeature] = useState({ name: "", type: "active" as "active" | "passive", usage: "", desc: "" });
+  const [featureEditModal, setFeatureEditModal] = useState<{ open: boolean; oldName: string; name: string; type: 'active' | 'passive'; usage: string; desc: string }>({
+    open: false, oldName: "", name: "", type: "active", usage: "", desc: ""
+  });
 
   // Item Form
   const [newItem, setNewItem] = useState<{ name: string; type: ItemType; desc: string; qty: number; damage: string; acBonus: number; equipped: boolean; turns: string }>({
     name: "", type: "general", desc: "", qty: 1, damage: "", acBonus: 0, equipped: false, turns: ""
   });
   const [inventoryFilter, setInventoryFilter] = useState<ItemType | 'all'>('all');
+
+  // Item & Spell Edit Modal State (Pluma Mágica)
+  const [itemEditModal, setItemEditModal] = useState<{ open: boolean; item: Item | null }>({ open: false, item: null });
+  const [spellEditModal, setSpellEditModal] = useState<{ open: boolean; spell: Spell | null }>({ open: false, spell: null });
+
+  const handleItemEditSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!itemEditModal.item || !itemEditModal.item.name.trim()) return;
+    updateItem(itemEditModal.item.id, itemEditModal.item);
+    setItemEditModal({ open: false, item: null });
+  };
+
+  const handleSpellEditSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!spellEditModal.spell || !spellEditModal.spell.name.trim()) return;
+    updateSpell(spellEditModal.spell.id, spellEditModal.spell);
+    setSpellEditModal({ open: false, spell: null });
+  };
 
   // Spell Form & Slots
   const [newSpell, setNewSpell] = useState({ name: "", level: 1, school: "Evocación", desc: "", castingTime: "1 Acción", turns: "" });
@@ -496,18 +544,74 @@ export default function CharacterSheetPage() {
           </div>
         )}
 
-        {/* Header */}
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 sm:border-b-4 border-ink pb-4 mb-6 sm:mb-8 gap-4">
-          <div className="w-full md:w-auto">
-            <div className="flex justify-between items-center md:justify-start gap-3 flex-wrap">
-              <h1 className="text-3xl sm:text-5xl font-bold text-ink drop-shadow-sm font-cinzel">{character.name || "Sin Nombre"}</h1>
+        {/* Header Navigation Bar */}
+        <div className="flex justify-between items-center mb-4 flex-wrap gap-2 font-sans border-b border-ink/10 pb-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              href="/"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-parchment-dark text-ink hover:text-magic-gold rounded-lg border border-ink/20 text-xs font-bold transition shadow-sm"
+              title="Volver a la página principal"
+            >
+              <Home className="w-3.5 h-3.5 text-magic-gold" /> Inicio
+            </Link>
+
+            <div className="flex bg-parchment-dark p-1 rounded-lg border border-ink/20 text-xs font-bold">
+              <button
+                onClick={() => setViewMode("sheet")}
+                className={`px-3 py-1.5 rounded flex items-center gap-1.5 transition cursor-pointer ${viewMode === 'sheet' ? 'bg-magic-gold text-black shadow' : 'text-ink hover:text-magic-gold'}`}
+              >
+                <User className="w-3.5 h-3.5" /> Mi Hoja
+              </button>
+              {(isDemoMode || isDM) && (
+                <button
+                  onClick={() => setViewMode("dm")}
+                  className={`px-3 py-1.5 rounded flex items-center gap-1.5 transition cursor-pointer ${viewMode === 'dm' ? 'bg-magic-gold text-black shadow' : 'text-ink hover:text-magic-gold'}`}
+                >
+                  <Shield className="w-3.5 h-3.5" /> Panel DM (Maestro)
+                </button>
+              )}
             </div>
-            {!isCombatMode && (
-              <p className="text-sm sm:text-xl text-ink-light font-sans mt-1">
-                Nivel {character.level} • {character.race} {character.charClass} • {character.background}
-              </p>
+
+            {isDemoMode && (
+              <span className="text-xs bg-magic-gold/20 text-magic-gold border border-magic-gold/40 px-2.5 py-1 rounded font-bold font-cinzel">
+                🏰 Mesa de Prueba (Demo & Práctica)
+              </span>
             )}
           </div>
+
+          <button
+            onClick={() => setTutorialOpen(true)}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-3.5 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition cursor-pointer border border-white/40"
+          >
+            <HelpCircle className="w-4 h-4" /> 📖 Tutorial de Inicio
+          </button>
+        </div>
+
+        {viewMode === "dm" && <DMPage />}
+        {viewMode === "sheet" && (
+          <div key="sheet-view">
+            {/* Header */}
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 sm:border-b-4 border-ink pb-4 mb-6 sm:mb-8 gap-4">
+              <div className="w-full md:w-auto">
+                <div className="flex justify-between items-center md:justify-start gap-3 flex-wrap">
+                  <h1 className="text-3xl sm:text-5xl font-bold text-ink drop-shadow-sm font-cinzel">{character.name || "Sin Nombre"}</h1>
+                  
+                  {/* Inspiration Toggle Button */}
+                  <button
+                    onClick={() => toggleInspiration(character.id)}
+                    className={`px-3 py-1 rounded-lg border-2 font-sans font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${character.inspiration ? 'bg-magic-gold text-black border-white shadow-[0_0_15px_rgba(245,208,97,0.8)] scale-105' : 'bg-parchment text-ink/60 border-ink/20 hover:border-magic-gold'}`}
+                    title={character.inspiration ? "Tienes Inspiración D&D 5e activa" : "Sin Inspiración (Haz clic para alternar)"}
+                  >
+                    <Sparkles className={`w-4 h-4 ${character.inspiration ? 'fill-black text-black' : 'text-ink/40'}`} />
+                    <span>⭐ Inspiración</span>
+                  </button>
+                </div>
+                {!isCombatMode && (
+                  <p className="text-sm sm:text-xl text-ink-light font-sans mt-1">
+                    Nivel {character.level} • {character.race} {character.charClass} • {character.background}
+                  </p>
+                )}
+              </div>
           
           <div className="flex gap-4 sm:gap-6 items-center justify-between w-full md:w-auto pt-2 md:pt-0 border-t md:border-0 border-ink/10">
             {/* Armor Class */}
@@ -1058,9 +1162,20 @@ export default function CharacterSheetPage() {
                     <div key={`off_${idx}`} className="p-4 bg-parchment border-2 border-magic-gold/30 rounded-xl space-y-2 relative shadow-md">
                       <div className="flex justify-between items-start">
                         <h4 className="font-bold text-lg text-magic-gold font-cinzel">{feat.name}</h4>
-                        <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
-                          {feat.type === 'active' ? '⚡ Activa' : '🛡️ Pasiva'}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
+                            {feat.type === 'active' ? '⚡ Activa' : '🛡️ Pasiva'}
+                          </span>
+                          {isEditing && (
+                            <button
+                              onClick={() => setFeatureEditModal({ open: true, oldName: feat.name, name: feat.name, type: feat.type, usage: feat.usage || '', desc: feat.description })}
+                              className="text-ink-light hover:text-magic-gold p-1 cursor-pointer"
+                              title="Editar Rasgo (Pluma Mágica)"
+                            >
+                              <PenTool className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <p className="text-sm text-ink">{feat.description}</p>
                       {feat.usage && (
@@ -1089,13 +1204,22 @@ export default function CharacterSheetPage() {
                             {feat.type === 'active' ? '⚡ Activa' : '🛡️ Pasiva'}
                           </span>
                           {isEditing && (
-                            <button
-                              onClick={() => removeCustomClassFeature(feat.name)}
-                              className="text-ink-light hover:text-magic-red p-1 cursor-pointer"
-                              title="Retirar Rasgo"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setFeatureEditModal({ open: true, oldName: feat.name, name: feat.name, type: feat.type, usage: feat.usage || '', desc: feat.description })}
+                                className="text-ink-light hover:text-magic-gold p-1 cursor-pointer"
+                                title="Editar Rasgo (Pluma Mágica)"
+                              >
+                                <PenTool className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => removeCustomClassFeature(feat.name)}
+                                className="text-ink-light hover:text-magic-red p-1 cursor-pointer"
+                                title="Retirar Rasgo"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1133,6 +1257,86 @@ export default function CharacterSheetPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* SISTEMA DE MONEDAS D&D 5E */}
+                {(() => {
+                  const cur = character.currency || { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+                  const totalGPValue = (cur.pp * 10) + cur.gp + (cur.ep * 0.5) + (cur.sp * 0.1) + (cur.cp * 0.01);
+                  return (
+                    <div className="bg-parchment-dark p-4 sm:p-5 rounded-xl border-2 border-magic-gold/50 shadow-xl font-sans space-y-4">
+                      <div className="flex justify-between items-center flex-wrap gap-2 border-b border-ink/10 pb-3">
+                        <div>
+                          <h4 className="font-bold text-lg sm:text-xl font-cinzel text-magic-gold flex items-center gap-2">
+                            💰 Bolsa de Monedas (D&D 5ª Edición)
+                          </h4>
+                          <p className="text-xs text-ink-light">Monedas acumuladas en tu monedero y equivalencia en Piezas de Oro (PO / GP).</p>
+                        </div>
+                        
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold bg-magic-gold/20 text-magic-gold border border-magic-gold/40 px-3 py-1.5 rounded-lg shadow-sm">
+                            Equivalente Total: <strong className="text-sm font-cinzel">{totalGPValue.toFixed(2)} PO</strong>
+                          </span>
+                          <button
+                            onClick={() => {
+                              setSpendInput({ cp: 0, sp: 0, ep: 0, gp: 0, pp: 0, reason: "" });
+                              setSpendModalOpen(true);
+                            }}
+                            className="flex items-center gap-1.5 bg-magic-red text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-700 transition shadow cursor-pointer"
+                          >
+                            🛒 Gastar / Consumir Dinero
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditCurrencyInput({ cp: cur.cp, sp: cur.sp, ep: cur.ep, gp: cur.gp, pp: cur.pp });
+                              setEditCurrencyModalOpen(true);
+                            }}
+                            className="flex items-center gap-1.5 bg-magic-gold text-black text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-yellow-500 transition shadow cursor-pointer"
+                          >
+                            <PenTool className="w-3.5 h-3.5" /> Editar Monedas
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Grid de las 5 Monedas D&D 5e */}
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+                        {/* CP */}
+                        <div className="bg-amber-950/20 border border-amber-700/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm">
+                          <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Cobre (CP)</span>
+                          <span className="text-2xl font-bold text-amber-500 font-cinzel my-1">{cur.cp}</span>
+                          <span className="text-[9px] text-ink-light">100 CP = 1 GP</span>
+                        </div>
+
+                        {/* SP */}
+                        <div className="bg-slate-800/20 border border-slate-400/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Plata (SP)</span>
+                          <span className="text-2xl font-bold text-slate-200 font-cinzel my-1">{cur.sp}</span>
+                          <span className="text-[9px] text-ink-light">10 SP = 1 GP</span>
+                        </div>
+
+                        {/* EP */}
+                        <div className="bg-cyan-950/20 border border-cyan-500/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm">
+                          <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">Electrum (EP)</span>
+                          <span className="text-2xl font-bold text-cyan-300 font-cinzel my-1">{cur.ep}</span>
+                          <span className="text-[9px] text-ink-light">2 EP = 1 GP</span>
+                        </div>
+
+                        {/* GP */}
+                        <div className="bg-yellow-950/30 border-2 border-magic-gold/70 p-3 rounded-lg flex flex-col items-center justify-between shadow-md">
+                          <span className="text-[10px] font-bold text-magic-gold uppercase tracking-wider">Oro (GP / PO)</span>
+                          <span className="text-2xl font-bold text-magic-gold font-cinzel my-1">{cur.gp}</span>
+                          <span className="text-[9px] text-magic-gold/80 font-bold">Moneda Estándar</span>
+                        </div>
+
+                        {/* PP */}
+                        <div className="bg-indigo-950/20 border border-indigo-400/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm col-span-2 sm:col-span-1">
+                          <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Platino (PP)</span>
+                          <span className="text-2xl font-bold text-indigo-200 font-cinzel my-1">{cur.pp}</span>
+                          <span className="text-[9px] text-ink-light">1 PP = 10 GP</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Form to add item when isEditing is true (Pluma Mágica) */}
                 {isEditing && (
@@ -1276,7 +1480,18 @@ export default function CharacterSheetPage() {
                             </button>
                           )}
                           {isEditing && (
-                            <button onClick={() => removeItem(item.id)} className="text-ink-light hover:text-magic-red p-1 cursor-pointer" title="Eliminar Objeto"><Trash2 className="w-4 h-4"/></button>
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={() => setItemEditModal({ open: true, item: { ...item } })} 
+                                className="text-ink-light hover:text-magic-gold p-1 cursor-pointer" 
+                                title="Editar Objeto (Pluma Mágica)"
+                              >
+                                <PenTool className="w-4 h-4"/>
+                              </button>
+                              <button onClick={() => removeItem(item.id)} className="text-ink-light hover:text-magic-red p-1 cursor-pointer" title="Eliminar Objeto">
+                                <Trash2 className="w-4 h-4"/>
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1482,9 +1697,18 @@ export default function CharacterSheetPage() {
                             <p className="text-xs text-ink/80 mt-1">{spell.description}</p>
                           </div>
                           {isEditing && (
-                            <button onClick={() => removeSpell(spell.id)} className="text-ink-light hover:text-magic-red p-1 cursor-pointer" title="Eliminar Conjuro">
-                              <Trash2 className="w-4 h-4"/>
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={() => setSpellEditModal({ open: true, spell: { ...spell } })} 
+                                className="text-ink-light hover:text-magic-gold p-1 cursor-pointer" 
+                                title="Editar Conjuro (Pluma Mágica)"
+                              >
+                                <PenTool className="w-4 h-4"/>
+                              </button>
+                              <button onClick={() => removeSpell(spell.id)} className="text-ink-light hover:text-magic-red p-1 cursor-pointer" title="Eliminar Conjuro">
+                                <Trash2 className="w-4 h-4"/>
+                              </button>
+                            </div>
                           )}
                         </div>
                       ))}
@@ -1718,6 +1942,266 @@ export default function CharacterSheetPage() {
             )}
           </AnimatePresence>
 
+          {/* ITEM EDIT MODAL (Pluma Mágica) */}
+          <AnimatePresence>
+            {itemEditModal.open && itemEditModal.item && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 font-sans backdrop-blur-sm">
+                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-parchment-dark border-4 border-magic-gold rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
+                  <h3 className="text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                    <PenTool className="w-5 h-5" /> Editar Objeto (Pluma Mágica)
+                  </h3>
+                  <form onSubmit={handleItemEditSave} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block font-bold mb-1">Nombre del Objeto</label>
+                      <input 
+                        type="text" 
+                        value={itemEditModal.item.name} 
+                        onChange={e => setItemEditModal({ ...itemEditModal, item: { ...itemEditModal.item!, name: e.target.value } })}
+                        className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        required
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold mb-1">Tipo</label>
+                        <select 
+                          value={itemEditModal.item.type} 
+                          onChange={e => setItemEditModal({ ...itemEditModal, item: { ...itemEditModal.item!, type: e.target.value as ItemType } })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold cursor-pointer"
+                        >
+                          <option value="weapon">Arma</option>
+                          <option value="armor">Armadura</option>
+                          <option value="consumable">Consumible</option>
+                          <option value="quest">Objeto de Misión</option>
+                          <option value="general">General</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block font-bold mb-1">Cantidad</label>
+                        <input 
+                          type="number" 
+                          value={itemEditModal.item.quantity} 
+                          onChange={e => setItemEditModal({ ...itemEditModal, item: { ...itemEditModal.item!, quantity: parseInt(e.target.value) || 1 } })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                          min={1}
+                        />
+                      </div>
+                    </div>
+                    {itemEditModal.item.type === 'weapon' && (
+                      <div>
+                        <label className="block font-bold mb-1">Daño (Ej. 1d6+5)</label>
+                        <input 
+                          type="text" 
+                          value={itemEditModal.item.damage || ''} 
+                          onChange={e => setItemEditModal({ ...itemEditModal, item: { ...itemEditModal.item!, damage: e.target.value } })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                    )}
+                    {itemEditModal.item.type === 'armor' && (
+                      <div>
+                        <label className="block font-bold mb-1">Bono a CA (Ej. 2)</label>
+                        <input 
+                          type="number" 
+                          value={itemEditModal.item.acBonus || 0} 
+                          onChange={e => setItemEditModal({ ...itemEditModal, item: { ...itemEditModal.item!, acBonus: parseInt(e.target.value) || 0 } })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <label className="block font-bold mb-1">Descripción</label>
+                      <textarea 
+                        rows={3}
+                        value={itemEditModal.item.description} 
+                        onChange={e => setItemEditModal({ ...itemEditModal, item: { ...itemEditModal.item!, description: e.target.value } })}
+                        className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2 border-t border-ink/20 font-bold">
+                      <button 
+                        type="button" 
+                        onClick={() => setItemEditModal({ open: false, item: null })} 
+                        className="px-4 py-2 text-ink-light hover:text-ink cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        type="submit" 
+                        className="px-5 py-2 bg-magic-gold text-black rounded hover:bg-yellow-500 transition shadow cursor-pointer"
+                      >
+                        Guardar Cambios
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* SPELL EDIT MODAL (Pluma Mágica) */}
+          <AnimatePresence>
+            {spellEditModal.open && spellEditModal.spell && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 font-sans backdrop-blur-sm">
+                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-parchment-dark border-4 border-magic-gold rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
+                  <h3 className="text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                    <PenTool className="w-5 h-5" /> Editar Conjuro (Pluma Mágica)
+                  </h3>
+                  <form onSubmit={handleSpellEditSave} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block font-bold mb-1">Nombre del Conjuro</label>
+                      <input 
+                        type="text" 
+                        value={spellEditModal.spell.name} 
+                        onChange={e => setSpellEditModal({ ...spellEditModal, spell: { ...spellEditModal.spell!, name: e.target.value } })}
+                        className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        required
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold mb-1">Nivel (0 = Truco)</label>
+                        <input 
+                          type="number" 
+                          value={spellEditModal.spell.level} 
+                          onChange={e => setSpellEditModal({ ...spellEditModal, spell: { ...spellEditModal.spell!, level: parseInt(e.target.value) || 0 } })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                          min={0}
+                          max={9}
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold mb-1">Escuela de Magia</label>
+                        <input 
+                          type="text" 
+                          value={spellEditModal.spell.school || ''} 
+                          onChange={e => setSpellEditModal({ ...spellEditModal, spell: { ...spellEditModal.spell!, school: e.target.value } })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block font-bold mb-1">Tiempo de Lanzamiento</label>
+                      <input 
+                        type="text" 
+                        value={spellEditModal.spell.castingTime || ''} 
+                        onChange={e => setSpellEditModal({ ...spellEditModal, spell: { ...spellEditModal.spell!, castingTime: e.target.value } })}
+                        className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold mb-1">Descripción</label>
+                      <textarea 
+                        rows={3}
+                        value={spellEditModal.spell.description} 
+                        onChange={e => setSpellEditModal({ ...spellEditModal, spell: { ...spellEditModal.spell!, description: e.target.value } })}
+                        className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2 border-t border-ink/20 font-bold">
+                      <button 
+                        type="button" 
+                        onClick={() => setSpellEditModal({ open: false, spell: null })} 
+                        className="px-4 py-2 text-ink-light hover:text-ink cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        type="submit" 
+                        className="px-5 py-2 bg-magic-gold text-black rounded hover:bg-yellow-500 transition shadow cursor-pointer"
+                      >
+                        Guardar Cambios
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* CLASS FEATURE EDIT MODAL (Pluma Mágica) */}
+          <AnimatePresence>
+            {featureEditModal.open && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 font-sans backdrop-blur-sm">
+                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-parchment-dark border-4 border-magic-gold rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
+                  <h3 className="text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                    <PenTool className="w-5 h-5" /> Editar Rasgo de Clase (Pluma Mágica)
+                  </h3>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!featureEditModal.name.trim()) return;
+                    updateCustomClassFeature(featureEditModal.oldName, {
+                      name: featureEditModal.name.trim(),
+                      type: featureEditModal.type,
+                      unlockedAtLevel: character.level,
+                      description: featureEditModal.desc.trim(),
+                      usage: featureEditModal.usage.trim() || undefined
+                    });
+                    setFeatureEditModal({ open: false, oldName: "", name: "", type: "active", usage: "", desc: "" });
+                  }} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block font-bold mb-1">Nombre del Rasgo</label>
+                      <input 
+                        type="text" 
+                        value={featureEditModal.name} 
+                        onChange={e => setFeatureEditModal({ ...featureEditModal, name: e.target.value })}
+                        className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        required
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold mb-1">Tipo de Habilidad</label>
+                        <select 
+                          value={featureEditModal.type} 
+                          onChange={e => setFeatureEditModal({ ...featureEditModal, type: e.target.value as 'active' | 'passive' })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold cursor-pointer"
+                        >
+                          <option value="active">⚡ Activa</option>
+                          <option value="passive">🛡️ Pasiva</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block font-bold mb-1">Uso / Recarga (Opcional)</label>
+                        <input 
+                          type="text" 
+                          placeholder="Ej. 1 por Descanso Largo"
+                          value={featureEditModal.usage} 
+                          onChange={e => setFeatureEditModal({ ...featureEditModal, usage: e.target.value })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block font-bold mb-1">Descripción</label>
+                      <textarea 
+                        rows={3}
+                        value={featureEditModal.desc} 
+                        onChange={e => setFeatureEditModal({ ...featureEditModal, desc: e.target.value })}
+                        className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2 border-t border-ink/20 font-bold">
+                      <button 
+                        type="button" 
+                        onClick={() => setFeatureEditModal({ open: false, oldName: "", name: "", type: "active", usage: "", desc: "" })} 
+                        className="px-4 py-2 text-ink-light hover:text-ink cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        type="submit" 
+                        className="px-5 py-2 bg-magic-gold text-black rounded hover:bg-yellow-500 transition shadow cursor-pointer"
+                      >
+                        Guardar Cambios
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* SALVATION / DEATH / MORIBUNDO MODAL */}
           <AnimatePresence>
             {salvationModal.open && (
@@ -1766,8 +2250,207 @@ export default function CharacterSheetPage() {
             )}
           </AnimatePresence>
 
+          {/* EDIT CURRENCY MODAL */}
+          <AnimatePresence>
+            {editCurrencyModalOpen && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 font-sans">
+                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-parchment-dark border-4 border-magic-gold rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
+                  <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                    💰 Editar Bolsa de Monedas
+                  </h3>
+                  <p className="text-xs text-ink-light">Ajusta la cantidad de cada tipo de moneda que posee tu personaje.</p>
+
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    updateCurrency(character.id, editCurrencyInput);
+                    setEditCurrencyModalOpen(false);
+                  }} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3 text-xs font-bold">
+                      <div>
+                        <label className="block text-amber-600 mb-1">🔴 Cobre (CP)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={editCurrencyInput.cp}
+                          onChange={e => setEditCurrencyInput({ ...editCurrencyInput, cp: Math.max(0, parseInt(e.target.value) || 0) })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-300 mb-1">⚪ Plata (SP)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={editCurrencyInput.sp}
+                          onChange={e => setEditCurrencyInput({ ...editCurrencyInput, sp: Math.max(0, parseInt(e.target.value) || 0) })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-cyan-400 mb-1">🔵 Electrum (EP)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={editCurrencyInput.ep}
+                          onChange={e => setEditCurrencyInput({ ...editCurrencyInput, ep: Math.max(0, parseInt(e.target.value) || 0) })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-magic-gold mb-1">🟡 Oro (GP / PO)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={editCurrencyInput.gp}
+                          onChange={e => setEditCurrencyInput({ ...editCurrencyInput, gp: Math.max(0, parseInt(e.target.value) || 0) })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-indigo-300 mb-1">🟣 Platino (PP)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={editCurrencyInput.pp}
+                          onChange={e => setEditCurrencyInput({ ...editCurrencyInput, pp: Math.max(0, parseInt(e.target.value) || 0) })}
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-3 border-t border-ink/20 font-bold text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setEditCurrencyModalOpen(false)}
+                        className="px-4 py-2 text-ink-light hover:text-ink cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2 bg-magic-gold text-black rounded hover:bg-yellow-500 transition shadow cursor-pointer"
+                      >
+                        Guardar Monedas
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* SPEND CURRENCY MODAL */}
+          <AnimatePresence>
+            {spendModalOpen && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 font-sans">
+                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-parchment-dark border-4 border-magic-red rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
+                  <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                    🛒 Gastar / Consumir Monedas
+                  </h3>
+                  <p className="text-xs text-ink-light">Indica las monedas que deseas pagar o consumir durante tu aventura.</p>
+
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    spendCurrency(character.id, spendInput, spendInput.reason);
+                    setSpendModalOpen(false);
+                  }} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3 text-xs font-bold">
+                      <div>
+                        <label className="block text-amber-600 mb-1">Gastar Cobre (CP)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={spendInput.cp || ''}
+                          onChange={e => setSpendInput({ ...spendInput, cp: Math.max(0, parseInt(e.target.value) || 0) })}
+                          placeholder="0"
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-300 mb-1">Gastar Plata (SP)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={spendInput.sp || ''}
+                          onChange={e => setSpendInput({ ...spendInput, sp: Math.max(0, parseInt(e.target.value) || 0) })}
+                          placeholder="0"
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-cyan-400 mb-1">Gastar Electrum (EP)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={spendInput.ep || ''}
+                          onChange={e => setSpendInput({ ...spendInput, ep: Math.max(0, parseInt(e.target.value) || 0) })}
+                          placeholder="0"
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-magic-gold mb-1">Gastar Oro (GP / PO)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={spendInput.gp || ''}
+                          onChange={e => setSpendInput({ ...spendInput, gp: Math.max(0, parseInt(e.target.value) || 0) })}
+                          placeholder="0"
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-indigo-300 mb-1">Gastar Platino (PP)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={spendInput.pp || ''}
+                          onChange={e => setSpendInput({ ...spendInput, pp: Math.max(0, parseInt(e.target.value) || 0) })}
+                          placeholder="0"
+                          className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold mb-1">Motivo / Concepto del Gasto (Opcional)</label>
+                      <input
+                        type="text"
+                        value={spendInput.reason}
+                        onChange={e => setSpendInput({ ...spendInput, reason: e.target.value })}
+                        placeholder="Ej. Posada, raciones de viaje, poción..."
+                        className="w-full p-2 bg-parchment border border-ink/30 rounded text-xs text-ink font-bold"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-3 border-t border-ink/20 font-bold text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setSpendModalOpen(false)}
+                        className="px-4 py-2 text-ink-light hover:text-ink cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2 bg-magic-red text-white rounded hover:bg-red-700 transition shadow cursor-pointer"
+                      >
+                        Confirmar Gasto
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
+        </div>
+        )}
+
       </div>
+
+      {/* TUTORIAL MODAL */}
+      <TutorialModal open={tutorialOpen} onClose={() => setTutorialOpen(false)} />
     </main>
   );
 }

@@ -5,7 +5,7 @@ import {
   User, onAuthStateChanged, signOut, GoogleAuthProvider, linkWithCredential, signInWithCredential, sendEmailVerification
 } from "firebase/auth";
 import { 
-  collection, query, where, getDocs, doc, setDoc, serverTimestamp 
+  collection, query, where, limit, getDocs, doc, setDoc, serverTimestamp 
 } from "firebase/firestore";
 import { 
   auth, db, googleProvider, loginWithGoogle, loginAnonymously, isFirebaseConfigured,
@@ -22,6 +22,7 @@ interface AuthContextType {
   signUpWithEmail: (email: string, pass: string, displayName: string) => Promise<User | null>;
   signInWithEmail: (email: string, pass: string) => Promise<User | null>;
   signInAsGuest: () => Promise<User | null>;
+  updateUserDisplayName: (newDisplayName: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -35,6 +36,7 @@ const AuthContext = createContext<AuthContextType>({
   signUpWithEmail: async () => null,
   signInWithEmail: async () => null,
   signInAsGuest: async () => null,
+  updateUserDisplayName: async () => {},
   logout: async () => {},
 });
 
@@ -116,7 +118,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     // 1. Enforce unique username check across Firestore users collection
     if (db) {
       try {
-        const q = query(collection(db, "users"), where("displayNameLower", "==", lowerName));
+        const q = query(collection(db, "users"), where("displayNameLower", "==", lowerName), limit(1));
         const snap = await getDocs(q);
         if (!snap.empty) {
           throw new Error(`⚠️ El nombre de usuario "${cleanName}" ya está en uso. Por favor elige otro nombre de usuario.`);
@@ -189,6 +191,39 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const updateUserDisplayName = async (newDisplayName: string) => {
+    if (!auth?.currentUser) throw new Error("No hay usuario autenticado.");
+    const cleanName = newDisplayName.trim();
+    if (!cleanName) throw new Error("El nombre de usuario no puede estar vacío.");
+
+    // Check unique username if user is logged in
+    if (db && !auth.currentUser.isAnonymous) {
+      const lowerName = cleanName.toLowerCase();
+      const q = query(collection(db, "users"), where("displayNameLower", "==", lowerName), limit(1));
+      const snap = await getDocs(q);
+      const existingDoc = snap.docs[0];
+      if (existingDoc && existingDoc.id !== auth.currentUser.uid) {
+        throw new Error(`⚠️ El nombre de usuario "${cleanName}" ya está en uso.`);
+      }
+    }
+
+    await updateProfile(auth.currentUser, { displayName: cleanName });
+    setUser({ ...auth.currentUser, displayName: cleanName } as User);
+
+    if (db && !auth.currentUser.isAnonymous) {
+      try {
+        const userDocRef = doc(db, "users", auth.currentUser.uid);
+        await setDoc(userDocRef, {
+          displayName: cleanName,
+          displayNameLower: cleanName.toLowerCase(),
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (e) {
+        console.warn("No se pudo actualizar en Firestore:", e);
+      }
+    }
+  };
+
   const logout = async () => {
     if (!auth) return;
     try {
@@ -214,6 +249,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       signUpWithEmail,
       signInWithEmail,
       signInAsGuest,
+      updateUserDisplayName,
       logout
     }}>
       {children}

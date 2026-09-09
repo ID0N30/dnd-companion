@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cinzel, EB_Garamond } from "next/font/google";
 import MagicParticles from "@/components/MagicParticles";
 import ErrorToast from "@/components/ErrorToast";
+import Footer from "@/components/Footer";
 import { AuthProvider } from "@/context/AuthContext";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
@@ -37,6 +38,7 @@ export default function RootLayout({
           <MagicParticles />
           <ErrorToast />
           {children}
+          <Footer />
           <Analytics />
         </AuthProvider>
       </body>

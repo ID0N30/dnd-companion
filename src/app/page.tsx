@@ -9,6 +9,7 @@ import { useStore } from "@/store/useStore";
 import { subscribePublicRooms, createRoom, verifyRoomPassword, Room } from "@/lib/rooms";
 import AuthModal from "@/components/AuthModal";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
+import TeamLobbyPromo from "@/components/TeamLobbyPromo";
 import { 
   Book, Shield, Swords, LogIn, LogOut, Plus, Lock, Globe, Users, Key, AlertCircle, Sparkles, UserCheck, Search, Edit3, Settings
 } from "lucide-react";
@@ -283,6 +284,9 @@ export default function WelcomePage() {
           ))}
 
         </div>
+
+        {/* PROMO / ALLIANCE: TeamLobby Gamer Platform */}
+        <TeamLobbyPromo targetUrl="https://team-lobby.vercel.app/" />
 
       </div>
 

@@ -77,6 +77,27 @@ export type PersonalNote = {
   pinned?: boolean;
 };
 
+export const SKILLS_5E = [
+  { name: "Atletismo", stat: "str" },
+  { name: "Acrobacia", stat: "dex" },
+  { name: "Juego de Manos", stat: "dex" },
+  { name: "Sigilo", stat: "dex" },
+  { name: "Arcanos", stat: "int" },
+  { name: "Historia", stat: "int" },
+  { name: "Investigación", stat: "int" },
+  { name: "Naturaleza", stat: "int" },
+  { name: "Religión", stat: "int" },
+  { name: "Trato con Animales", stat: "wis" },
+  { name: "Perspicacia", stat: "wis" },
+  { name: "Medicina", stat: "wis" },
+  { name: "Percepción", stat: "wis" },
+  { name: "Supervivencia", stat: "wis" },
+  { name: "Engaño", stat: "cha" },
+  { name: "Intimidación", stat: "cha" },
+  { name: "Interpretación", stat: "cha" },
+  { name: "Persuasión", stat: "cha" },
+] as const;
+
 export type CharacterState = {
   id: string;
   name: string;
@@ -184,6 +205,28 @@ export const removeLocalPlayerFromStorage = (characterId: string) => {
       localStorage.setItem('dnd_all_local_players', JSON.stringify(filtered));
     }
   } catch (e) {}
+};
+
+// Centralized character persistence across local and remote storage
+export const persistCharacterChanges = (character: CharacterState, forceRemoteWrite: boolean = true) => {
+  if (!character || !character.id || character.id === 'drizzt_dourden_demo') return;
+
+  // 1. Always persist to localStorage for offline access and page reload/rehydration
+  syncAllLocalPlayersToStorage([character]);
+
+  // 2. If character is assigned to a real campaign room, immediately persist to Firestore
+  let targetRoomId = character.roomId;
+  if ((!targetRoomId || targetRoomId === 'sin_campaña') && typeof window !== 'undefined') {
+    const match = window.location.pathname.match(/\/room\/([^\/]+)/);
+    if (match && match[1]) {
+      targetRoomId = match[1];
+      character.roomId = targetRoomId;
+    }
+  }
+
+  if (targetRoomId && targetRoomId !== 'sin_campaña') {
+    savePlayerInRoom(targetRoomId, character, forceRemoteWrite);
+  }
 };
 
 // Helper to get hit dice pool safely for any character
@@ -406,8 +449,8 @@ export interface StoreState {
   stabilizePlayer: (playerId?: string, healHP?: number) => void;
   togglePlayerDeath: (playerId: string, status?: boolean) => void;
   modifyAC: (amount: number, isPermanent: boolean, duration?: number) => void;
-  togglePinSkill: (skillName: string) => void;
-  toggleEquipItem: (itemId: string) => void;
+  togglePinSkill: (skillName: string, playerId?: string) => void;
+  toggleEquipItem: (itemId: string, playerId?: string) => void;
   useSpellSlot: (level: number) => void;
   restoreSpellSlot: (level: number) => void;
   setSpellSlotMax: (level: number, max: number) => void;
@@ -438,8 +481,8 @@ export interface StoreState {
   addSpell: (spell: Spell, isTemp: boolean, duration?: number) => void;
   updateSpell: (spellId: string, updates: Partial<Spell>) => void;
   removeSpell: (id: string) => void;
-  addModifier: (mod: Modifier) => void;
-  removeModifier: (id: string) => void;
+  addModifier: (mod: Modifier, playerId?: string) => void;
+  removeModifier: (id: string, playerId?: string) => void;
   
   updateCurrency: (playerId?: string, updates?: Partial<Currency>) => void;
   spendCurrency: (playerId?: string, spend?: Partial<Currency>, reason?: string) => void;
@@ -714,28 +757,41 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   
   updateActiveCharacter: (updates) => {
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
-      players: state.players.map(p => p.id === state.activePlayerId ? { ...p, ...updates } : p)
+      players: state.players.map(p => {
+        if (p.id !== state.activePlayerId) return p;
+        updatedChar = { ...p, ...updates };
+        return updatedChar;
+      })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   toggleInspiration: (playerId, status) => {
     const targetId = playerId || get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
         const newStatus = status !== undefined ? status : !p.inspiration;
         get().addLog(newStatus ? `⭐ ${p.name} ha obtenido INSPIRACIÓN de D&D 5e.` : `⭐ ${p.name} ha usado/perdido su Inspiración.`);
-        return { ...p, inspiration: newStatus };
+        updatedChar = { ...p, inspiration: newStatus };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   updateCurrency: (playerId, updates) => {
     if (!updates) return;
     const targetId = playerId || get().activePlayerId;
     let logMsg = '';
-    let playerRoomId = '';
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
@@ -748,12 +804,15 @@ export const useStore = create<StoreState>((set, get) => ({
           pp: Math.max(0, updates.pp !== undefined ? updates.pp : currentCur.pp),
         };
         logMsg = `💰 ${p.name} actualizó su monedero: ${newCur.gp} GP, ${newCur.sp} SP, ${newCur.cp} CP.`;
-        playerRoomId = p.roomId || '';
-        return { ...p, currency: newCur };
+        updatedChar = { ...p, currency: newCur };
+        return updatedChar;
       })
     }));
     if (logMsg) {
       get().addLog(logMsg);
+    }
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
     }
   },
 
@@ -761,7 +820,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!spend) return;
     const targetId = playerId || get().activePlayerId;
     let logMsg = '';
-    let playerRoomId = '';
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
@@ -790,24 +849,32 @@ export const useStore = create<StoreState>((set, get) => ({
         if (spentParts.length > 0) {
           const reasonText = reason ? ` [${reason}]` : '';
           logMsg = `💰 ${p.name} ha gastado ${spentParts.join(', ')}${reasonText}.`;
-          playerRoomId = p.roomId || '';
         }
 
-        return { ...p, currency: newCur };
+        updatedChar = { ...p, currency: newCur };
+        return updatedChar;
       })
     }));
     if (logMsg) {
       get().addLog(logMsg);
     }
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   saveNotesToCharacter: (playerId, notes) => {
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
-        return { ...p, notes: notes.slice(0, 10) };
+        updatedChar = { ...p, notes: notes.slice(0, 10) };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   updatePlayerStatsByDM: (playerId, stats) => {
@@ -833,25 +900,30 @@ export const useStore = create<StoreState>((set, get) => ({
     if (logMsg) {
       get().addLog(logMsg);
     }
-    if (updatedChar && (updatedChar as CharacterState).roomId && (updatedChar as CharacterState).id !== 'drizzt_dourden_demo') {
-      savePlayerInRoom((updatedChar as CharacterState).roomId!, updatedChar as CharacterState);
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
     }
   },
 
   updatePlayerHPByDM: (playerId, hpUpdates) => {
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
         const newHP = { ...p.hp, ...hpUpdates };
         get().addLog(`El DM ha actualizado los Puntos de Vida de ${p.name} (${newHP.current}/${newHP.max} HP, ${newHP.temp || 0} Temp).`);
-        return { ...p, hp: newHP };
+        updatedChar = { ...p, hp: newHP };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   convertPlayerCurrencyToStandard: (playerId) => {
     let logMsg = '';
-    let playerRoomId = '';
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
@@ -871,12 +943,15 @@ export const useStore = create<StoreState>((set, get) => ({
         };
 
         logMsg = `💰 Se convirtieron las monedas de ${p.name} al modo Estándar (CP/SP/GP): ${newCur.gp} GP, ${newCur.sp} SP, ${newCur.cp} CP.`;
-        playerRoomId = p.roomId || '';
-        return { ...p, currency: newCur };
+        updatedChar = { ...p, currency: newCur };
+        return updatedChar;
       })
     }));
     if (logMsg) {
       get().addLog(logMsg);
+    }
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
     }
   },
 
@@ -894,12 +969,15 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
-        targetPlayer = p;
+        targetPlayer = { ...p, inventory: [...p.inventory, item] };
         get().addLog(`🎁 El DM ha otorgado a ${p.name}: ${item.name} x${item.quantity}`);
-        return { ...p, inventory: [...p.inventory, item] };
+        return targetPlayer;
       }),
       lastItemReceivedEvent: event
     }));
+    if (targetPlayer) {
+      persistCharacterChanges(targetPlayer, true);
+    }
     if (targetPlayer?.roomId) {
       addRoomLog(targetPlayer.roomId, `🎁 El DM otorgó a ${targetPlayer.name} el objeto: "${item.name}" (x${item.quantity}).`);
       updateRoomState(targetPlayer.roomId, { lastItemReceivedEvent: event });
@@ -907,44 +985,60 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   removeItemFromPlayer: (playerId, itemId) => {
+    let targetPlayer: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
         const item = p.inventory.find(i => i.id === itemId);
         if (item) get().addLog(`El DM ha retirado del inventario de ${p.name}: ${item.name}`);
-        return { ...p, inventory: p.inventory.filter(i => i.id !== itemId) };
+        targetPlayer = { ...p, inventory: p.inventory.filter(i => i.id !== itemId) };
+        return targetPlayer;
       })
     }));
+    if (targetPlayer) {
+      persistCharacterChanges(targetPlayer, true);
+    }
   },
 
   addSpellToPlayer: (playerId, spell) => {
+    let targetPlayer: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
         get().addLog(`El DM ha otorgado el conjuro "${spell.name}" a ${p.name}.`);
-        return { ...p, spells: [...p.spells, spell] };
+        targetPlayer = { ...p, spells: [...p.spells, spell] };
+        return targetPlayer;
       })
     }));
+    if (targetPlayer) {
+      persistCharacterChanges(targetPlayer, true);
+    }
   },
 
   removeSpellToPlayer: (playerId, spellId) => {
+    let targetPlayer: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
         const spell = p.spells.find(s => s.id === spellId);
         if (spell) get().addLog(`El DM ha eliminado el conjuro "${spell.name}" del grimorio de ${p.name}.`);
-        return { ...p, spells: p.spells.filter(s => s.id !== spellId) };
+        targetPlayer = { ...p, spells: p.spells.filter(s => s.id !== spellId) };
+        return targetPlayer;
       })
     }));
+    if (targetPlayer) {
+      persistCharacterChanges(targetPlayer, true);
+    }
   },
 
   togglePlayerDeath: (playerId, status) => {
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
         const newDeadStatus = status !== undefined ? status : !p.isDead;
         get().addLog(newDeadStatus ? `☠️ ${p.name} ha fallecido.` : `✨ ${p.name} ha sido revivido por el DM.`);
-        return { 
+        updatedChar = { 
           ...p, 
           isDead: newDeadStatus,
           isDying: newDeadStatus ? false : false,
@@ -952,15 +1046,20 @@ export const useStore = create<StoreState>((set, get) => ({
           deathSaves: { successes: 0, failures: 0 },
           hp: { ...p.hp, current: newDeadStatus ? 0 : Math.max(1, p.hp.current) }
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
   
-  toggleEquipItem: (itemId) => {
-    const activeId = get().activePlayerId;
+  toggleEquipItem: (itemId, playerId) => {
+    const targetId = playerId || get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
-        if (p.id !== activeId) return p;
+        if (p.id !== targetId) return p;
         const updatedInventory = p.inventory.map(item => {
           if (item.id === itemId) {
             const isEquipped = !item.equipped;
@@ -969,9 +1068,13 @@ export const useStore = create<StoreState>((set, get) => ({
           }
           return item;
         });
-        return { ...p, inventory: updatedInventory };
+        updatedChar = { ...p, inventory: updatedInventory };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   modifyHPMax: (amount, isPermanent, duration) => {
@@ -981,16 +1084,24 @@ export const useStore = create<StoreState>((set, get) => ({
 
     if (isPermanent) {
       get().addLog(`HP Máximo de ${activeChar.name} ajustado en ${amount > 0 ? '+'+amount : amount} permanentemente.`);
+      let updatedChar: CharacterState | undefined;
       set((state) => ({
-        players: state.players.map(p => p.id === activeId ? {
-          ...p,
-          hp: {
-            ...p.hp,
-            max: Math.max(1, p.hp.max + amount),
-            current: Math.max(1, p.hp.current + amount)
-          }
-        } : p)
+        players: state.players.map(p => {
+          if (p.id !== activeId) return p;
+          updatedChar = {
+            ...p,
+            hp: {
+              ...p.hp,
+              max: Math.max(1, p.hp.max + amount),
+              current: Math.max(1, p.hp.current + amount)
+            }
+          };
+          return updatedChar;
+        })
       }));
+      if (updatedChar) {
+        persistCharacterChanges(updatedChar, true);
+      }
     } else {
       get().addLog(`Modificador temporal de HP Máximo para ${activeChar.name}: ${amount > 0 ? '+'+amount : amount} por ${duration} turnos.`);
       get().addModifier({
@@ -1065,15 +1176,24 @@ export const useStore = create<StoreState>((set, get) => ({
         deathSaves = { successes: 0, failures: 0 };
       }
 
-      return {
-        players: state.players.map(p => p.id === activeId ? {
+      let updatedChar: CharacterState | undefined;
+      const updatedPlayers = state.players.map(p => {
+        if (p.id !== activeId) return p;
+        updatedChar = {
           ...p,
           hp: { ...p.hp, current: newCurr },
           isDying,
           isStable,
           deathSaves,
           isDead
-        } : p)
+        };
+        return updatedChar;
+      });
+      if (updatedChar) {
+        persistCharacterChanges(updatedChar, true);
+      }
+      return {
+        players: updatedPlayers
       };
     });
   },
@@ -1093,19 +1213,24 @@ export const useStore = create<StoreState>((set, get) => ({
 
       let currentSuccesses = currentP.deathSaves?.successes || 0;
       let currentFailures = currentP.deathSaves?.failures || 0;
+      let updatedChar: CharacterState | undefined;
 
       if (dieValue === 20) {
         // Natural 20! Restore 1 HP & clear dying state IMMEDIATELY!
         get().addLog(`🌟 ¡CRÍTICO (20)! ${currentP.name} recupera 1 ${terminology} de inmediato y recobra la consciencia.`);
         set((state) => ({
-          players: state.players.map(char => char.id === targetId ? {
-            ...char,
-            hp: { ...char.hp, current: 1 },
-            isDying: false,
-            isStable: false,
-            isDead: false,
-            deathSaves: { successes: 0, failures: 0 }
-          } : char)
+          players: state.players.map(char => {
+            if (char.id !== targetId) return char;
+            updatedChar = {
+              ...char,
+              hp: { ...char.hp, current: 1 },
+              isDying: false,
+              isStable: false,
+              isDead: false,
+              deathSaves: { successes: 0, failures: 0 }
+            };
+            return updatedChar;
+          })
         }));
 
         if (onExitModal) {
@@ -1122,13 +1247,17 @@ export const useStore = create<StoreState>((set, get) => ({
         if (currentFailures >= 3) {
           get().addLog(`☠️ ¡3 Fallos acumulados! ${currentP.name} ha fallecido definitivamente.`);
           set((state) => ({
-            players: state.players.map(char => char.id === targetId ? {
-              ...char,
-              isDying: false,
-              isStable: false,
-              isDead: true,
-              deathSaves: { successes: currentSuccesses, failures: 3 }
-            } : char)
+            players: state.players.map(char => {
+              if (char.id !== targetId) return char;
+              updatedChar = {
+                ...char,
+                isDying: false,
+                isStable: false,
+                isDead: true,
+                deathSaves: { successes: currentSuccesses, failures: 3 }
+              };
+              return updatedChar;
+            })
           }));
 
           if (onExitModal) {
@@ -1140,10 +1269,14 @@ export const useStore = create<StoreState>((set, get) => ({
           }
         } else {
           set((state) => ({
-            players: state.players.map(char => char.id === targetId ? {
-              ...char,
-              deathSaves: { successes: currentSuccesses, failures: currentFailures }
-            } : char)
+            players: state.players.map(char => {
+              if (char.id !== targetId) return char;
+              updatedChar = {
+                ...char,
+                deathSaves: { successes: currentSuccesses, failures: currentFailures }
+              };
+              return updatedChar;
+            })
           }));
         }
       } else if (dieValue >= 10) {
@@ -1153,13 +1286,17 @@ export const useStore = create<StoreState>((set, get) => ({
         if (currentSuccesses >= 3) {
           get().addLog(`🛡️ ¡3 Éxitos acumulados! ${currentP.name} se ha ESTABILIZADO. Sigue inconsciente pero fuera de peligro.`);
           set((state) => ({
-            players: state.players.map(char => char.id === targetId ? {
-              ...char,
-              isDying: false,
-              isStable: true,
-              isDead: false,
-              deathSaves: { successes: 0, failures: 0 }
-            } : char)
+            players: state.players.map(char => {
+              if (char.id !== targetId) return char;
+              updatedChar = {
+                ...char,
+                isDying: false,
+                isStable: true,
+                isDead: false,
+                deathSaves: { successes: 0, failures: 0 }
+              };
+              return updatedChar;
+            })
           }));
 
           if (onExitModal) {
@@ -1171,10 +1308,14 @@ export const useStore = create<StoreState>((set, get) => ({
           }
         } else {
           set((state) => ({
-            players: state.players.map(char => char.id === targetId ? {
-              ...char,
-              deathSaves: { successes: currentSuccesses, failures: currentFailures }
-            } : char)
+            players: state.players.map(char => {
+              if (char.id !== targetId) return char;
+              updatedChar = {
+                ...char,
+                deathSaves: { successes: currentSuccesses, failures: currentFailures }
+              };
+              return updatedChar;
+            })
           }));
         }
       } else {
@@ -1185,13 +1326,17 @@ export const useStore = create<StoreState>((set, get) => ({
         if (currentFailures >= 3) {
           get().addLog(`☠️ ¡3 Fallos acumulados! ${currentP.name} ha fallecido definitivamente.`);
           set((state) => ({
-            players: state.players.map(char => char.id === targetId ? {
-              ...char,
-              isDying: false,
-              isStable: false,
-              isDead: true,
-              deathSaves: { successes: currentSuccesses, failures: 3 }
-            } : char)
+            players: state.players.map(char => {
+              if (char.id !== targetId) return char;
+              updatedChar = {
+                ...char,
+                isDying: false,
+                isStable: false,
+                isDead: true,
+                deathSaves: { successes: currentSuccesses, failures: 3 }
+              };
+              return updatedChar;
+            })
           }));
 
           if (onExitModal) {
@@ -1203,18 +1348,27 @@ export const useStore = create<StoreState>((set, get) => ({
           }
         } else {
           set((state) => ({
-            players: state.players.map(char => char.id === targetId ? {
-              ...char,
-              deathSaves: { successes: currentSuccesses, failures: currentFailures }
-            } : char)
+            players: state.players.map(char => {
+              if (char.id !== targetId) return char;
+              updatedChar = {
+                ...char,
+                deathSaves: { successes: currentSuccesses, failures: currentFailures }
+              };
+              return updatedChar;
+            })
           }));
         }
+      }
+
+      if (updatedChar) {
+        persistCharacterChanges(updatedChar, true);
       }
     });
   },
 
   stabilizePlayer: (playerId, healHP = 0) => {
     const targetId = playerId || get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
@@ -1222,7 +1376,7 @@ export const useStore = create<StoreState>((set, get) => ({
           const effMax = p.hp.max + p.modifiers.filter(m => m.targetStat === 'hp_max').reduce((acc, m) => acc + (m.value || 0), 0);
           const newCurr = Math.min(effMax, healHP);
           get().addLog(`🩹 ${p.name} recibió auxilio de un compañero/DM y recuperó ${newCurr} HP, recobrando la consciencia.`);
-          return {
+          updatedChar = {
             ...p,
             hp: { ...p.hp, current: newCurr },
             isDying: false,
@@ -1230,18 +1384,23 @@ export const useStore = create<StoreState>((set, get) => ({
             isDead: false,
             deathSaves: { successes: 0, failures: 0 }
           };
+          return updatedChar;
         } else {
           get().addLog(`🩹 ${p.name} recibió primeros auxilios y se ha ESTABILIZADO a 0 HP.`);
-          return {
+          updatedChar = {
             ...p,
             isDying: false,
             isStable: true,
             isDead: false,
             deathSaves: { successes: 0, failures: 0 }
           };
+          return updatedChar;
         }
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   modifyAC: (amount, isPermanent, duration) => {
@@ -1251,9 +1410,17 @@ export const useStore = create<StoreState>((set, get) => ({
 
     if (isPermanent) {
       get().addLog(`CA de ${activeChar.name} ajustada en ${amount > 0 ? '+'+amount : amount} permanentemente.`);
+      let updatedChar: CharacterState | undefined;
       set((state) => ({
-        players: state.players.map(p => p.id === activeId ? { ...p, ac: Math.max(1, p.ac + amount) } : p)
+        players: state.players.map(p => {
+          if (p.id !== activeId) return p;
+          updatedChar = { ...p, ac: Math.max(1, p.ac + amount) };
+          return updatedChar;
+        })
       }));
+      if (updatedChar) {
+        persistCharacterChanges(updatedChar, true);
+      }
     } else {
       get().addLog(`Modificador temporal de CA para ${activeChar.name}: ${amount > 0 ? '+'+amount : amount} por ${duration} turnos.`);
       get().addModifier({
@@ -1273,26 +1440,32 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!activeChar) return;
 
     if (isPermanent) {
+      let updatedChar: CharacterState | undefined;
       if (stat.toLowerCase() === 'con') {
         const newCon = (activeChar.stats.con || 10) + value;
         const applied = applyRetroactiveConstitutionChange(activeChar, newCon);
         const hpDelta = applied.hpDelta;
         get().addLog(`CON de ${activeChar.name} ajustado en ${value > 0 ? '+'+value : value} permanentemente. Modificador de CON retroactivo aplicado a Vida Máxima: ${activeChar.hp.max} → ${applied.hp.max} ${get().hpTerminology} (${hpDelta >= 0 ? '+' : ''}${hpDelta}).`);
+        updatedChar = {
+          ...activeChar,
+          stats: applied.stats,
+          hp: applied.hp
+        };
         set((state) => ({
-          players: state.players.map(p => p.id === activeId ? {
-            ...p,
-            stats: applied.stats,
-            hp: applied.hp
-          } : p)
+          players: state.players.map(p => p.id === activeId ? updatedChar! : p)
         }));
       } else {
         get().addLog(`${stat.toUpperCase()} de ${activeChar.name} ajustado en ${value > 0 ? '+'+value : value} permanentemente.`);
+        updatedChar = {
+          ...activeChar,
+          stats: { ...activeChar.stats, [stat]: (activeChar.stats as any)[stat] + value }
+        };
         set((state) => ({
-          players: state.players.map(p => p.id === activeId ? {
-            ...p,
-            stats: { ...p.stats, [stat]: (p.stats as any)[stat] + value }
-          } : p)
+          players: state.players.map(p => p.id === activeId ? updatedChar! : p)
         }));
+      }
+      if (updatedChar) {
+        persistCharacterChanges(updatedChar, true);
       }
     } else {
       get().addLog(`Modificador temporal en ${stat.toUpperCase()} para ${activeChar.name}: ${value > 0 ? '+'+value : value} por ${duration} turnos.`);
@@ -1309,6 +1482,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setBaseStatScore: (stat, score) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
@@ -1316,53 +1490,69 @@ export const useStore = create<StoreState>((set, get) => ({
           const applied = applyRetroactiveConstitutionChange(p, score);
           const hpDelta = applied.hpDelta;
           get().addLog(`Puntuación base de CON de ${p.name} fijada en ${score}. Modificador de CON retroactivo: Vida Máxima recalculada a ${applied.hp.max} ${get().hpTerminology} (${hpDelta >= 0 ? '+' : ''}${hpDelta}).`);
-          return {
+          updatedChar = {
             ...p,
             stats: applied.stats,
             hp: applied.hp
           };
+          return updatedChar;
         }
         get().addLog(`Puntuación base de ${stat.toUpperCase()} de ${p.name} fijada en ${score}.`);
-        return {
+        updatedChar = {
           ...p,
           stats: { ...p.stats, [stat]: score }
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   addCustomClassFeature: (feature) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const currentCustom = p.customClassFeatures || [];
         get().addLog(`📜 ${p.name} recibió el rasgo por Lore/DM: ${feature.name}`);
-        return {
+        updatedChar = {
           ...p,
           customClassFeatures: [...currentCustom, feature]
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   removeCustomClassFeature: (featureName) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const currentCustom = p.customClassFeatures || [];
         get().addLog(`Rasgo por Lore/DM retirado de ${p.name}: ${featureName}`);
-        return {
+        updatedChar = {
           ...p,
           customClassFeatures: currentCustom.filter(f => f.name !== featureName)
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   updateCustomClassFeature: (oldName, feature) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
@@ -1372,16 +1562,21 @@ export const useStore = create<StoreState>((set, get) => ({
         const updatedList = exists 
           ? currentCustom.map(f => f.name === oldName ? feature : f)
           : [...currentCustom, feature];
-        return {
+        updatedChar = {
           ...p,
           customClassFeatures: updatedList
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   consumeItem: (itemId) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
@@ -1397,73 +1592,100 @@ export const useStore = create<StoreState>((set, get) => ({
           updatedInventory = p.inventory.map(i => i.id === itemId ? { ...i, quantity: 0, isConsumed: true } : i);
         }
 
-        return { ...p, inventory: updatedInventory };
+        updatedChar = { ...p, inventory: updatedInventory };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
-  togglePinSkill: (skillName) => {
-    const activeId = get().activePlayerId;
+  togglePinSkill: (skillName, playerId) => {
+    const targetId = playerId || get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
-        if (p.id !== activeId) return p;
+        if (p.id !== targetId) return p;
         const isPinned = p.pinnedSkills.includes(skillName);
         const newPinned = isPinned 
           ? p.pinnedSkills.filter(s => s !== skillName)
           : [...p.pinnedSkills, skillName];
-        return { ...p, pinnedSkills: newPinned };
+        updatedChar = { ...p, pinnedSkills: newPinned };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   useSpellSlot: (level) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const slot = p.spellSlots[level];
         if (!slot || slot.current <= 0) return p;
         get().addLog(`${p.name} lanzó un hechizo usando un Espacio Nivel ${level} (${slot.current - 1}/${slot.max} restantes)`);
-        return {
+        updatedChar = {
           ...p,
           spellSlots: {
             ...p.spellSlots,
             [level]: { ...slot, current: slot.current - 1 }
           }
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   restoreSpellSlot: (level) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const slot = p.spellSlots[level];
         if (!slot || slot.current >= slot.max) return p;
-        return {
+        updatedChar = {
           ...p,
           spellSlots: {
             ...p.spellSlots,
             [level]: { ...slot, current: slot.current + 1 }
           }
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   setSpellSlotMax: (level, max) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
-      players: state.players.map(p => p.id === activeId ? {
-        ...p,
-        spellSlots: {
-          ...p.spellSlots,
-          [level]: { max, current: max }
-        }
-      } : p)
+      players: state.players.map(p => {
+        if (p.id !== activeId) return p;
+        updatedChar = {
+          ...p,
+          spellSlots: {
+            ...p.spellSlots,
+            [level]: { max, current: max }
+          }
+        };
+        return updatedChar;
+      })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   spendHitDie: (playerId) => {
@@ -1511,8 +1733,8 @@ export const useStore = create<StoreState>((set, get) => ({
       return { players: updatedPlayers };
     });
 
-    if (updatedChar && (updatedChar as CharacterState).roomId && (updatedChar as CharacterState).id !== 'drizzt_dourden_demo') {
-      savePlayerInRoom((updatedChar as CharacterState).roomId!, updatedChar as CharacterState);
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
     }
   },
 
@@ -1543,8 +1765,8 @@ export const useStore = create<StoreState>((set, get) => ({
       })
     }));
 
-    if (updatedChar && (updatedChar as CharacterState).roomId && (updatedChar as CharacterState).id !== 'drizzt_dourden_demo') {
-      savePlayerInRoom((updatedChar as CharacterState).roomId!, updatedChar as CharacterState);
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
     }
   },
 
@@ -1596,8 +1818,8 @@ export const useStore = create<StoreState>((set, get) => ({
       })
     }));
 
-    if (updatedChar && (updatedChar as CharacterState).roomId && (updatedChar as CharacterState).id !== 'drizzt_dourden_demo') {
-      savePlayerInRoom((updatedChar as CharacterState).roomId!, updatedChar as CharacterState);
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
     }
   },
 
@@ -1676,6 +1898,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     // Update customClassFeatures list to persist usages for both custom & official features
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
@@ -1694,12 +1917,17 @@ export const useStore = create<StoreState>((set, get) => ({
         } else {
           updatedList = [...currentCustom, { ...featDef!, currentUses: newUses }];
         }
-        return { ...p, customClassFeatures: updatedList };
+        updatedChar = { ...p, customClassFeatures: updatedList };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   togglePlayerDeathState: (playerId, status, healHP = 1) => {
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
@@ -1732,7 +1960,7 @@ export const useStore = create<StoreState>((set, get) => ({
           addRoomLog(p.roomId, `⚙️ El DM actualizó el estado de salud de ${p.name}.`);
         }
 
-        return {
+        updatedChar = {
           ...p,
           hp: newHP,
           isDying,
@@ -1740,8 +1968,12 @@ export const useStore = create<StoreState>((set, get) => ({
           isDead,
           deathSaves
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   lastLevelUpEvent: null,
@@ -1952,12 +2184,21 @@ export const useStore = create<StoreState>((set, get) => ({
       duration: isTemp ? (duration || null) : null
     };
 
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
-      players: state.players.map(p => p.id === activeId ? {
-        ...p,
-        inventory: [...p.inventory, itemToAdd]
-      } : p)
+      players: state.players.map(p => {
+        if (p.id !== activeId) return p;
+        updatedChar = {
+          ...p,
+          inventory: [...p.inventory, itemToAdd]
+        };
+        return updatedChar;
+      })
     }));
+
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
 
     if (isTemp) {
       get().addModifier({
@@ -1971,32 +2212,42 @@ export const useStore = create<StoreState>((set, get) => ({
 
   updateItem: (itemId, updates) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const item = p.inventory.find(i => i.id === itemId);
         if (item) get().addLog(`Objeto editado en el inventario de ${p.name}: ${updates.name || item.name}`);
-        return {
+        updatedChar = {
           ...p,
           inventory: p.inventory.map(i => i.id === itemId ? { ...i, ...updates } : i)
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   removeItem: (id) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const item = p.inventory.find(i => i.id === id);
         if (item) get().addLog(`Objeto retirado de ${p.name}: ${item.name}`);
-        return {
+        updatedChar = {
           ...p,
           inventory: p.inventory.filter(i => i.id !== id)
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
     
   addSpell: (spell, isTemp, duration) => {
@@ -2013,72 +2264,103 @@ export const useStore = create<StoreState>((set, get) => ({
         duration: duration || null
       });
     } else {
+      let updatedChar: CharacterState | undefined;
       set((state) => ({
-        players: state.players.map(p => p.id === activeId ? {
-          ...p,
-          spells: [...p.spells, spell]
-        } : p)
+        players: state.players.map(p => {
+          if (p.id !== activeId) return p;
+          updatedChar = {
+            ...p,
+            spells: [...p.spells, spell]
+          };
+          return updatedChar;
+        })
       }));
+      if (updatedChar) {
+        persistCharacterChanges(updatedChar, true);
+      }
     }
   },
 
   updateSpell: (spellId, updates) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const spell = p.spells.find(s => s.id === spellId);
         if (spell) get().addLog(`Conjuro editado en el grimorio de ${p.name}: ${updates.name || spell.name}`);
-        return {
+        updatedChar = {
           ...p,
           spells: p.spells.map(s => s.id === spellId ? { ...s, ...updates } : s)
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
 
   removeSpell: (id) => {
     const activeId = get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const spell = p.spells.find(s => s.id === id);
         if (spell) get().addLog(`Conjuro olvidado por ${p.name}: ${spell.name}`);
-        return {
+        updatedChar = {
           ...p,
           spells: p.spells.filter(s => s.id !== id)
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
     
-  addModifier: (mod) => {
-    const activeId = get().activePlayerId;
-    const activeChar = get().players.find(p => p.id === activeId);
-    if (!activeChar) return;
+  addModifier: (mod, playerId) => {
+    const targetId = playerId || get().activePlayerId;
+    const targetChar = get().players.find(p => p.id === targetId);
+    if (!targetChar) return;
 
-    get().addLog(`Efecto añadido a ${activeChar.name}: ${mod.name} (${mod.duration ? mod.duration + ' turnos' : 'Perm'})`);
-    set((state) => ({
-      players: state.players.map(p => p.id === activeId ? {
-        ...p,
-        modifiers: [...p.modifiers, mod]
-      } : p)
-    }));
-  },
-
-  removeModifier: (id) => {
-    const activeId = get().activePlayerId;
+    get().addLog(`Efecto añadido a ${targetChar.name}: ${mod.name} (${mod.duration ? mod.duration + ' turnos' : 'Perm'})`);
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
-        if (p.id !== activeId) return p;
+        if (p.id !== targetId) return p;
+        updatedChar = {
+          ...p,
+          modifiers: [...p.modifiers, mod]
+        };
+        return updatedChar;
+      })
+    }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
+  },
+
+  removeModifier: (id, playerId) => {
+    const targetId = playerId || get().activePlayerId;
+    let updatedChar: CharacterState | undefined;
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== targetId) return p;
         const mod = p.modifiers.find(m => m.id === id);
         if (mod) get().addLog(`Efecto retirado de ${p.name}: ${mod.name}`);
-        return {
+        updatedChar = {
           ...p,
           modifiers: p.modifiers.filter(m => m.id !== id)
         };
+        return updatedChar;
       })
     }));
+    if (updatedChar) {
+      persistCharacterChanges(updatedChar, true);
+    }
   },
     
   lastTurnEvent: null,

@@ -2,19 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useStore, CharacterState, ItemType, Item, Spell } from "@/store/useStore";
+import { useStore, CharacterState, ItemType, Item, Spell, Currency, SKILLS_5E, syncAllLocalPlayersToStorage } from "@/store/useStore";
 import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, subscribeRoom, Room, getLogCategory, LogCategory, DirectMessage, deleteRoom } from "@/lib/rooms";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import TutorialModal from "@/components/TutorialModal";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import { 
-  Swords, Shield, Heart, Clock, Users, ScrollText, Eye, X, Zap, Package, BookOpen, Sparkles, ChevronDown, ChevronUp, UserX, Settings, Lock, Award, Plus, Trash2, CheckCircle2, Circle, ShieldAlert, FlaskConical, Scroll, Briefcase, Sword, HelpCircle, Mail, Search, Maximize2, Filter
+  Swords, Shield, Heart, Clock, Users, ScrollText, Eye, X, Zap, Package, BookOpen, Sparkles, ChevronDown, ChevronUp, UserX, Settings, Lock, Award, Plus, Trash2, CheckCircle2, Circle, ShieldAlert, FlaskConical, Scroll, Briefcase, Sword, HelpCircle, Mail, Search, Maximize2, Filter, Coins, Pin
 } from "lucide-react";
 
 export default function DMPage({ roomId }: { roomId?: string }) {
   const { 
     players, isCombatMode, initiativeOrder, currentTurnIndex, toggleCombatMode, advanceTurn, togglePlayerDeath, togglePlayerDeathState, logs, lastTurnEvent, rollDeathSave, stabilizePlayer, levelUpPlayer, levelUpParty,
-    toggleInspiration, updatePlayerStatsByDM, updatePlayerHPByDM, addItemToPlayer, removeItemFromPlayer, addSpellToPlayer, removeSpellToPlayer, convertPlayerCurrencyToStandard, showAlert, showConfirm
+    toggleInspiration, updatePlayerStatsByDM, updatePlayerHPByDM, addItemToPlayer, removeItemFromPlayer, addSpellToPlayer, removeSpellToPlayer, convertPlayerCurrencyToStandard, updateCurrency, toggleEquipItem, togglePinSkill, addModifier, removeModifier, showAlert, showConfirm
   } = useStore();
   const [turnToast, setTurnToast] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -86,7 +86,8 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     setTimeout(() => {
       const targetPlayer = useStore.getState().players.find(p => p.id === playerId);
       if (targetPlayer) {
-        savePlayerInRoom(effectiveRoomId!, targetPlayer);
+        savePlayerInRoom(effectiveRoomId!, targetPlayer, true);
+        syncAllLocalPlayersToStorage([targetPlayer]);
       }
     }, 50);
   };
@@ -109,12 +110,25 @@ export default function DMPage({ roomId }: { roomId?: string }) {
   const [selectedCombatPlayerIds, setSelectedCombatPlayerIds] = useState<string[]>([]);
 
   // DM Inspect Edit Forms State
-  const [dmNewItem, setDmNewItem] = useState<{ name: string; type: ItemType; desc: string; qty: number; damage: string; acBonus: number; equipped: boolean }>({
-    name: "", type: "general", desc: "", qty: 1, damage: "", acBonus: 0, equipped: false
+  const [dmNewItem, setDmNewItem] = useState<{ 
+    name: string; 
+    type: ItemType; 
+    desc: string; 
+    qty: number; 
+    damage: string; 
+    acBonus: number; 
+    equipped: boolean; 
+    turns: string; 
+  }>({
+    name: "", type: "general", desc: "", qty: 1, damage: "", acBonus: 0, equipped: false, turns: ""
   });
   const [dmNewSpell, setDmNewSpell] = useState({ name: "", level: 1, school: "Evocación", desc: "", castingTime: "1 Acción" });
   const [dmHPEdit, setDmHPEdit] = useState({ current: 0, max: 0, temp: 0 });
   const [dmStatsEdit, setDmStatsEdit] = useState<{ str?: number; dex?: number; con?: number; int?: number; wis?: number; cha?: number }>({});
+  const [dmCurrencyEdit, setDmCurrencyEdit] = useState<Currency>({ cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 });
+  const [dmSkillEditModal, setDmSkillEditModal] = useState<{ open: boolean; skillName: string | null; value: number; turns: string }>({
+    open: false, skillName: null, value: 0, turns: ""
+  });
 
   useEffect(() => {
     if (room) {
@@ -133,8 +147,9 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     if (inspectedPlayer) {
       setDmHPEdit({ current: inspectedPlayer.hp.current, max: inspectedPlayer.hp.max, temp: inspectedPlayer.hp.temp || 0 });
       setDmStatsEdit({ ...inspectedPlayer.stats });
+      setDmCurrencyEdit(inspectedPlayer.currency || { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 });
     }
-  }, [inspectedPlayerId]);
+  }, [inspectedPlayerId, inspectedPlayer]);
 
   useEffect(() => {
     if (lastTurnEvent) {
@@ -163,6 +178,15 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     const base = (p.stats as any)[statName] || 10;
     const modSum = p.modifiers.filter(m => m.targetStat === statName).reduce((acc, m) => acc + (m.value || 0), 0);
     return base + modSum;
+  };
+
+  const getEffectiveSkillModForPlayer = (p: CharacterState, skillName: string, statKey: string) => {
+    const statVal = getEffectiveStat(p, statKey);
+    const baseMod = getAbilityMod(statVal);
+    const skillMods = (p.modifiers || [])
+      .filter(m => m.targetStat === `skill_${skillName}` || m.targetStat === skillName)
+      .reduce((acc, m) => acc + (m.value || 0), 0);
+    return { baseMod, skillMods, totalMod: baseMod + skillMods };
   };
 
   const handleKickPlayer = (p: CharacterState) => {
@@ -934,24 +958,215 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         Guardar Puntos de Vida
                       </button>
                     </div>
+
+                    {/* DM Skills View & Modifier */}
+                    <div className="p-3 bg-parchment rounded border border-ink/20 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h4 className="font-bold font-cinzel text-magic-gold text-xs flex items-center gap-1.5">
+                          🎯 Habilidades de {inspectedPlayer.name} (D&D 5e)
+                        </h4>
+                        <span className="text-[10px] text-ink-light">Haz clic en una habilidad para lanzar d20</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {SKILLS_5E.map(skill => {
+                          const isPinned = inspectedPlayer.pinnedSkills?.includes(skill.name);
+                          const { skillMods, totalMod } = getEffectiveSkillModForPlayer(inspectedPlayer, skill.name, skill.stat);
+                          return (
+                            <div key={skill.name} className="flex justify-between items-center p-2 bg-parchment-dark rounded border border-ink/10 hover:bg-ink/5 transition text-xs">
+                              <div 
+                                onClick={() => triggerDiceRoll('d20', totalMod, `Prueba de ${skill.name} (${inspectedPlayer.name})`)}
+                                className="flex-1 truncate cursor-pointer flex items-center gap-1"
+                                title={`Lanzar d20 + ${totalMod} para ${skill.name}`}
+                              >
+                                <span className="truncate font-bold">🎲 {skill.name}</span>
+                                <span className="text-ink-light text-[9px] uppercase">({skill.stat})</span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0 ml-1">
+                                {skillMods !== 0 && (
+                                  <span className={`text-[10px] font-bold ${skillMods > 0 ? 'text-magic-gold' : 'text-magic-red'}`}>
+                                    ({skillMods > 0 ? `+${skillMods}` : skillMods})
+                                  </span>
+                                )}
+                                <span 
+                                  onClick={() => triggerDiceRoll('d20', totalMod, `Prueba de ${skill.name} (${inspectedPlayer.name})`)}
+                                  className="font-bold text-magic-gold cursor-pointer hover:underline"
+                                >
+                                  {totalMod >= 0 ? `+${totalMod}` : totalMod}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    togglePinSkill(skill.name, inspectedPlayer.id);
+                                    syncPlayer(inspectedPlayer.id);
+                                  }}
+                                  className={`p-1 rounded cursor-pointer transition ${isPinned ? 'text-magic-gold' : 'text-ink-light/40 hover:text-ink'}`}
+                                  title={isPinned ? "Desfijar habilidad" : "Fijar habilidad"}
+                                >
+                                  <Pin className="w-3 h-3"/>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setDmSkillEditModal({ open: true, skillName: skill.name, value: 0, turns: "" });
+                                  }}
+                                  className="p-1 bg-magic-gold text-black rounded hover:scale-110 transition cursor-pointer shadow"
+                                  title={`Modificar ${skill.name}`}
+                                >
+                                  <Plus className="w-2.5 h-2.5"/>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 )}
 
                 {inspectTab === "inventory" && (
                   <div className="space-y-4">
+                    {/* DM Currency Editor */}
+                    <div className="p-3 bg-parchment rounded border border-ink/20 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <h4 className="font-bold font-cinzel text-magic-gold text-xs flex items-center gap-1.5">
+                          <Coins className="w-4 h-4"/> Monedas y Riquezas de {inspectedPlayer.name}
+                        </h4>
+                        <span className="text-[10px] text-ink-light">
+                          Total aprox: {((dmCurrencyEdit.cp || 0) * 0.01 + (dmCurrencyEdit.sp || 0) * 0.1 + (dmCurrencyEdit.ep || 0) * 0.5 + (dmCurrencyEdit.gp || 0) + (dmCurrencyEdit.pp || 0) * 10).toFixed(2)} GP
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-amber-600 block mb-0.5">Cobre (CP)</label>
+                          <input 
+                            type="number"
+                            min={0}
+                            value={dmCurrencyEdit.cp ?? 0}
+                            onChange={e => setDmCurrencyEdit({ ...dmCurrencyEdit, cp: Math.max(0, parseInt(e.target.value) || 0) })}
+                            className="w-full p-1 bg-parchment-dark border border-ink/30 rounded text-center font-bold text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Plata (SP)</label>
+                          <input 
+                            type="number"
+                            min={0}
+                            value={dmCurrencyEdit.sp ?? 0}
+                            onChange={e => setDmCurrencyEdit({ ...dmCurrencyEdit, sp: Math.max(0, parseInt(e.target.value) || 0) })}
+                            className="w-full p-1 bg-parchment-dark border border-ink/30 rounded text-center font-bold text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-cyan-400 block mb-0.5">Electrum (EP)</label>
+                          <input 
+                            type="number"
+                            min={0}
+                            value={dmCurrencyEdit.ep ?? 0}
+                            onChange={e => setDmCurrencyEdit({ ...dmCurrencyEdit, ep: Math.max(0, parseInt(e.target.value) || 0) })}
+                            className="w-full p-1 bg-parchment-dark border border-ink/30 rounded text-center font-bold text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-magic-gold block mb-0.5">Oro (GP / PO)</label>
+                          <input 
+                            type="number"
+                            min={0}
+                            value={dmCurrencyEdit.gp ?? 0}
+                            onChange={e => setDmCurrencyEdit({ ...dmCurrencyEdit, gp: Math.max(0, parseInt(e.target.value) || 0) })}
+                            className="w-full p-1 bg-parchment-dark border border-ink/30 rounded text-center font-bold text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-indigo-400 block mb-0.5">Platino (PP)</label>
+                          <input 
+                            type="number"
+                            min={0}
+                            value={dmCurrencyEdit.pp ?? 0}
+                            onChange={e => setDmCurrencyEdit({ ...dmCurrencyEdit, pp: Math.max(0, parseInt(e.target.value) || 0) })}
+                            className="w-full p-1 bg-parchment-dark border border-ink/30 rounded text-center font-bold text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <button
+                          onClick={() => {
+                            updateCurrency(inspectedPlayer.id, dmCurrencyEdit);
+                            syncPlayer(inspectedPlayer.id);
+                            showAlert(`Monedas de ${inspectedPlayer.name} guardadas correctamente.`, "Monedas Guardadas", "success");
+                          }}
+                          className="px-3 py-1.5 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer flex items-center gap-1 shadow"
+                        >
+                          <Coins className="w-3.5 h-3.5"/> Guardar Monedas
+                        </button>
+                        <button
+                          onClick={() => {
+                            convertPlayerCurrencyToStandard(inspectedPlayer.id);
+                            syncPlayer(inspectedPlayer.id);
+                            const updated = useStore.getState().players.find(p => p.id === inspectedPlayer.id);
+                            if (updated?.currency) setDmCurrencyEdit(updated.currency);
+                            showAlert(`Monedas convertidas a estándar (CP, SP, GP).`, "Conversión Aplicada", "info");
+                          }}
+                          className="px-2.5 py-1.5 bg-ink/10 hover:bg-ink/20 text-ink text-xs font-bold rounded transition cursor-pointer"
+                        >
+                          Convertir a Estándar (3 Monedas)
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="space-y-2">
                       <h4 className="font-bold font-cinzel text-magic-gold text-xs">🎒 Inventario de {inspectedPlayer.name}</h4>
                       {inspectedPlayer.inventory.length === 0 ? (
                         <p className="text-xs italic text-ink/50">El inventario está vacío.</p>
                       ) : (
                         inspectedPlayer.inventory.map(item => (
-                          <div key={item.id} className="p-2.5 bg-parchment rounded border border-ink/10 flex justify-between items-center gap-2">
-                            <div>
-                              <span className="font-bold text-xs text-ink block">{item.name} {item.equipped && '✦ (Equipado)'}</span>
-                              <span className="text-ink-light text-[10px]">{item.description}</span>
+                          <div key={item.id} className={`p-2.5 rounded border transition flex justify-between items-center gap-2 ${
+                            item.equipped ? 'bg-parchment border-magic-gold shadow-sm' : 'bg-parchment-dark border-ink/10'
+                          }`}>
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-xs text-ink">{item.name}</span>
+                                <span className="text-[9px] bg-ink/10 px-1.5 py-0.5 rounded capitalize font-medium">{item.type}</span>
+                                {item.equipped && (
+                                  <span className="text-[9px] bg-magic-gold/20 text-yellow-800 font-bold px-1.5 py-0.5 rounded border border-magic-gold/40">
+                                    ✦ Equipado
+                                  </span>
+                                )}
+                                {item.damage && (
+                                  <span className="text-[9px] bg-red-950/20 text-magic-red font-bold px-1.5 py-0.5 rounded border border-red-500/20">
+                                    🗡️ {item.damage}
+                                  </span>
+                                )}
+                                {item.acBonus ? (
+                                  <span className="text-[9px] bg-yellow-950/20 text-magic-gold font-bold px-1.5 py-0.5 rounded border border-magic-gold/20">
+                                    🛡️ +{item.acBonus} CA
+                                  </span>
+                                ) : null}
+                                {item.isTemporary && (
+                                  <span className="text-[9px] bg-purple-900/30 text-purple-400 font-bold px-1.5 py-0.5 rounded border border-purple-500/30">
+                                    ⏳ {item.duration ? `${item.duration} turnos` : 'Perm'}
+                                  </span>
+                                )}
+                              </div>
+                              {item.description && <p className="text-ink-light text-[10px] line-clamp-1">{item.description}</p>}
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
                               <span className="font-bold text-xs bg-ink/10 px-2 py-0.5 rounded">x{item.quantity}</span>
+                              {item.type !== 'consumable' && (
+                                <button
+                                  onClick={() => {
+                                    toggleEquipItem(item.id, inspectedPlayer.id);
+                                    syncPlayer(inspectedPlayer.id);
+                                  }}
+                                  className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded transition cursor-pointer ${
+                                    item.equipped ? 'bg-magic-gold text-black shadow' : 'bg-ink/10 text-ink-light hover:text-ink'
+                                  }`}
+                                  title={item.equipped ? "Desequipar objeto" : "Equipar objeto"}
+                                >
+                                  {item.equipped ? <CheckCircle2 className="w-3.5 h-3.5"/> : <Circle className="w-3.5 h-3.5"/>}
+                                  {item.equipped ? 'Equipado' : 'Equipar'}
+                                </button>
+                              )}
                               <button
                                 onClick={() => {
                                   removeItemFromPlayer(inspectedPlayer.id, item.id);
@@ -968,53 +1183,135 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                       )}
                     </div>
 
-                    {/* DM Add Item Form */}
-                    <div className="p-3 bg-parchment rounded border border-ink/20 space-y-2">
-                      <h4 className="font-bold font-cinzel text-magic-gold text-xs">🎁 Otorgar Objeto al Jugador (DM)</h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                        <input 
-                          type="text" 
-                          placeholder="Nombre del Objeto..."
-                          value={dmNewItem.name}
-                          onChange={e => setDmNewItem({ ...dmNewItem, name: e.target.value })}
-                          className="p-1.5 bg-parchment-dark border border-ink/30 rounded font-bold"
-                        />
-                        <select 
-                          value={dmNewItem.type}
-                          onChange={e => setDmNewItem({ ...dmNewItem, type: e.target.value as ItemType })}
-                          className="p-1.5 bg-parchment-dark border border-ink/30 rounded font-bold"
-                        >
-                          <option value="general">General</option>
-                          <option value="weapon">Arma</option>
-                          <option value="armor">Armadura</option>
-                          <option value="consumable">Consumible</option>
-                          <option value="quest">Misión</option>
-                        </select>
+                    {/* DM Add Item Form (Symmetric with Sheet) */}
+                    <div className="p-3 bg-parchment rounded border border-ink/20 space-y-2.5">
+                      <h4 className="font-bold font-cinzel text-magic-gold text-xs flex items-center gap-1.5">
+                        <Plus className="w-3.5 h-3.5"/> Otorgar Objeto al Jugador (DM)
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <label className="block text-[10px] font-bold mb-0.5">Nombre del Objeto</label>
+                          <input 
+                            type="text" 
+                            placeholder="Ej. Espada Flameante"
+                            value={dmNewItem.name}
+                            onChange={e => setDmNewItem({ ...dmNewItem, name: e.target.value })}
+                            className="w-full p-1.5 bg-parchment-dark border border-ink/30 rounded font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold mb-0.5">Tipo</label>
+                          <select 
+                            value={dmNewItem.type}
+                            onChange={e => setDmNewItem({ ...dmNewItem, type: e.target.value as ItemType })}
+                            className="w-full p-1.5 bg-parchment-dark border border-ink/30 rounded font-bold cursor-pointer"
+                          >
+                            <option value="general">General</option>
+                            <option value="weapon">Arma</option>
+                            <option value="armor">Armadura</option>
+                            <option value="consumable">Consumible</option>
+                            <option value="quest">Misión</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold mb-0.5">Cantidad</label>
+                          <input 
+                            type="number" 
+                            min={1}
+                            value={dmNewItem.qty}
+                            onChange={e => setDmNewItem({ ...dmNewItem, qty: parseInt(e.target.value) || 1 })}
+                            className="w-full p-1.5 bg-parchment-dark border border-ink/30 rounded font-bold text-center"
+                          />
+                        </div>
+
+                        {dmNewItem.type === 'weapon' && (
+                          <div>
+                            <label className="block text-[10px] font-bold mb-0.5">Daño (Ej. 1d8+2)</label>
+                            <input 
+                              type="text" 
+                              placeholder="Ej. 1d8+2"
+                              value={dmNewItem.damage}
+                              onChange={e => setDmNewItem({ ...dmNewItem, damage: e.target.value })}
+                              className="w-full p-1.5 bg-parchment-dark border border-ink/30 rounded font-bold"
+                            />
+                          </div>
+                        )}
+
+                        {dmNewItem.type === 'armor' && (
+                          <div>
+                            <label className="block text-[10px] font-bold mb-0.5">Bono a CA (Ej. 2)</label>
+                            <input 
+                              type="number" 
+                              placeholder="Ej. 2"
+                              value={dmNewItem.acBonus}
+                              onChange={e => setDmNewItem({ ...dmNewItem, acBonus: parseInt(e.target.value) || 0 })}
+                              className="w-full p-1.5 bg-parchment-dark border border-ink/30 rounded font-bold text-center"
+                            />
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-[10px] font-bold mb-0.5">Duración Turnos (vacío = Perm)</label>
+                          <input 
+                            type="number" 
+                            placeholder="Ej. 5 (vacío = perm)"
+                            value={dmNewItem.turns}
+                            onChange={e => setDmNewItem({ ...dmNewItem, turns: e.target.value })}
+                            className="w-full p-1.5 bg-parchment-dark border border-ink/30 rounded font-bold text-center"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-[10px] font-bold mb-0.5">Descripción</label>
+                          <input 
+                            type="text" 
+                            placeholder="Descripción o efectos del objeto..."
+                            value={dmNewItem.desc}
+                            onChange={e => setDmNewItem({ ...dmNewItem, desc: e.target.value })}
+                            className="w-full p-1.5 bg-parchment-dark border border-ink/30 rounded text-xs"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-4">
+                          <label className="flex items-center gap-1.5 text-xs font-bold cursor-pointer">
+                            <input 
+                              type="checkbox"
+                              checked={dmNewItem.equipped}
+                              onChange={e => setDmNewItem({ ...dmNewItem, equipped: e.target.checked })}
+                              className="rounded border-ink/30 text-magic-gold"
+                            />
+                            <span>Equipar al otorgar</span>
+                          </label>
+                        </div>
                       </div>
-                      <input 
-                        type="text" 
-                        placeholder="Descripción corta del objeto..."
-                        value={dmNewItem.desc}
-                        onChange={e => setDmNewItem({ ...dmNewItem, desc: e.target.value })}
-                        className="w-full p-1.5 bg-parchment-dark border border-ink/30 rounded text-xs"
-                      />
-                      <button
-                        onClick={() => {
-                          if (!dmNewItem.name) return;
-                          addItemToPlayer(inspectedPlayer.id, {
-                            id: Date.now().toString(),
-                            name: dmNewItem.name,
-                            type: dmNewItem.type,
-                            description: dmNewItem.desc,
-                            quantity: dmNewItem.qty
-                          });
-                          syncPlayer(inspectedPlayer.id);
-                          setDmNewItem({ name: "", type: "general", desc: "", qty: 1, damage: "", acBonus: 0, equipped: false });
-                        }}
-                        className="px-3 py-1.5 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer"
-                      >
-                        + Otorgar Objeto
-                      </button>
+
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={() => {
+                            if (!dmNewItem.name.trim()) return;
+                            const isTemp = !!dmNewItem.turns && parseInt(dmNewItem.turns) > 0;
+                            const duration = isTemp ? parseInt(dmNewItem.turns) : null;
+                            addItemToPlayer(inspectedPlayer.id, {
+                              id: Date.now().toString(),
+                              name: dmNewItem.name.trim(),
+                              type: dmNewItem.type,
+                              description: dmNewItem.desc,
+                              quantity: dmNewItem.qty || 1,
+                              damage: dmNewItem.type === 'weapon' ? dmNewItem.damage : undefined,
+                              acBonus: dmNewItem.type === 'armor' ? Number(dmNewItem.acBonus) || 0 : undefined,
+                              equipped: dmNewItem.equipped,
+                              isTemporary: isTemp,
+                              duration: duration
+                            });
+                            syncPlayer(inspectedPlayer.id);
+                            setDmNewItem({ name: "", type: "general", desc: "", qty: 1, damage: "", acBonus: 0, equipped: false, turns: "" });
+                            showAlert(`Objeto "${dmNewItem.name}" otorgado a ${inspectedPlayer.name}.`, "Objeto Otorgado", "success");
+                          }}
+                          className="px-3.5 py-1.5 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer flex items-center gap-1 shadow"
+                        >
+                          <Plus className="w-3.5 h-3.5"/> + Otorgar Objeto
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1120,6 +1417,72 @@ export default function DMPage({ roomId }: { roomId?: string }) {
               <div className="mt-3 pt-3 border-t border-ink/20 flex justify-end">
                 <button onClick={() => setInspectedPlayerId(null)} className="px-4 py-2 bg-magic-gold text-black text-xs font-bold rounded cursor-pointer">
                   Cerrar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* DM SKILL EDIT MODAL */}
+      <AnimatePresence>
+        {dmSkillEditModal.open && dmSkillEditModal.skillName && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 font-sans backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-parchment-dark border-4 border-magic-gold rounded-xl p-6 max-w-sm w-full shadow-2xl space-y-4 text-ink">
+              <h3 className="text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                🎯 Modificar Habilidad: {dmSkillEditModal.skillName}
+              </h3>
+              <p className="text-xs text-ink-light">
+                Añade un bono o penalizador temporal o permanente a esta habilidad para <strong>{inspectedPlayer.name}</strong>.
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold mb-1">Modificador (+ o -)</label>
+                  <input 
+                    type="number"
+                    value={dmSkillEditModal.value}
+                    onChange={e => setDmSkillEditModal({ ...dmSkillEditModal, value: parseInt(e.target.value) || 0 })}
+                    className="w-full p-2 bg-parchment border border-ink/30 rounded font-bold text-center text-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold mb-1">Duración en Turnos (vacío = permanente)</label>
+                  <input 
+                    type="number" 
+                    placeholder="Ej. 3 (vacío para permanente)"
+                    value={dmSkillEditModal.turns}
+                    onChange={e => setDmSkillEditModal({ ...dmSkillEditModal, turns: e.target.value })}
+                    className="w-full p-2 bg-parchment border border-ink/30 rounded text-xs text-center font-bold"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button 
+                  onClick={() => setDmSkillEditModal({ open: false, skillName: null, value: 0, turns: "" })}
+                  className="px-3 py-1.5 text-xs text-ink-light hover:text-ink font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={() => {
+                    if (dmSkillEditModal.value !== 0 && dmSkillEditModal.skillName) {
+                      const turnsNum = dmSkillEditModal.turns ? parseInt(dmSkillEditModal.turns) : null;
+                      addModifier({
+                        id: Date.now().toString(),
+                        name: `Bono DM: ${dmSkillEditModal.skillName}`,
+                        description: `Modificador otorgado por el DM a ${dmSkillEditModal.skillName}`,
+                        duration: turnsNum,
+                        targetStat: `skill_${dmSkillEditModal.skillName}`,
+                        value: dmSkillEditModal.value
+                      }, inspectedPlayer.id);
+                      syncPlayer(inspectedPlayer.id);
+                      showAlert(`Modificador aplicado a ${dmSkillEditModal.skillName} para ${inspectedPlayer.name}.`, "Habilidad Modificada", "success");
+                    }
+                    setDmSkillEditModal({ open: false, skillName: null, value: 0, turns: "" });
+                  }}
+                  className="px-4 py-1.5 bg-magic-gold text-black text-xs font-bold rounded hover:bg-yellow-500 transition cursor-pointer shadow"
+                >
+                  Aplicar Modificador
                 </button>
               </div>
             </motion.div>

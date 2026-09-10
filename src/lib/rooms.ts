@@ -3,7 +3,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, 
   query, where, orderBy, limit, onSnapshot, serverTimestamp 
 } from "firebase/firestore";
-import { useStore, CharacterState, LogEntry } from "@/store/useStore";
+import { useStore, CharacterState, LogEntry, syncAllLocalPlayersToStorage } from "@/store/useStore";
 import { logError, saveOfflineCharacterBackup } from "./errorLogger";
 
 export type DirectMessage = {
@@ -242,6 +242,7 @@ export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) =
 
 // 6. Save/Update Player Character in Room (Rate-limited + Deduplicated + Offline fallback + Strict Isolation)
 const lastSavedDataMap = new Map<string, string>();
+const pendingWriteTimers = new Map<string, NodeJS.Timeout>();
 
 export const savePlayerInRoom = async (roomId: string, character: CharacterState, forceWrite: boolean = false) => {
   if (!db || !roomId || !character || !character.id) return;
@@ -265,9 +266,26 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
   };
 
   const writeKey = `${roomId}_${character.id}`;
+
+  // If this write is forced (e.g. explicit user edit, DM action, HP change), clear any pending deferred flush
+  if (forceWrite && pendingWriteTimers.has(writeKey)) {
+    clearTimeout(pendingWriteTimers.get(writeKey)!);
+    pendingWriteTimers.delete(writeKey);
+  }
   
   if (!forceWrite && isWriteRateLimited(writeKey)) {
     saveOfflineCharacterBackup(characterToSave);
+    syncAllLocalPlayersToStorage([characterToSave]);
+
+    // GUARANTEED FLUSH: Coalesce rapid updates and ensure trailing write is NEVER dropped
+    if (pendingWriteTimers.has(writeKey)) {
+      clearTimeout(pendingWriteTimers.get(writeKey)!);
+    }
+    const timer = setTimeout(() => {
+      pendingWriteTimers.delete(writeKey);
+      savePlayerInRoom(roomId, characterToSave, true);
+    }, 1600);
+    pendingWriteTimers.set(writeKey, timer);
     return;
   }
 
@@ -287,9 +305,11 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
     const playerRef = doc(db, "rooms", roomId, "players", character.id);
     await setDoc(playerRef, cleanFirebaseData(characterToSave), { merge: true });
     saveOfflineCharacterBackup(characterToSave);
+    syncAllLocalPlayersToStorage([characterToSave]);
   } catch (err: any) {
     logError(err, 'savePlayerInRoom', 'CRITICAL');
     saveOfflineCharacterBackup(characterToSave);
+    syncAllLocalPlayersToStorage([characterToSave]);
   }
 };
 

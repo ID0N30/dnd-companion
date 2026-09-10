@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { useStore, ItemType, Item, Spell, getCharacterHitDice } from "@/store/useStore";
+import { useStore, ItemType, Item, Spell, getCharacterHitDice, SKILLS_5E } from "@/store/useStore";
 import { getClassFeaturesForLevel, ClassFeature } from "@/lib/dndClassFeatures";
 import DiceRoller, { triggerDiceRoll } from "@/components/DiceRoller";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
@@ -15,27 +15,6 @@ import {
   PenTool, Shield, Heart, Zap, Sparkles, BookOpen, Package, Clock, 
   Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X, Settings, Dice5
 } from "lucide-react";
-
-const SKILLS_5E = [
-  { name: "Atletismo", stat: "str" },
-  { name: "Acrobacia", stat: "dex" },
-  { name: "Juego de Manos", stat: "dex" },
-  { name: "Sigilo", stat: "dex" },
-  { name: "Arcanos", stat: "int" },
-  { name: "Historia", stat: "int" },
-  { name: "Investigación", stat: "int" },
-  { name: "Naturaleza", stat: "int" },
-  { name: "Religión", stat: "int" },
-  { name: "Trato con Animales", stat: "wis" },
-  { name: "Perspicacia", stat: "wis" },
-  { name: "Medicina", stat: "wis" },
-  { name: "Percepción", stat: "wis" },
-  { name: "Supervivencia", stat: "wis" },
-  { name: "Engaño", stat: "cha" },
-  { name: "Intimidación", stat: "cha" },
-  { name: "Interpretación", stat: "cha" },
-  { name: "Persuasión", stat: "cha" },
-];
 
 export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } = {}) {
   const { 

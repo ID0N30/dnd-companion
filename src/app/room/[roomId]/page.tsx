@@ -195,8 +195,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
     const currentJSON = JSON.stringify(activeChar);
     if (lastRemoteSnapshot.current && !lastRemoteSnapshot.current.includes(currentJSON)) {
-      const isCriticalState = Boolean(activeChar.isDead || activeChar.isStable || !activeChar.isDying);
-      savePlayerInRoom(roomId, activeChar, isCriticalState);
+      savePlayerInRoom(roomId, activeChar, true);
     }
   }, [players, activePlayerId, roomId, isDM]);
 

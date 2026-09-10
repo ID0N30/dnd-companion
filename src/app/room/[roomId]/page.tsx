@@ -119,8 +119,10 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         if ((p as any).kicked) return false;
         if (p.id === 'drizzt_dourden_demo') return false;
         if (p.roomId && p.roomId !== roomId) {
-          // Purge leaked/zombie character document from this room's subcollection in Firestore
-          deletePlayerFromRoom(roomId, p.id);
+          // Purge leaked/zombie document from Firestore only if user is DM or document owner
+          if (isDM || (user && p.ownerId === user.uid)) {
+            deletePlayerFromRoom(roomId, p.id);
+          }
           return false;
         }
         return true;

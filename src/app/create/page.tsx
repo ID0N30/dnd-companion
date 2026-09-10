@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStore } from "@/store/useStore";
+import { useAuth } from "@/context/AuthContext";
 import { CLASS_SAVING_THROWS, CLASS_HIT_DIE, calculateMaxHP, getClassFeaturesForLevel, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS } from "@/lib/dndClassFeatures";
 import { ArrowRight, ArrowLeft, Save, Shield, Heart, Sparkles, Zap, Award, Package, BookOpen } from "lucide-react";
 
@@ -12,6 +13,7 @@ const CLASSES = ["Guerrero", "Mago", "Pícaro", "Clérigo", "Bardo", "Bárbaro",
 
 export default function CreateCharacterPage() {
   const router = useRouter();
+  const { user, isGuest, signInAsGuest } = useAuth();
   const createCharacter = useStore((state) => state.createCharacter);
   
   const [step, setStep] = useState(1);
@@ -27,8 +29,23 @@ export default function CreateCharacterPage() {
   const handleNext = () => setStep(step + 1);
   const handlePrev = () => setStep(step - 1);
   
-  const handleSave = () => {
-    const newId = createCharacter(formData.name, formData.race, formData.charClass, formData.background, formData.level);
+  const handleSave = async () => {
+    let currentUser = user;
+    if (!currentUser) {
+      currentUser = await signInAsGuest();
+    }
+    const ownerId = currentUser?.uid;
+    const ownerName = currentUser?.displayName || currentUser?.email || (isGuest ? 'Invitado' : 'Jugador');
+    const newId = createCharacter(
+      formData.name, 
+      formData.race, 
+      formData.charClass, 
+      formData.background, 
+      formData.level,
+      undefined,
+      ownerId,
+      ownerName
+    );
     if (newId) {
       router.push("/sheet");
     }

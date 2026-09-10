@@ -72,7 +72,7 @@ export const logError = (
     severity = 'WARNING';
     message = 'La cuenta de Google ya está vinculada. Se ha alternado al usuario existente.';
   } else if (code === 'permission-denied') {
-    severity = 'CRITICAL';
+    if (severity !== 'WARNING') severity = 'CRITICAL';
     message = 'Permiso denegado en Firestore para realizar esta operación.';
   } else if (message.toLowerCase().includes('network') || message.toLowerCase().includes('failed to fetch')) {
     severity = 'WARNING';

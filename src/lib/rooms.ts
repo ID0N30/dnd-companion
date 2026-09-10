@@ -1,4 +1,4 @@
-import { db } from "./firebase";
+import { db, auth } from "./firebase";
 import { 
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, 
   query, where, orderBy, limit, onSnapshot, serverTimestamp 
@@ -256,9 +256,12 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
     return;
   }
 
+  const currentUser = auth?.currentUser;
   const characterToSave: CharacterState = {
     ...character,
-    roomId: roomId
+    roomId: roomId,
+    ownerId: character.ownerId || currentUser?.uid,
+    ownerName: character.ownerName || currentUser?.displayName || currentUser?.email || (currentUser?.isAnonymous ? 'Invitado' : 'Jugador')
   };
 
   const writeKey = `${roomId}_${character.id}`;
@@ -290,13 +293,25 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
   }
 };
 
-// 6.5 Delete Player Character from Campaign Room (Permanent Firestore deletion)
+// 6.5 Delete Player Character from Campaign Room (Permanent Firestore deletion with auto token refresh)
 export const deletePlayerFromRoom = async (roomId: string, playerId: string) => {
   if (!db || !roomId || !playerId) return;
+  const playerRef = doc(db, "rooms", roomId, "players", playerId);
+
   try {
-    const playerRef = doc(db, "rooms", roomId, "players", playerId);
     await deleteDoc(playerRef);
   } catch (err: any) {
+    // If permission was denied due to a stale token, attempt a fresh token retrieval and retry once
+    if (err?.code === 'permission-denied' && auth?.currentUser) {
+      try {
+        await auth.currentUser.getIdToken(true); // Force token refresh
+        await deleteDoc(playerRef);
+        return; // Succeeded on retry!
+      } catch (retryErr: any) {
+        logError(retryErr, 'deletePlayerFromRoom', 'WARNING');
+        return;
+      }
+    }
     logError(err, 'deletePlayerFromRoom', 'WARNING');
   }
 };

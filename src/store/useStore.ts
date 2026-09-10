@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS, getClassFeaturesForLevel, calculateLevelUpHPGain, getFixedHitDieValue } from "@/lib/dndClassFeatures";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import { addRoomLog, updateRoomState, savePlayerInRoom, deletePlayerFromRoom } from "@/lib/rooms";
+import { auth } from "@/lib/firebase";
 
 export type Modifier = {
   id: string;
@@ -591,8 +592,11 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showAlert(`⚠️ Ya existe un personaje llamado "${name.trim()}" en esta campaña. Por favor, elige un nombre único.`, "Nombre Duplicado", "warning");
       return '';
     }
+    const curUser = auth?.currentUser;
+    const effectiveOwnerId = ownerId || curUser?.uid;
+    const effectiveOwnerName = ownerName || curUser?.displayName || curUser?.email || (curUser?.isAnonymous ? 'Invitado' : 'Jugador');
     const newId = 'player_' + Date.now();
-    const newChar = createDefaultCharacter(newId, name, race, charClass, background, level, stats, ownerId, ownerName, roomId);
+    const newChar = createDefaultCharacter(newId, name, race, charClass, background, level, stats, effectiveOwnerId, effectiveOwnerName, roomId);
     set((state) => ({
       players: [...state.players, newChar],
       activePlayerId: newId
@@ -648,7 +652,10 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== characterId) return p;
-        updatedChar = { ...p, roomId: cleanRoomId };
+        const curUser = auth?.currentUser;
+        const finalOwnerId = p.ownerId || curUser?.uid;
+        const finalOwnerName = p.ownerName || curUser?.displayName || curUser?.email || (curUser?.isAnonymous ? 'Invitado' : 'Jugador');
+        updatedChar = { ...p, roomId: cleanRoomId, ownerId: finalOwnerId, ownerName: finalOwnerName };
         return updatedChar;
       })
     }));

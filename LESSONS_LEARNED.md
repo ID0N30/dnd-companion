@@ -73,6 +73,19 @@ Este documento registra los aprendizajes críticos, patrones de diseño probados
 - Jamás sobrescribir `dnd_all_local_players` con `get().players` si el estado en memoria está limitado a los personajes de una sola sala.
 - Utilizar funciones de upsert y borrado selectivo (`syncAllLocalPlayersToStorage` y `removeLocalPlayerFromStorage`) que preservan los personajes de todas las demás campañas en el almacenamiento local.
 
+### ⚠️ Prevención de `permission-denied` al Eliminar Personajes en Firestore
+- **Causas Raíz Identificadas**:
+  1. **Creación sin `ownerId`**: Si un personaje se creaba en `/create` sin adjuntar el `auth.currentUser.uid`, el documento de Firestore quedaba sin propiedad (`ownerId: undefined`). Al evaluar `resource.data.ownerId == request.auth.uid`, Firestore rechazaba la eliminación para jugadores normales.
+  2. **Barrido indiscriminado de salas (`availableRooms.forEach`)**: Intentar ejecutar `deleteDoc` en salas ajenas donde el usuario no es DM ni dueño provoca violaciones de permisos.
+  3. **Auto-limpieza de clientes sin privilegios**: Si un jugador ordinario detectaba un documento filtrado, no debe emitir `deleteDoc` a menos que sea el dueño de ese documento o el DM de la sala.
+  4. **Token de autenticación desincronizado/caducado**: Al cambiar de pestaña o tras periodos de inactividad, el token de Firebase Auth puede desincronizarse.
+- **La Solución en 5 Capas**:
+  1. **`ownerId` garantizado**: `/create/page.tsx` usa `useAuth()`; `createCharacter`, `savePlayerInRoom` y `assignCharacterToRoom` garantizan que `ownerId` y `ownerName` se backfillen con `auth.currentUser.uid`.
+  2. **Eliminación Quirúrgica**: Se elimina únicamente de la sala asignada (`char.roomId`).
+  3. **Guardia de rol en Auto-limpieza**: Solo el DM o el `ownerId` del documento pueden invocar `deletePlayerFromRoom` en tiempo real.
+  4. **Refresco de Token y Reintento Automático**: En `deletePlayerFromRoom`, si ocurre `permission-denied`, se invoca `auth.currentUser.getIdToken(true)` y se reintenta la eliminación.
+  5. **Reglas de Firestore Resilientes**: `firestore.rules` previene errores de evaluación CEL (`resource == null`) y permite a usuarios autenticados limpiar personajes huérfanos sin `ownerId`.
+
 ---
 
 ## 6. Dinámica de Atributos, Puntos de Golpe y Dados de Golpe (D&D 5ª Edición Oficial)

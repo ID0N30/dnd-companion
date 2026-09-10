@@ -100,15 +100,6 @@ export default function AccountSettingsModal({
       `¿Estás seguro de que deseas eliminar permanentemente a "${char.name}" (${char.race} ${char.charClass} Nivel ${char.level})? Esta acción liberará el espacio en la cuenta y lo retirará de la campaña.`,
       async () => {
         await deleteCharacter(char.id);
-        if (char.roomId && char.roomId !== 'sin_campaña') {
-          await deletePlayerFromRoom(char.roomId, char.id);
-        }
-        // Purge from all other available rooms to eliminate zombie/leaked copies
-        availableRooms.forEach(room => {
-          if (room.id !== char.roomId) {
-            deletePlayerFromRoom(room.id, char.id);
-          }
-        });
         showAlert(`Personaje "${char.name}" eliminado con éxito de la cuenta y de la campaña.`, "Personaje Eliminado", "success");
       },
       "🔥 Confirmar Eliminación de Personaje",

@@ -173,10 +173,14 @@ export const subscribeRoomPlayers = (roomId: string, callback: (players: Charact
   try {
     const playersRef = collection(db, "rooms", roomId, "players");
     return onSnapshot(playersRef, (snapshot) => {
-      const players = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as CharacterState[];
+      const players = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          roomId: data.roomId || roomId
+        };
+      }) as CharacterState[];
       callback(players);
     }, (err) => {
       logError(err, 'subscribeRoomPlayers', 'WARNING');
@@ -214,7 +218,7 @@ export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) =
   if (!db || !roomId) return () => {};
   try {
     const logsRef = collection(db, "rooms", roomId, "logs");
-    const q = query(logsRef, orderBy("timestamp", "desc"), limit(150));
+    const q = query(logsRef, orderBy("timestamp", "desc"), limit(35));
     
     return onSnapshot(q, (snapshot) => {
       const logs = snapshot.docs.map(doc => ({
@@ -224,7 +228,7 @@ export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) =
       callback(logs);
     }, (_err) => {
       // Fallback if index error occurs
-      const qSimple = query(logsRef, limit(150));
+      const qSimple = query(logsRef, limit(35));
       return onSnapshot(qSimple, (snapshot) => {
         const logs = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -313,12 +317,31 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
   }
 };
 
-// 6.2 Lightweight presence tracking: updates ONLY isOnline and lastSeen without touching inventory/stats
+// 6.2 Lightweight presence tracking with strict deduplication & rate limiting
+const lastPresenceMap = new Map<string, { isOnline: boolean; timestamp: number }>();
+
 export const updatePlayerPresence = async (roomId: string, playerId: string, isOnline: boolean) => {
   if (!db || !roomId || !playerId || playerId === 'drizzt_dourden_demo') return;
+  
+  const key = `${roomId}_${playerId}`;
+  const now = Date.now();
+  const cached = lastPresenceMap.get(key);
+
+  // Rate-limiting: If online status is the same and last write was less than 30 seconds ago, skip write
+  if (cached && cached.isOnline === isOnline && (now - cached.timestamp < 30000)) {
+    return;
+  }
+
+  // Throttle duplicate offline writes within 5 seconds
+  if (cached && cached.isOnline === false && isOnline === false && (now - cached.timestamp < 5000)) {
+    return;
+  }
+
+  lastPresenceMap.set(key, { isOnline, timestamp: now });
+
   try {
     const playerRef = doc(db, "rooms", roomId, "players", playerId);
-    await updateDoc(playerRef, { isOnline, lastSeen: Date.now() });
+    await updateDoc(playerRef, { isOnline, lastSeen: now });
   } catch (err) {
     // Non-critical, ignore presence write failures
   }

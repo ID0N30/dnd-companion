@@ -44,6 +44,10 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   });
 
   const isDM = Boolean(user && room && user.uid === room.dmId);
+  const isDMRef = useRef(isDM);
+  isDMRef.current = isDM;
+  const userRef = useRef(user);
+  userRef.current = user;
   const wasKickedRef = useRef<boolean>(false);
   const sessionJoinedAt = useRef<number>(Date.now());
   const [turnToast, setTurnToast] = useState<boolean>(false);
@@ -65,7 +69,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     }
   }, [user]);
 
-  // Subscribe to Room Data
+  // Subscribe to Room Data (Stable: depends ONLY on roomId)
   useEffect(() => {
     if (!roomId) return;
     // Clear leftover temporary events from other rooms
@@ -89,47 +93,36 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     });
 
     const unsubPlayers = subscribeRoomPlayers(roomId, (roomPlayers) => {
+      const currentUser = userRef.current;
+      const currentActiveId = useStore.getState().activePlayerId;
+
       // Check if current user was kicked
-      if (user && activePlayerId && !isDM && !wasKickedRef.current) {
-        const myRemoteChar = roomPlayers.find(p => p.id === activePlayerId);
+      if (currentUser && currentActiveId && !isDMRef.current && !wasKickedRef.current) {
+        const myRemoteChar = roomPlayers.find(p => p.id === currentActiveId);
         if (myRemoteChar && (myRemoteChar as any).kicked === true) {
-          const isJustJoined = (Date.now() - sessionJoinedAt.current) < 5000;
-          if (isJustJoined) {
-            // Player just re-entered the room! Reset kicked flag in Firestore
-            const myLocalChar = useStore.getState().players.find(p => p.id === activePlayerId);
-            if (myLocalChar) {
-              const resetChar = { ...myLocalChar, isOnline: true };
-              delete (resetChar as any).kicked;
-              savePlayerInRoom(roomId, resetChar, true);
-            }
-          } else {
-            wasKickedRef.current = true;
-            useStore.getState().showAlert("⚡ El DM te ha retirado de la campaña.", "Expulsado de la Sala", "warning");
-            router.push('/');
-            return;
-          }
+          wasKickedRef.current = true;
+          useStore.getState().showAlert("⚡ El DM te ha retirado de la campaña.", "Expulsado de la Sala", "warning");
+          router.push('/');
+          return;
         }
       }
 
-      // Filter out kicked flags, demo characters, and cross-room leaked characters (self-healing)
-      const activeRoomPlayers = roomPlayers.filter(p => {
-        if ((p as any).kicked) return false;
-        if (p.id === 'drizzt_dourden_demo') return false;
-        if (p.roomId && p.roomId !== roomId) {
-          // Purge leaked/zombie document from Firestore only if user is DM or document owner
-          if (isDM || (user && p.ownerId === user.uid)) {
-            deletePlayerFromRoom(roomId, p.id);
-          }
-          return false;
-        }
-        return true;
-      });
+      // Filter out kicked & demo characters; normalize roomId
+      const activeRoomPlayers = roomPlayers
+        .filter(p => !((p as any).kicked) && p.id !== 'drizzt_dourden_demo')
+        .map(p => ({
+          ...p,
+          roomId: roomId
+        }));
 
       // Preserve user's local owned characters FOR THIS ROOM ONLY so they are NEVER permanently lost
+      const currentUserId = currentUser?.uid;
       const currentPlayers = useStore.getState().players;
-      const myOwnedLocalChars = currentPlayers.filter(p => user && p.ownerId === user.uid && p.roomId === roomId && p.id !== 'drizzt_dourden_demo');
+      const myOwnedLocalChars = currentPlayers.filter(p => 
+        currentUserId && (p.ownerId === currentUserId || !p.ownerId) && p.roomId === roomId && p.id !== 'drizzt_dourden_demo'
+      );
       
-      const combined = [...activeRoomPlayers];
+      const combined: CharacterState[] = [...activeRoomPlayers];
       myOwnedLocalChars.forEach(localChar => {
         if (!combined.some(p => p.id === localChar.id)) {
           combined.push(localChar);
@@ -137,12 +130,33 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       });
 
       // Synchronize latest remote player states (including DM updates to items, gold, etc.) to local storage
-      const myOwnedRemoteChars = activeRoomPlayers.filter(p => user && p.ownerId === user.uid);
+      const myOwnedRemoteChars = activeRoomPlayers.filter(p => currentUserId && (p.ownerId === currentUserId || !p.ownerId));
       if (myOwnedRemoteChars.length > 0) {
         syncAllLocalPlayersToStorage(myOwnedRemoteChars);
       }
 
-      useStore.setState({ players: combined });
+      // Avoid unnecessary state thrashing if players list hasn't meaningfully changed
+      const prevPlayers = useStore.getState().players;
+      const prevRoomPlayers = prevPlayers.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo');
+      const hasMeaningfulChange = 
+        combined.length !== prevRoomPlayers.length ||
+        combined.some(p => {
+          const prev = prevRoomPlayers.find(pr => pr.id === p.id);
+          if (!prev) return true;
+          return prev.hp.current !== p.hp.current ||
+                 prev.hp.max !== p.hp.max ||
+                 prev.hp.temp !== p.hp.temp ||
+                 prev.isOnline !== p.isOnline ||
+                 prev.isDead !== p.isDead ||
+                 prev.level !== p.level ||
+                 (prev.inventory?.length || 0) !== (p.inventory?.length || 0) ||
+                 JSON.stringify(prev.currency) !== JSON.stringify(p.currency) ||
+                 JSON.stringify(prev.stats) !== JSON.stringify(p.stats);
+        });
+
+      if (hasMeaningfulChange) {
+        useStore.setState({ players: combined });
+      }
     });
 
     const unsubLogs = subscribeRoomLogs(roomId, (roomLogs) => {
@@ -154,7 +168,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       unsubPlayers();
       unsubLogs();
     };
-  }, [roomId, user, activePlayerId, isDM, router]);
+  }, [roomId, router]);
 
   // Auto-land DM on DM Panel without character prompts
   useEffect(() => {
@@ -171,41 +185,42 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     // Clear demo character if active in a real room
     if (activePlayerId === 'drizzt_dourden_demo') {
       setActivePlayerId("");
+      return;
     }
     
     // STRICT RULE: Only characters created specifically for THIS room (p.roomId === roomId) can be used!
     const roomPlayersList = players.filter(p => p.id !== 'drizzt_dourden_demo' && p.roomId === roomId);
-    const myRoomPlayers = roomPlayersList.filter(p => p.ownerId === user.uid);
+    const myRoomPlayers = roomPlayersList.filter(p => p.ownerId === user.uid || !p.ownerId);
+
+    // Don't flap activePlayerId to "" if room is still loading or players haven't arrived yet
+    if (loadingRoom && myRoomPlayers.length === 0) {
+      return;
+    }
+
     const activeChar = myRoomPlayers.find(p => p.id === activePlayerId);
 
     if (!activeChar) {
       const livingChar = myRoomPlayers.find(p => !p.isDead) || myRoomPlayers[0];
       if (livingChar) {
         setActivePlayerId(livingChar.id);
-      } else {
-        setActivePlayerId("");
       }
     }
-  }, [players, activePlayerId, isDM, room, user, roomId]);
+  }, [players, activePlayerId, isDM, room, user, roomId, loadingRoom]);
 
   // Heartbeat & Presence tracking for active character in room (Isolated: only touches isOnline and lastSeen)
   useEffect(() => {
     if (!roomId || !activePlayerId || isDM) return;
 
-    const updatePresence = (onlineStatus: boolean) => {
-      updatePlayerPresence(roomId, activePlayerId, onlineStatus);
-    };
+    const currentId = activePlayerId;
+    updatePlayerPresence(roomId, currentId, true);
+    const interval = setInterval(() => updatePlayerPresence(roomId, currentId, true), 45000);
 
-    updatePresence(true);
-    const interval = setInterval(() => updatePresence(true), 45000);
-
-    const handleBeforeUnload = () => updatePresence(false);
+    const handleBeforeUnload = () => updatePlayerPresence(roomId, currentId, false);
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      updatePresence(false);
     };
   }, [roomId, activePlayerId, isDM]);
 
@@ -471,7 +486,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
               <p className="text-xs text-ink-light">Elige tu personaje activo para esta campaña o crea uno nuevo.</p>
 
               <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-                {(user ? players.filter(p => (p.ownerId === user.uid || (!p.ownerId && p.id === activePlayerId)) && (p.roomId === roomId)) : []).map(p => (
+                {(user ? players.filter(p => (p.ownerId === user.uid || !p.ownerId) && (p.roomId === roomId)) : []).map(p => (
                   <div 
                     key={p.id} 
                     className={`p-3.5 rounded border-2 flex justify-between items-center transition ${p.isDead ? 'bg-black/60 border-red-900 opacity-60' : (p.id === activePlayerId ? 'bg-parchment border-magic-gold' : 'bg-parchment/50 border-ink/20')}`}
@@ -506,7 +521,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                     </button>
                   </div>
                 ))}
-                {(user ? players.filter(p => (p.ownerId === user.uid || (!p.ownerId && p.id === activePlayerId)) && (p.roomId === roomId)) : []).length === 0 && (
+                {(user ? players.filter(p => (p.ownerId === user.uid || !p.ownerId) && (p.roomId === roomId)) : []).length === 0 && (
                   <p className="text-xs italic text-ink-light text-center py-4">No tienes ningún aventurero creado en esta campaña. ¡Crea el tuyo para comenzar!</p>
                 )}
               </div>

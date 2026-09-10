@@ -39,19 +39,49 @@ export const CLASS_HIT_DIE: Record<string, number> = {
   "Hechicero": 6
 };
 
-// Calculate Official D&D 5e Starting Max HP based on Level and CON Mod
+// Official D&D 5e Fixed Hit Die Value per class (Half die + 1)
+export const getFixedHitDieValue = (className: string): number => {
+  const hitDie = CLASS_HIT_DIE[className] || 8;
+  return Math.floor(hitDie / 2) + 1;
+};
+
+// Calculate HP gained when leveling up (Fixed or Roll, minimum 1 HP gained)
+export const calculateLevelUpHPGain = (
+  className: string,
+  conScore: number,
+  method: 'fixed' | 'roll' = 'fixed',
+  customRoll?: number
+): { gain: number; dieValue: number; conMod: number; isRoll: boolean; hitDie: number } => {
+  const hitDie = CLASS_HIT_DIE[className] || 8;
+  const conMod = Math.floor((conScore - 10) / 2);
+  let dieValue: number;
+  let isRoll = false;
+
+  if (method === 'roll') {
+    isRoll = true;
+    dieValue = typeof customRoll === 'number' ? customRoll : (Math.floor(Math.random() * hitDie) + 1);
+  } else {
+    dieValue = Math.floor(hitDie / 2) + 1;
+  }
+
+  // D&D 5e Rule: Minimum 1 HP gained per level regardless of negative CON modifier
+  const gain = Math.max(1, dieValue + conMod);
+  return { gain, dieValue, conMod, isRoll, hitDie };
+};
+
+// Calculate Official D&D 5e Max HP based on Class, Level and CON Score (Level 1 max + Level 2+ fixed average)
 export const calculateMaxHP = (className: string, level: number, conScore: number): number => {
   const hitDie = CLASS_HIT_DIE[className] || 8;
   const conMod = Math.floor((conScore - 10) / 2);
   
-  // Level 1: Full Hit Die + CON Mod
-  const level1HP = hitDie + conMod;
+  // Level 1: Full Hit Die + CON Mod (Minimum 1 HP)
+  const level1HP = Math.max(1, hitDie + conMod);
   
-  // Level 2+: Average Hit Die roll (hitDie / 2 + 1) + CON Mod per level
-  const avgRollPerLevel = Math.floor(hitDie / 2) + 1 + conMod;
-  const additionalHP = Math.max(0, level - 1) * Math.max(1, avgRollPerLevel);
+  // Level 2+: Average Hit Die roll (hitDie / 2 + 1) + CON Mod per level (Minimum 1 HP per level)
+  const fixedGainPerLevel = Math.max(1, (Math.floor(hitDie / 2) + 1) + conMod);
+  const additionalHP = Math.max(0, level - 1) * fixedGainPerLevel;
   
-  return Math.max(1, level1HP + additionalHP);
+  return level1HP + additionalHP;
 };
 
 // Official D&D 5e Class Features by Class and Level

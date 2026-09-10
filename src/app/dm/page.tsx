@@ -21,7 +21,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
   const [inspectedPlayerId, setInspectedPlayerId] = useState<string | null>(null);
   const [inspectTab, setInspectTab] = useState<"stats" | "inventory" | "spells">("stats");
   const [showLogsMobile, setShowLogsMobile] = useState(false);
-  const [levelUpConfirm, setLevelUpConfirm] = useState<{ open: boolean; type: 'player' | 'party'; playerId?: string; playerName?: string; currentLevel?: number }>({ open: false, type: 'party' });
+  const [levelUpConfirm, setLevelUpConfirm] = useState<{ open: boolean; type: 'player' | 'party'; playerId?: string; playerName?: string; currentLevel?: number; method?: 'fixed' | 'roll' }>({ open: false, type: 'party', method: 'fixed' });
 
   const [onlyPresentFilter, setOnlyPresentFilter] = useState(false);
   const [room, setRoom] = useState<Room | null>(null);
@@ -43,7 +43,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
   const activeId = useStore.getState().activePlayerId;
   const effectivePlayers = isDemo 
     ? players.filter(p => p.id === activeId || p.id === 'drizzt_dourden_demo')
-    : players;
+    : players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo');
 
   const isPlayerOnline = (p: CharacterState) => {
     if (p.isOnline === false) return false;
@@ -52,7 +52,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
   };
 
   const handleCleanAbsentPlayers = () => {
-    const absentPlayers = players.filter(p => !isPlayerOnline(p));
+    const absentPlayers = effectivePlayers.filter(p => !isPlayerOnline(p));
     if (absentPlayers.length === 0) {
       showAlert("No hay jugadores ausentes en la campaña.", "Sin Ausentes", "info");
       return;
@@ -102,7 +102,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     currencyMode: (room?.currencyMode || 'all') as 'standard' | 'all'
   });
 
-  const inspectedPlayer = players.find(p => p.id === inspectedPlayerId) || players[0];
+  const inspectedPlayer = effectivePlayers.find(p => p.id === inspectedPlayerId) || effectivePlayers[0];
 
   // Combat Specific Player Selection State
   const [combatSelectModal, setCombatSelectModal] = useState(false);
@@ -288,8 +288,8 @@ export default function DMPage({ roomId }: { roomId?: string }) {
               onClick={() => {
                 const isStarting = !isCombatMode;
                 if (isStarting) {
-                  const activePresent = players.filter(p => isPlayerOnline(p)).map(p => p.id);
-                  setSelectedCombatPlayerIds(activePresent.length > 0 ? activePresent : players.map(p => p.id));
+                  const activePresent = effectivePlayers.filter(p => isPlayerOnline(p)).map(p => p.id);
+                  setSelectedCombatPlayerIds(activePresent.length > 0 ? activePresent : effectivePlayers.map(p => p.id));
                   setCombatSelectModal(true);
                 } else {
                   toggleCombatMode(false, roomId);
@@ -420,7 +420,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-ink flex items-center gap-3">
-              <Users className="w-6 h-6 sm:w-8 sm:h-8 text-magic-gold" /> Integrantes ({players.filter(p => isPlayerOnline(p)).length} en línea / {players.length} totales)
+              <Users className="w-6 h-6 sm:w-8 sm:h-8 text-magic-gold" /> Integrantes ({effectivePlayers.filter(p => isPlayerOnline(p)).length} en línea / {effectivePlayers.length} totales)
             </h2>
 
             <div className="flex items-center gap-3 flex-wrap text-xs font-sans font-bold">
@@ -434,13 +434,13 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                 <span>Solo presentes</span>
               </label>
 
-              {players.some(p => !isPlayerOnline(p)) && (
+              {effectivePlayers.some(p => !isPlayerOnline(p)) && (
                 <button
                   onClick={handleCleanAbsentPlayers}
                   className="px-3 py-1.5 bg-red-950/20 text-red-600 border border-red-500/40 rounded hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1"
                   title="Eliminar personajes ausentes/desconectados de la campaña"
                 >
-                  🧹 Limpiar Ausentes ({players.filter(p => !isPlayerOnline(p)).length})
+                  🧹 Limpiar Ausentes ({effectivePlayers.filter(p => !isPlayerOnline(p)).length})
                 </button>
               )}
             </div>
@@ -451,12 +451,12 @@ export default function DMPage({ roomId }: { roomId?: string }) {
             <div className="bg-parchment-dark p-3 sm:p-4 rounded-xl border-2 border-magic-gold shadow-lg space-y-3 font-sans">
               <h3 className="font-bold font-cinzel text-base sm:text-lg text-magic-gold flex items-center gap-2 flex-wrap">
                 <span>🎲 Orden de Iniciativa D&D 5e</span>
-                <span className="text-[10px] sm:text-xs bg-magic-gold text-black px-2 py-0.5 rounded font-bold uppercase">Turno Actual: {players.find(p => p.id === initiativeOrder[currentTurnIndex])?.name}</span>
+                <span className="text-[10px] sm:text-xs bg-magic-gold text-black px-2 py-0.5 rounded font-bold uppercase">Turno Actual: {effectivePlayers.find(p => p.id === initiativeOrder[currentTurnIndex])?.name || 'Aventurero'}</span>
               </h3>
 
               <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-none">
                 {initiativeOrder.map((pid, idx) => {
-                  const p = players.find(player => player.id === pid);
+                  const p = effectivePlayers.find(player => player.id === pid);
                   const isCurrent = idx === currentTurnIndex;
                   if (!p) return null;
                   return (
@@ -1141,7 +1141,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
               </p>
 
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                {players.map(p => {
+                {effectivePlayers.map(p => {
                   const online = isPlayerOnline(p);
                   const isSelected = selectedCombatPlayerIds.includes(p.id);
                   return (
@@ -1213,28 +1213,68 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                   : `¿Confirmas elevar a ${levelUpConfirm.playerName} al Nivel ${Math.min(20, (levelUpConfirm.currentLevel || 1) + 1)}?`}
               </p>
 
+              {/* D&D 5e HP Calculation Method Selector */}
+              <div className="bg-parchment p-3 rounded border border-ink/10 text-xs space-y-2">
+                <span className="font-bold text-magic-gold block font-cinzel">Método de Puntos de Golpe (D&D 5e):</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setLevelUpConfirm(prev => ({ ...prev, method: 'fixed' }))}
+                    className={`p-2.5 rounded text-left border transition cursor-pointer ${
+                      (levelUpConfirm.method || 'fixed') === 'fixed'
+                        ? 'border-magic-gold bg-magic-gold/20 text-ink font-bold shadow-sm'
+                        : 'border-ink/20 hover:border-ink/40 text-ink-light'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm">⚖️</span>
+                      <span className="font-bold">Método Fijo (Recomendado)</span>
+                    </div>
+                    <p className="text-[11px] text-ink-light mt-0.5">Promedio del dado + Mod. CON (ej. d10: 6+CON, d8: 5+CON).</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLevelUpConfirm(prev => ({ ...prev, method: 'roll' }))}
+                    className={`p-2.5 rounded text-left border transition cursor-pointer ${
+                      levelUpConfirm.method === 'roll'
+                        ? 'border-magic-gold bg-magic-gold/20 text-ink font-bold shadow-sm'
+                        : 'border-ink/20 hover:border-ink/40 text-ink-light'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm">🎲</span>
+                      <span className="font-bold">Método de Dados (Al azar)</span>
+                    </div>
+                    <p className="text-[11px] text-ink-light mt-0.5">Tirada 1d[Dado] + Mod. CON (Mínimo 1 PG).</p>
+                  </button>
+                </div>
+              </div>
+
               <div className="bg-parchment p-3 rounded border border-ink/10 text-xs space-y-1">
                 <span className="font-bold text-magic-gold block">Efectos Automáticos D&D 5e:</span>
                 <p className="text-ink-light">• Incremento de Nivel y Bonificador de Competencia.</p>
-                <p className="text-ink-light">• Incremento automático de Vida Máxima.</p>
+                <p className="text-ink-light">• +1 Dado de Golpe añadido a la reserva.</p>
+                <p className="text-ink-light">• Incremento automático de Vida Máxima según el método elegido.</p>
                 <p className="text-ink-light">• Se notificará a los jugadores en su pantalla.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-ink/20 font-bold text-xs sm:text-sm">
                 <button 
-                  onClick={() => setLevelUpConfirm({ open: false, type: 'party' })}
+                  onClick={() => setLevelUpConfirm({ open: false, type: 'party', method: 'fixed' })}
                   className="px-4 py-2 text-ink-light hover:text-ink cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button 
                   onClick={() => {
+                    const method = levelUpConfirm.method || 'fixed';
                     if (levelUpConfirm.type === 'party') {
-                      levelUpParty(roomId);
+                      levelUpParty(roomId, method);
                     } else if (levelUpConfirm.playerId) {
-                      levelUpPlayer(levelUpConfirm.playerId, roomId);
+                      levelUpPlayer(levelUpConfirm.playerId, roomId, method);
                     }
-                    setLevelUpConfirm({ open: false, type: 'party' });
+                    setLevelUpConfirm({ open: false, type: 'party', method: 'fixed' });
                   }}
                   className="px-5 py-2 bg-magic-gold text-black rounded hover:bg-yellow-500 transition shadow cursor-pointer font-bold"
                 >

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { useStore, ItemType, Item, Spell } from "@/store/useStore";
+import { useStore, ItemType, Item, Spell, getCharacterHitDice } from "@/store/useStore";
 import { getClassFeaturesForLevel, ClassFeature } from "@/lib/dndClassFeatures";
 import DiceRoller, { triggerDiceRoll } from "@/components/DiceRoller";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
@@ -13,7 +13,7 @@ import { sendDirectMessageToDM, subscribeRoom, Room } from "@/lib/rooms";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
 import { 
   PenTool, Shield, Heart, Zap, Sparkles, BookOpen, Package, Clock, 
-  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X, Settings
+  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X, Settings, Dice5
 } from "lucide-react";
 
 const SKILLS_5E = [
@@ -41,7 +41,7 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
   const { 
     players, activePlayerId, setActivePlayerId, isCombatMode, initiativeOrder, currentTurnIndex,
     advanceTurn, addModifier, removeModifier, updateStat, setBaseStatScore, modifyHPMax, modifyHPCurrent, modifyAC,
-    togglePinSkill, toggleEquipItem, useSpellSlot, restoreSpellSlot, setSpellSlotMax, shortRest, longRest, useClassFeature,
+    togglePinSkill, toggleEquipItem, useSpellSlot, restoreSpellSlot, setSpellSlotMax, spendHitDie, shortRest, longRest, useClassFeature,
     addItem, updateItem, removeItem, addSpell, updateSpell, removeSpell, addCustomClassFeature, updateCustomClassFeature, removeCustomClassFeature, consumeItem,
     lastTurnEvent, lastItemReceivedEvent, rollDeathSave, stabilizePlayer, togglePlayerDeathState, hpTerminology, toggleInspiration, loadFamousDemoCharacter,
     updateCurrency, spendCurrency, convertPlayerCurrencyToStandard, showAlert, showConfirm
@@ -86,6 +86,8 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
     stats: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
     savingThrows: ['str', 'con'], pinnedSkills: [], spellSlots: {}, inventory: [], spells: [], customClassFeatures: [], modifiers: []
   };
+
+  const characterHitDice = getCharacterHitDice(character);
 
   const currentTurnPlayerId = initiativeOrder[currentTurnIndex];
   const currentTurnPlayer = players.find(p => p.id === currentTurnPlayerId);
@@ -734,9 +736,26 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                               shortRest(character.id);
                               setRestMenuOpen(false);
                             }}
-                            className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-ink/10 text-ink transition cursor-pointer border-t border-ink/10"
+                            className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between hover:bg-ink/10 text-ink transition cursor-pointer border-t border-ink/10"
                           >
-                            ☕ Descanso Corto (1 hora)
+                            <span className="flex items-center gap-2">☕ Descanso Corto (1 hora)</span>
+                            <span className="text-[10px] text-ink-light font-normal">Recarga Habilidades</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              spendHitDie(character.id);
+                              setRestMenuOpen(false);
+                            }}
+                            disabled={characterHitDice.current <= 0 || character.hp.current >= effectiveMaxHP}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between transition cursor-pointer ${
+                              characterHitDice.current <= 0 || character.hp.current >= effectiveMaxHP
+                                ? 'opacity-50 cursor-not-allowed text-ink-light'
+                                : 'hover:bg-ink/10 text-magic-gold'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">🎲 Gastar Dado de Golpe</span>
+                            <span className="text-[10px] font-mono font-bold">{characterHitDice.current}/{characterHitDice.max} d{characterHitDice.die}</span>
                           </button>
 
                           <button
@@ -744,9 +763,10 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                               longRest(character.id);
                               setRestMenuOpen(false);
                             }}
-                            className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-ink/10 text-ink transition cursor-pointer"
+                            className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between hover:bg-ink/10 text-ink transition cursor-pointer border-t border-ink/10"
                           >
-                            ⛺ Descanso Largo (8 horas)
+                            <span className="flex items-center gap-2">⛺ Descanso Largo (8 horas)</span>
+                            <span className="text-[10px] text-ink-light font-normal">Restaura Todo + Dados</span>
                           </button>
                         </motion.div>
                       )}
@@ -826,6 +846,50 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                     +Máx
                   </button>
                 )}
+              </div>
+            </div>
+
+            {/* Dados de Golpe (Hit Dice - D&D 5e) */}
+            <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-parchment-dark rounded-xl border-2 border-magic-gold/60 shadow-md min-w-[110px] sm:min-w-[125px] relative">
+              <div className="flex items-center gap-1.5 mb-1 flex-wrap justify-center">
+                <Dice5 className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-magic-gold shrink-0" />
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider font-cinzel text-ink">
+                  Dados Golpe
+                </span>
+              </div>
+
+              <div className="flex items-baseline gap-1 my-0.5">
+                <span className={`font-bold text-2xl sm:text-3xl font-sans font-mono leading-none ${characterHitDice.current <= 0 ? 'text-magic-red' : 'text-magic-gold'}`}>
+                  {characterHitDice.current}
+                </span>
+                <span className="text-sm sm:text-base font-bold text-ink-light">/</span>
+                <span className="font-bold text-lg sm:text-xl font-sans font-mono text-ink-light">
+                  {characterHitDice.max}
+                </span>
+                <span className="text-[10px] font-bold text-ink-light font-mono ml-0.5">
+                  (d{characterHitDice.die})
+                </span>
+              </div>
+
+              <div className="flex gap-1 justify-center mt-1.5 w-full">
+                <button 
+                  onClick={() => spendHitDie(character.id)}
+                  disabled={characterHitDice.current <= 0 || character.hp.current >= effectiveMaxHP}
+                  className={`text-[10px] px-2 py-0.5 sm:py-1 rounded font-sans font-bold transition cursor-pointer shadow-sm flex-1 text-center ${
+                    characterHitDice.current <= 0 || character.hp.current >= effectiveMaxHP
+                      ? 'bg-ink/10 text-ink-light cursor-not-allowed opacity-60'
+                      : 'bg-magic-gold text-black hover:bg-yellow-500'
+                  }`}
+                  title={
+                    characterHitDice.current <= 0
+                      ? 'Sin dados de golpe disponibles'
+                      : character.hp.current >= effectiveMaxHP
+                      ? 'Puntos de vida ya al máximo'
+                      : `Gastar 1d${characterHitDice.die} + ${Math.floor((character.stats.con - 10) / 2)} Mod CON para curarte en descanso corto`
+                  }
+                >
+                  ☕ Gastar Dado
+                </button>
               </div>
             </div>
 

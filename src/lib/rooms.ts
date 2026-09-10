@@ -240,20 +240,36 @@ export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) =
   }
 };
 
-// 6. Save/Update Player Character in Room (Rate-limited + Deduplicated + Offline fallback)
+// 6. Save/Update Player Character in Room (Rate-limited + Deduplicated + Offline fallback + Strict Isolation)
 const lastSavedDataMap = new Map<string, string>();
 
 export const savePlayerInRoom = async (roomId: string, character: CharacterState, forceWrite: boolean = false) => {
   if (!db || !roomId || !character || !character.id) return;
+  
+  // GUARD 1: Never write demo character to Firestore
+  if (character.id === 'drizzt_dourden_demo') return;
+
+  // GUARD 2: Strict Campaign Isolation!
+  // If character has a roomId and it doesn't match target roomId, abort to prevent cross-contamination
+  if (character.roomId && character.roomId !== roomId) {
+    console.warn(`[savePlayerInRoom] Blocked cross-room leak: "${character.name}" (assigned to ${character.roomId}) cannot be saved into "${roomId}".`);
+    return;
+  }
+
+  const characterToSave: CharacterState = {
+    ...character,
+    roomId: roomId
+  };
+
   const writeKey = `${roomId}_${character.id}`;
   
   if (!forceWrite && isWriteRateLimited(writeKey)) {
-    saveOfflineCharacterBackup(character);
+    saveOfflineCharacterBackup(characterToSave);
     return;
   }
 
   // Deduplicate write: if character state (excluding lastSeen) hasn't changed, skip setDoc
-  const { lastSeen: _ls, ...meaningfulData } = character;
+  const { lastSeen: _ls, ...meaningfulData } = characterToSave;
   const dataString = JSON.stringify(cleanFirebaseData(meaningfulData));
   const previousDataString = lastSavedDataMap.get(writeKey);
   
@@ -266,12 +282,52 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
 
   try {
     const playerRef = doc(db, "rooms", roomId, "players", character.id);
-    await setDoc(playerRef, cleanFirebaseData(character), { merge: true });
-    saveOfflineCharacterBackup(character);
+    await setDoc(playerRef, cleanFirebaseData(characterToSave), { merge: true });
+    saveOfflineCharacterBackup(characterToSave);
   } catch (err: any) {
     logError(err, 'savePlayerInRoom', 'CRITICAL');
-    saveOfflineCharacterBackup(character);
+    saveOfflineCharacterBackup(characterToSave);
   }
+};
+
+// 6.5 Delete Player Character from Campaign Room (Permanent Firestore deletion)
+export const deletePlayerFromRoom = async (roomId: string, playerId: string) => {
+  if (!db || !roomId || !playerId) return;
+  try {
+    const playerRef = doc(db, "rooms", roomId, "players", playerId);
+    await deleteDoc(playerRef);
+  } catch (err: any) {
+    logError(err, 'deletePlayerFromRoom', 'WARNING');
+  }
+};
+
+// 6.6 Fetch all characters owned by a user across active campaign rooms (Cloud recovery)
+export const fetchUserCharactersAcrossRooms = async (userId: string, roomIds: string[]): Promise<CharacterState[]> => {
+  if (!db || !userId || !roomIds.length) return [];
+  const foundCharacters: CharacterState[] = [];
+  try {
+    for (const rid of roomIds) {
+      if (!rid) continue;
+      const q = query(
+        collection(db, "rooms", rid, "players"),
+        where("ownerId", "==", userId)
+      );
+      const snap = await getDocs(q);
+      snap.forEach(docSnap => {
+        const data = docSnap.data() as CharacterState;
+        if (data && !(data as any).kicked && docSnap.id !== 'drizzt_dourden_demo') {
+          foundCharacters.push({
+            ...data,
+            id: docSnap.id,
+            roomId: data.roomId || rid
+          });
+        }
+      });
+    }
+  } catch (e) {
+    logError(e, 'fetchUserCharactersAcrossRooms', 'WARNING');
+  }
+  return foundCharacters;
 };
 
 // 7. Kick Player from Campaign (DM Only)

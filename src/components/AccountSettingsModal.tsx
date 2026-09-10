@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
-import { useStore, CharacterState } from "@/store/useStore";
-import { verifyRoomPassword, Room } from "@/lib/rooms";
+import { useStore, CharacterState, syncAllLocalPlayersToStorage } from "@/store/useStore";
+import { verifyRoomPassword, Room, deletePlayerFromRoom, fetchUserCharactersAcrossRooms } from "@/lib/rooms";
 import { User, Settings, Trash2, X, CheckCircle2, Shield, Heart, Sparkles, FolderKey, AlertCircle, Pin, Search, Lock, Key } from "lucide-react";
 
 export default function AccountSettingsModal({
@@ -33,13 +33,26 @@ export default function AccountSettingsModal({
   const [passwordError, setPasswordError] = useState("");
   const [validatingPassword, setValidatingPassword] = useState(false);
 
-  // Rehydrate characters on modal open
+  // Rehydrate characters on modal open (local + cloud recovery)
   useEffect(() => {
     if (open) {
       rehydrateLocalPlayers();
       setDisplayNameInput(user?.displayName || "");
+      if (user?.uid && availableRooms && availableRooms.length > 0) {
+        fetchUserCharactersAcrossRooms(user.uid, availableRooms.map(r => r.id)).then(cloudChars => {
+          if (cloudChars && cloudChars.length > 0) {
+            useStore.setState((state) => {
+              const map = new Map<string, CharacterState>();
+              state.players.forEach(p => map.set(p.id, p));
+              cloudChars.forEach(p => map.set(p.id, { ...map.get(p.id), ...p }));
+              return { players: Array.from(map.values()) };
+            });
+            syncAllLocalPlayersToStorage(cloudChars);
+          }
+        });
+      }
     }
-  }, [open, rehydrateLocalPlayers, user?.displayName]);
+  }, [open, rehydrateLocalPlayers, user?.uid, user?.displayName, availableRooms]);
 
   if (!open) return null;
 
@@ -84,10 +97,19 @@ export default function AccountSettingsModal({
 
   const handleDeleteChar = (char: CharacterState) => {
     showConfirm(
-      `¿Estás seguro de que deseas eliminar permanentemente a "${char.name}" (${char.race} ${char.charClass} Nivel ${char.level})? Esta acción liberará el espacio en la cuenta.`,
-      () => {
-        deleteCharacter(char.id);
-        showAlert(`Personaje "${char.name}" eliminado con éxito.`, "Personaje Eliminado", "success");
+      `¿Estás seguro de que deseas eliminar permanentemente a "${char.name}" (${char.race} ${char.charClass} Nivel ${char.level})? Esta acción liberará el espacio en la cuenta y lo retirará de la campaña.`,
+      async () => {
+        await deleteCharacter(char.id);
+        if (char.roomId && char.roomId !== 'sin_campaña') {
+          await deletePlayerFromRoom(char.roomId, char.id);
+        }
+        // Purge from all other available rooms to eliminate zombie/leaked copies
+        availableRooms.forEach(room => {
+          if (room.id !== char.roomId) {
+            deletePlayerFromRoom(room.id, char.id);
+          }
+        });
+        showAlert(`Personaje "${char.name}" eliminado con éxito de la cuenta y de la campaña.`, "Personaje Eliminado", "success");
       },
       "🔥 Confirmar Eliminación de Personaje",
       "Sí, Eliminar Personaje",
@@ -141,7 +163,12 @@ export default function AccountSettingsModal({
       }
     }
 
-    assignCharacterToRoom(reassignModal.charId, finalRoomId);
+    const oldRoomId = reassignModal.currentRoomId;
+    if (oldRoomId && oldRoomId !== finalRoomId && oldRoomId !== 'sin_campaña') {
+      await deletePlayerFromRoom(oldRoomId, reassignModal.charId);
+    }
+
+    await assignCharacterToRoom(reassignModal.charId, finalRoomId);
     setReassignModal({ open: false, charId: '', charName: '', currentRoomId: '' });
     const friendlyName = getCampaignDisplayName(finalRoomId);
     showAlert(`El personaje "${reassignModal.charName}" ha sido transferido a la campaña "${friendlyName}".`, "Transferencia Exitosa", "success");

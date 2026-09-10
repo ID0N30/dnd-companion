@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS, getClassFeaturesForLevel } from "@/lib/dndClassFeatures";
+import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS, getClassFeaturesForLevel, calculateLevelUpHPGain, getFixedHitDieValue } from "@/lib/dndClassFeatures";
 import { triggerDiceRoll } from "@/components/DiceRoller";
-import { addRoomLog, updateRoomState, savePlayerInRoom } from "@/lib/rooms";
+import { addRoomLog, updateRoomState, savePlayerInRoom, deletePlayerFromRoom } from "@/lib/rooms";
 
 export type Modifier = {
   id: string;
@@ -90,6 +90,7 @@ export type CharacterState = {
   currency?: Currency;
   notes?: PersonalNote[];
   hp: { current: number; max: number; temp: number };
+  hitDice?: { current: number; max: number; die: number };
   ac: number;
   proficiencyBonus: number;
   stats: {
@@ -150,6 +151,91 @@ export const getClassOptimizedStats = (charClass: string) => {
   return stats;
 };
 
+// Safe LocalStorage helpers for all characters across campaigns
+export const syncAllLocalPlayersToStorage = (updatedCharacters: CharacterState[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem('dnd_all_local_players');
+    const existing: CharacterState[] = raw ? JSON.parse(raw) : [];
+    const map = new Map<string, CharacterState>();
+    if (Array.isArray(existing)) {
+      existing.forEach(p => {
+        if (p && p.id && p.id !== 'drizzt_dourden_demo') map.set(p.id, p);
+      });
+    }
+    updatedCharacters.forEach(p => {
+      if (p && p.id && p.id !== 'drizzt_dourden_demo') {
+        map.set(p.id, p);
+      }
+    });
+    localStorage.setItem('dnd_all_local_players', JSON.stringify(Array.from(map.values())));
+  } catch (e) {}
+};
+
+export const removeLocalPlayerFromStorage = (characterId: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem('dnd_all_local_players');
+    if (!raw) return;
+    const existing: CharacterState[] = JSON.parse(raw);
+    if (Array.isArray(existing)) {
+      const filtered = existing.filter(p => p.id !== characterId);
+      localStorage.setItem('dnd_all_local_players', JSON.stringify(filtered));
+    }
+  } catch (e) {}
+};
+
+// Helper to get hit dice pool safely for any character
+export const getCharacterHitDice = (player: CharacterState): { current: number; max: number; die: number } => {
+  const die = CLASS_HIT_DIE[player.charClass] || 8;
+  const max = player.level || 1;
+  if (!player.hitDice) {
+    return { current: max, max, die };
+  }
+  return {
+    current: typeof player.hitDice.current === 'number' ? player.hitDice.current : max,
+    max: typeof player.hitDice.max === 'number' ? player.hitDice.max : max,
+    die: player.hitDice.die || die
+  };
+};
+
+// D&D 5e: Retroactive Constitution Modifier calculation
+// If CON score changes, Hit Points update retroactively (+1 HP per level for each CON mod point changed)
+export const applyRetroactiveConstitutionChange = (
+  player: CharacterState,
+  newConScore: number
+): { hp: CharacterState['hp']; stats: CharacterState['stats']; hpDelta: number } => {
+  const oldCon = player.stats.con;
+  const oldMod = Math.floor((oldCon - 10) / 2);
+  const newMod = Math.floor((newConScore - 10) / 2);
+  const modDelta = newMod - oldMod;
+  const hpDelta = modDelta * player.level;
+
+  const newStats = { ...player.stats, con: newConScore };
+  if (hpDelta === 0) {
+    return { hp: player.hp, stats: newStats, hpDelta: 0 };
+  }
+
+  // D&D 5e: Max HP cannot drop below player.level (minimum 1 HP per level)
+  const newMax = Math.max(player.level, player.hp.max + hpDelta);
+  let newCurr = player.hp.current + hpDelta;
+  if (player.hp.current > 0) {
+    newCurr = Math.max(1, Math.min(newMax, newCurr));
+  } else {
+    newCurr = 0;
+  }
+
+  return {
+    stats: newStats,
+    hp: {
+      ...player.hp,
+      max: newMax,
+      current: newCurr
+    },
+    hpDelta
+  };
+};
+
 export const createDefaultCharacter = (
   id: string, 
   name: string, 
@@ -195,6 +281,7 @@ export const createDefaultCharacter = (
     inspiration: false,
     currency: { cp: 0, sp: 0, ep: 0, gp: 15, pp: 0 },
     hp: { current: officialHP, max: officialHP, temp: 0 },
+    hitDice: { current: level, max: level, die: CLASS_HIT_DIE[charClass] || CLASS_HIT_DIE["Guerrero"] || 8 },
     ac: 10 + Math.floor((finalStats.dex - 10) / 2),
     proficiencyBonus: officialProfBonus,
     stats: finalStats,
@@ -227,6 +314,7 @@ export const createFamousDrizztCharacter = (): CharacterState => ({
   inspiration: true,
   currency: { cp: 25, sp: 40, ep: 0, gp: 120, pp: 5 },
   hp: { current: 44, max: 44, temp: 0 },
+  hitDice: { current: 5, max: 5, die: 10 },
   ac: 18,
   proficiencyBonus: 3,
   stats: { str: 14, dex: 20, con: 15, int: 14, wis: 16, cha: 14 },
@@ -322,14 +410,15 @@ export interface StoreState {
   useSpellSlot: (level: number) => void;
   restoreSpellSlot: (level: number) => void;
   setSpellSlotMax: (level: number, max: number) => void;
+  spendHitDie: (playerId?: string) => void;
   shortRest: (playerId?: string) => void;
   longRest: (playerId?: string) => void;
   useClassFeature: (featureName: string, playerId?: string) => void;
   togglePlayerDeathState: (playerId: string, status: 'dying' | 'stable' | 'revive' | 'dead', healHP?: number) => void;
   lastItemReceivedEvent?: { id: string; roomId?: string; playerId: string; itemName: string; quantity: number; timestamp: number } | null;
   
-  levelUpPlayer: (playerId: string, targetRoomId?: string) => void;
-  levelUpParty: (targetRoomId?: string) => void;
+  levelUpPlayer: (playerId: string, targetRoomId?: string, method?: 'fixed' | 'roll') => void;
+  levelUpParty: (targetRoomId?: string, method?: 'fixed' | 'roll') => void;
   lastLevelUpEvent?: LevelUpEvent | null;
 
   hpTerminology: 'PG' | 'HP';
@@ -337,8 +426,8 @@ export interface StoreState {
   currencyMode: 'standard' | 'all';
   setCurrencyMode: (currencyMode: 'standard' | 'all') => void;
   convertPlayerCurrencyToStandard: (playerId: string) => void;
-  deleteCharacter: (characterId: string) => void;
-  assignCharacterToRoom: (characterId: string, roomId: string) => void;
+  deleteCharacter: (characterId: string) => Promise<void> | void;
+  assignCharacterToRoom: (characterId: string, roomId: string) => Promise<void> | void;
   rehydrateLocalPlayers: () => void;
   
   addItem: (item: Item, isTemp: boolean, duration?: number) => void;
@@ -465,7 +554,9 @@ export const useStore = create<StoreState>((set, get) => ({
           initiativeOrder: order,
           currentTurnIndex: 0
         });
-        updatedPlayers.forEach(p => savePlayerInRoom(activeRoomId!, p));
+        updatedPlayers
+          .filter(p => p.roomId === activeRoomId && p.id !== 'drizzt_dourden_demo')
+          .forEach(p => savePlayerInRoom(activeRoomId!, p));
       }
     } else {
       get().addLog(`🕊️ El DM ha finalizado el Modo Combate.`);
@@ -493,7 +584,9 @@ export const useStore = create<StoreState>((set, get) => ({
   setActivePlayerId: (id) => set({ activePlayerId: id }),
   
   createCharacter: (name, race, charClass, background, level = 1, stats, ownerId, ownerName, roomId) => {
-    const existingNames = get().players.map(p => p.name.trim().toLowerCase());
+    const existingNames = get().players
+      .filter(p => !roomId || p.roomId === roomId)
+      .map(p => p.name.trim().toLowerCase());
     if (existingNames.includes(name.trim().toLowerCase())) {
       get().showAlert(`⚠️ Ya existe un personaje llamado "${name.trim()}" en esta campaña. Por favor, elige un nombre único.`, "Nombre Duplicado", "warning");
       return '';
@@ -505,16 +598,14 @@ export const useStore = create<StoreState>((set, get) => ({
       activePlayerId: newId
     }));
     get().addLog(`✨ ¡Nuevo aventurero creado!: ${newChar.name} (${newChar.race} ${newChar.charClass} Nivel ${newChar.level})`);
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('dnd_all_local_players', JSON.stringify(get().players));
-      } catch (e) {}
-    }
+    syncAllLocalPlayersToStorage([newChar]);
     return newId;
   },
 
-  deleteCharacter: (characterId) => {
+  deleteCharacter: async (characterId) => {
     const target = get().players.find(p => p.id === characterId);
+    const targetRoomId = target?.roomId;
+
     set((state) => {
       const remaining = state.players.filter(p => p.id !== characterId);
       const nextActiveId = state.activePlayerId === characterId ? (remaining[0]?.id || '') : state.activePlayerId;
@@ -523,19 +614,36 @@ export const useStore = create<StoreState>((set, get) => ({
         activePlayerId: nextActiveId
       };
     });
+
     if (target) {
       get().addLog(`🗑️ Personaje eliminado: ${target.name}.`);
     }
+
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(`dnd_private_notes_${characterId}`);
-        localStorage.setItem('dnd_all_local_players', JSON.stringify(get().players));
       } catch (e) {}
+    }
+
+    removeLocalPlayerFromStorage(characterId);
+
+    // Physical deletion from Firestore room subcollection
+    if (targetRoomId && targetRoomId !== 'sin_campaña') {
+      await deletePlayerFromRoom(targetRoomId, characterId);
     }
   },
 
-  assignCharacterToRoom: (characterId, roomId) => {
+  assignCharacterToRoom: async (characterId, roomId) => {
     const cleanRoomId = roomId.trim();
+    const oldChar = get().players.find(p => p.id === characterId);
+    const oldRoomId = oldChar?.roomId;
+
+    // 1. If reassigned away from an old room, purge from old room in Firestore!
+    if (oldRoomId && oldRoomId !== cleanRoomId && oldRoomId !== 'sin_campaña') {
+      await deletePlayerFromRoom(oldRoomId, characterId);
+    }
+
+    // 2. Update character state
     let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
@@ -544,14 +652,16 @@ export const useStore = create<StoreState>((set, get) => ({
         return updatedChar;
       })
     }));
-    if (updatedChar && cleanRoomId) {
-      savePlayerInRoom(cleanRoomId, updatedChar);
+
+    // 3. Save to new room in Firestore
+    if (updatedChar && cleanRoomId && cleanRoomId !== 'sin_campaña') {
+      await savePlayerInRoom(cleanRoomId, updatedChar, true);
       get().addLog(`📌 Personaje "${updatedChar.name}" asignado exitosamente a la campaña: ${cleanRoomId}.`);
     }
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('dnd_all_local_players', JSON.stringify(get().players));
-      } catch (e) {}
+
+    // 4. Update in local storage
+    if (updatedChar) {
+      syncAllLocalPlayersToStorage([updatedChar]);
     }
   },
 
@@ -561,24 +671,18 @@ export const useStore = create<StoreState>((set, get) => ({
         const stored = localStorage.getItem('dnd_all_local_players');
         if (stored) {
           const parsed: CharacterState[] = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+          if (Array.isArray(parsed)) {
+            const valid = parsed.filter(p => p && p.id && p.id !== 'drizzt_dourden_demo');
             set((state) => {
               const map = new Map<string, CharacterState>();
-              state.players.forEach(p => map.set(p.id, p));
-              parsed.forEach(p => {
-                if (!map.has(p.id)) {
-                  map.set(p.id, p);
-                } else {
-                  const existing = map.get(p.id)!;
-                  map.set(p.id, {
-                    ...existing,
-                    ...p,
-                    roomId: p.roomId || existing.roomId
-                  });
-                }
-              });
+              valid.forEach(p => map.set(p.id, p));
+              // Also keep any active non-demo character currently in state
+              if (state.activePlayerId && !map.has(state.activePlayerId)) {
+                const cur = state.players.find(p => p.id === state.activePlayerId);
+                if (cur && cur.id !== 'drizzt_dourden_demo') map.set(cur.id, cur);
+              }
               const merged = Array.from(map.values());
-              const nextActive = state.activePlayerId || (merged[0]?.id || '');
+              const nextActive = merged.some(p => p.id === state.activePlayerId) ? state.activePlayerId : (merged[0]?.id || '');
               return { players: merged, activePlayerId: nextActive };
             });
           }
@@ -700,13 +804,31 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   updatePlayerStatsByDM: (playerId, stats) => {
+    let logMsg = '';
+    let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
-        get().addLog(`El DM ha actualizado las estadísticas base de ${p.name}.`);
-        return { ...p, stats: { ...p.stats, ...stats } };
+        if (stats.con !== undefined && stats.con !== p.stats.con) {
+          const applied = applyRetroactiveConstitutionChange(p, stats.con);
+          const updatedStats = { ...applied.stats, ...stats };
+          const hpDelta = applied.hpDelta;
+          const deltaText = hpDelta !== 0 ? ` (Vida Máxima recalculada retroactivamente: ${p.hp.max} → ${applied.hp.max} ${get().hpTerminology})` : '';
+          logMsg = `El DM ha actualizado las estadísticas base de ${p.name}.${deltaText}`;
+          updatedChar = { ...p, stats: updatedStats, hp: applied.hp };
+          return updatedChar;
+        }
+        logMsg = `El DM ha actualizado las estadísticas base de ${p.name}.`;
+        updatedChar = { ...p, stats: { ...p.stats, ...stats } };
+        return updatedChar;
       })
     }));
+    if (logMsg) {
+      get().addLog(logMsg);
+    }
+    if (updatedChar && (updatedChar as CharacterState).roomId && (updatedChar as CharacterState).id !== 'drizzt_dourden_demo') {
+      savePlayerInRoom((updatedChar as CharacterState).roomId!, updatedChar as CharacterState);
+    }
   },
 
   updatePlayerHPByDM: (playerId, hpUpdates) => {
@@ -1144,13 +1266,27 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!activeChar) return;
 
     if (isPermanent) {
-      get().addLog(`${stat.toUpperCase()} de ${activeChar.name} ajustado en ${value > 0 ? '+'+value : value} permanentemente.`);
-      set((state) => ({
-        players: state.players.map(p => p.id === activeId ? {
-          ...p,
-          stats: { ...p.stats, [stat]: (p.stats as any)[stat] + value }
-        } : p)
-      }));
+      if (stat.toLowerCase() === 'con') {
+        const newCon = (activeChar.stats.con || 10) + value;
+        const applied = applyRetroactiveConstitutionChange(activeChar, newCon);
+        const hpDelta = applied.hpDelta;
+        get().addLog(`CON de ${activeChar.name} ajustado en ${value > 0 ? '+'+value : value} permanentemente. Modificador de CON retroactivo aplicado a Vida Máxima: ${activeChar.hp.max} → ${applied.hp.max} ${get().hpTerminology} (${hpDelta >= 0 ? '+' : ''}${hpDelta}).`);
+        set((state) => ({
+          players: state.players.map(p => p.id === activeId ? {
+            ...p,
+            stats: applied.stats,
+            hp: applied.hp
+          } : p)
+        }));
+      } else {
+        get().addLog(`${stat.toUpperCase()} de ${activeChar.name} ajustado en ${value > 0 ? '+'+value : value} permanentemente.`);
+        set((state) => ({
+          players: state.players.map(p => p.id === activeId ? {
+            ...p,
+            stats: { ...p.stats, [stat]: (p.stats as any)[stat] + value }
+          } : p)
+        }));
+      }
     } else {
       get().addLog(`Modificador temporal en ${stat.toUpperCase()} para ${activeChar.name}: ${value > 0 ? '+'+value : value} por ${duration} turnos.`);
       get().addModifier({
@@ -1169,6 +1305,16 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
+        if (stat.toLowerCase() === 'con') {
+          const applied = applyRetroactiveConstitutionChange(p, score);
+          const hpDelta = applied.hpDelta;
+          get().addLog(`Puntuación base de CON de ${p.name} fijada en ${score}. Modificador de CON retroactivo: Vida Máxima recalculada a ${applied.hp.max} ${get().hpTerminology} (${hpDelta >= 0 ? '+' : ''}${hpDelta}).`);
+          return {
+            ...p,
+            stats: applied.stats,
+            hp: applied.hp
+          };
+        }
         get().addLog(`Puntuación base de ${stat.toUpperCase()} de ${p.name} fijada en ${score}.`);
         return {
           ...p,
@@ -1313,8 +1459,59 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
   },
 
+  spendHitDie: (playerId) => {
+    const targetId = playerId || get().activePlayerId;
+    const player = get().players.find(p => p.id === targetId);
+    if (!player) return;
+
+    const hd = getCharacterHitDice(player);
+    if (hd.current <= 0) {
+      get().showAlert(`⚠️ ${player.name} no tiene Dados de Golpe disponibles (0/${hd.max}). Se recuperarán en un Descanso Largo.`, "Sin Dados de Golpe", "warning");
+      return;
+    }
+
+    const conMod = Math.floor((player.stats.con - 10) / 2);
+    const dieRoll = Math.floor(Math.random() * hd.die) + 1;
+    // D&D 5e rule: 1d[die] + CON mod (minimum 0 healing)
+    const healed = Math.max(0, dieRoll + conMod);
+    const effMaxHP = player.hp.max + player.modifiers.filter(m => m.targetStat === 'hp_max').reduce((acc, m) => acc + (m.value || 0), 0);
+    const newCurrentHP = Math.min(effMaxHP, player.hp.current + healed);
+    const remainingHD = hd.current - 1;
+
+    const conSign = conMod >= 0 ? `+${conMod}` : `${conMod}`;
+    const logMsg = `☕ ${player.name} gastó 1 Dado de Golpe: 1d${hd.die} [${dieRoll}] ${conSign} CON = +${healed} HP curados. Vida: ${newCurrentHP}/${effMaxHP}. Dados restantes: ${remainingHD}/${hd.max}.`;
+    
+    get().addLog(logMsg);
+    if (player.roomId) {
+      addRoomLog(player.roomId, logMsg);
+    }
+    triggerDiceRoll(('d' + hd.die) as any, conMod, `Gastar Dado de Golpe (+${healed} HP)`, dieRoll);
+
+    let updatedChar: CharacterState | null = null;
+    set((state) => {
+      const updatedPlayers = state.players.map(p => {
+        if (p.id !== targetId) return p;
+        updatedChar = {
+          ...p,
+          hp: { ...p.hp, current: newCurrentHP },
+          hitDice: { ...hd, current: remainingHD },
+          isDying: false,
+          isStable: false,
+          deathSaves: { successes: 0, failures: 0 }
+        };
+        return updatedChar;
+      });
+      return { players: updatedPlayers };
+    });
+
+    if (updatedChar && (updatedChar as CharacterState).roomId && (updatedChar as CharacterState).id !== 'drizzt_dourden_demo') {
+      savePlayerInRoom((updatedChar as CharacterState).roomId!, updatedChar as CharacterState);
+    }
+  },
+
   shortRest: (playerId) => {
     const targetId = playerId || get().activePlayerId;
+    let updatedChar: CharacterState | null = null;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
@@ -1325,24 +1522,31 @@ export const useStore = create<StoreState>((set, get) => ({
           return feat;
         });
 
-        get().addLog(`☕ ${p.name} realizó un DESCANSO CORTO. Habilidades recuperadas.`);
+        const hd = getCharacterHitDice(p);
+        get().addLog(`☕ ${p.name} realizó un DESCANSO CORTO. Habilidades recargadas. Puedes gastar Dados de Golpe (${hd.current}/${hd.max} d${hd.die}) para curarte.`);
         if (p.roomId) {
           addRoomLog(p.roomId, `☕ ${p.name} realizó un DESCANSO CORTO.`);
         }
-        return {
+        updatedChar = {
           ...p,
-          customClassFeatures: updatedFeatures
+          customClassFeatures: updatedFeatures,
+          hitDice: hd
         };
+        return updatedChar;
       })
     }));
+
+    if (updatedChar && (updatedChar as CharacterState).roomId && (updatedChar as CharacterState).id !== 'drizzt_dourden_demo') {
+      savePlayerInRoom((updatedChar as CharacterState).roomId!, updatedChar as CharacterState);
+    }
   },
 
   longRest: (playerId) => {
     const targetId = playerId || get().activePlayerId;
+    let updatedChar: CharacterState | null = null;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== targetId) return p;
-        get().addLog(`⛺ ${p.name} tomó un DESCANSO LARGO. Vida, Espacios de Hechizo y Habilidades recuperados.`);
         const newSlots: Record<number, SpellSlot> = {};
         Object.keys(p.spellSlots).forEach((lvlStr) => {
           const lvl = parseInt(lvlStr);
@@ -1359,13 +1563,21 @@ export const useStore = create<StoreState>((set, get) => ({
           return feat;
         });
 
+        // D&D 5e: Regain spent Hit Dice up to half total Hit Dice (minimum 1)
+        const hd = getCharacterHitDice(p);
+        const recoveredDice = Math.max(1, Math.floor(hd.max / 2));
+        const newHDCurrent = Math.min(hd.max, hd.current + recoveredDice);
+
+        get().addLog(`⛺ ${p.name} tomó un DESCANSO LARGO. Vida al máximo (${effMaxHP} HP), Espacios de Hechizo y Habilidades restaurados. Recuperó +${recoveredDice} Dados de Golpe (${newHDCurrent}/${hd.max} d${hd.die}).`);
+
         if (p.roomId) {
           addRoomLog(p.roomId, `⛺ ${p.name} completó un DESCANSO LARGO.`);
         }
 
-        return {
+        updatedChar = {
           ...p,
           hp: { ...p.hp, current: effMaxHP, temp: 0 },
+          hitDice: { ...hd, current: newHDCurrent },
           spellSlots: newSlots,
           customClassFeatures: updatedFeatures,
           isDying: false,
@@ -1373,8 +1585,13 @@ export const useStore = create<StoreState>((set, get) => ({
           isDead: false,
           deathSaves: { successes: 0, failures: 0 }
         };
+        return updatedChar;
       })
     }));
+
+    if (updatedChar && (updatedChar as CharacterState).roomId && (updatedChar as CharacterState).id !== 'drizzt_dourden_demo') {
+      savePlayerInRoom((updatedChar as CharacterState).roomId!, updatedChar as CharacterState);
+    }
   },
 
   useClassFeature: (featureName, playerId) => {
@@ -1522,7 +1739,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   lastLevelUpEvent: null,
 
-  levelUpPlayer: (playerId, targetRoomId) => {
+  levelUpPlayer: (playerId, targetRoomId, method = 'fixed') => {
     let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
     if (!activeRoomId && typeof window !== 'undefined') {
       const match = window.location.pathname.match(/\/room\/([^\/]+)/);
@@ -1541,11 +1758,18 @@ export const useStore = create<StoreState>((set, get) => ({
       const oldLevel = p.level;
       const newLevel = Math.min(20, oldLevel + 1);
       const newProf = Math.floor((newLevel - 1) / 4) + 2;
-      const hitDie = CLASS_HIT_DIE[p.charClass] || 8;
-      const conMod = Math.floor((p.stats.con - 10) / 2);
-      const hpGain = Math.max(1, Math.floor(hitDie / 2) + 1 + conMod);
+      
+      const hpCalc = calculateLevelUpHPGain(p.charClass, p.stats.con, method);
+      const hpGain = hpCalc.gain;
       const newMaxHP = p.hp.max + hpGain;
       const newCurrentHP = p.hp.current + hpGain;
+
+      const currentHD = getCharacterHitDice(p);
+      const newHD = {
+        die: currentHD.die,
+        max: newLevel,
+        current: currentHD.current + 1
+      };
 
       const updatedSpellSlots = { ...p.spellSlots };
       if (newLevel === 2 && updatedSpellSlots[1]) {
@@ -1568,6 +1792,7 @@ export const useStore = create<StoreState>((set, get) => ({
           max: newMaxHP,
           current: newCurrentHP
         },
+        hitDice: newHD,
         spellSlots: updatedSpellSlots
       };
 
@@ -1581,7 +1806,16 @@ export const useStore = create<StoreState>((set, get) => ({
         oldLevel
       };
 
-      get().addLog(`ASCENSO CELESTIAL: El DM ha elevado a ${p.name} al Nivel ${newLevel}. Vida Máxima aumentada a ${newMaxHP} ${get().hpTerminology}.`);
+      const conSign = hpCalc.conMod >= 0 ? `+${hpCalc.conMod}` : `${hpCalc.conMod}`;
+      const methodText = hpCalc.isRoll 
+        ? `Tirada 1d${hpCalc.hitDie} [${hpCalc.dieValue}] ${conSign} CON = +${hpGain} HP`
+        : `Fijo ${hpCalc.dieValue} + CON ${conSign} = +${hpGain} HP`;
+
+      if (hpCalc.isRoll) {
+        triggerDiceRoll(('d' + hpCalc.hitDie) as any, hpCalc.conMod, `Subida Nivel ${p.name} (+${hpGain} HP)`, hpCalc.dieValue);
+      }
+
+      get().addLog(`ASCENSO CELESTIAL: El DM ha elevado a ${p.name} al Nivel ${newLevel} (${methodText}). Vida Máxima aumentada a ${newMaxHP} ${get().hpTerminology}. Dados de Golpe: ${newHD.current}/${newHD.max} (d${newHD.die}).`);
 
       return {
         lastLevelUpEvent: event,
@@ -1589,13 +1823,14 @@ export const useStore = create<StoreState>((set, get) => ({
       };
     });
 
-    if (activeRoomId && updatedPlayer && event) {
-      savePlayerInRoom(activeRoomId, updatedPlayer);
+    const playerToSave = updatedPlayer as CharacterState | null;
+    if (activeRoomId && playerToSave && event && playerToSave.roomId === activeRoomId && playerToSave.id !== 'drizzt_dourden_demo') {
+      savePlayerInRoom(activeRoomId, playerToSave);
       updateRoomState(activeRoomId, { lastLevelUpEvent: event });
     }
   },
 
-  levelUpParty: (targetRoomId) => {
+  levelUpParty: (targetRoomId, method = 'fixed') => {
     let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
     if (!activeRoomId && typeof window !== 'undefined') {
       const match = window.location.pathname.match(/\/room\/([^\/]+)/);
@@ -1610,7 +1845,6 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => {
       if (state.players.length === 0) return state;
 
-      // Identify active/present players
       const now = Date.now();
       const presentPlayers = state.players.filter(p => {
         if (p.isOnline === false) return false;
@@ -1621,17 +1855,24 @@ export const useStore = create<StoreState>((set, get) => ({
 
       let maxNewLvl = 1;
       updatedPlayers = state.players.map(p => {
-        if (!targetIds.includes(p.id)) return p; // Skip absent players
+        if (!targetIds.includes(p.id)) return p;
 
         const oldLevel = p.level;
         const newLevel = Math.min(20, oldLevel + 1);
         if (newLevel > maxNewLvl) maxNewLvl = newLevel;
         const newProf = Math.floor((newLevel - 1) / 4) + 2;
-        const hitDie = CLASS_HIT_DIE[p.charClass] || 8;
-        const conMod = Math.floor((p.stats.con - 10) / 2);
-        const hpGain = Math.max(1, Math.floor(hitDie / 2) + 1 + conMod);
+
+        const hpCalc = calculateLevelUpHPGain(p.charClass, p.stats.con, method);
+        const hpGain = hpCalc.gain;
         const newMaxHP = p.hp.max + hpGain;
         const newCurrentHP = p.hp.current + hpGain;
+
+        const currentHD = getCharacterHitDice(p);
+        const newHD = {
+          die: currentHD.die,
+          max: newLevel,
+          current: currentHD.current + 1
+        };
 
         const updatedSpellSlots = { ...p.spellSlots };
         if (newLevel === 2 && updatedSpellSlots[1]) {
@@ -1645,6 +1886,13 @@ export const useStore = create<StoreState>((set, get) => ({
           updatedSpellSlots[3] = { max: 2, current: 2 };
         }
 
+        const conSign = hpCalc.conMod >= 0 ? `+${hpCalc.conMod}` : `${hpCalc.conMod}`;
+        const methodText = hpCalc.isRoll 
+          ? `Tirada 1d${hpCalc.hitDie} [${hpCalc.dieValue}] ${conSign} CON = +${hpGain} HP`
+          : `Fijo ${hpCalc.dieValue} + CON ${conSign} = +${hpGain} HP`;
+
+        get().addLog(`ASCENSO: ${p.name} ascendió a Nivel ${newLevel} (${methodText}). Vida Máx: ${newMaxHP} ${get().hpTerminology}.`);
+
         return {
           ...p,
           level: newLevel,
@@ -1654,6 +1902,7 @@ export const useStore = create<StoreState>((set, get) => ({
             max: newMaxHP,
             current: newCurrentHP
           },
+          hitDice: newHD,
           spellSlots: updatedSpellSlots
         };
       });
@@ -1667,7 +1916,7 @@ export const useStore = create<StoreState>((set, get) => ({
         playerName: 'Toda la Party'
       };
 
-      get().addLog(`ASCENSO CELESTIAL: El DM ha elevado de nivel a los integrantes presentes de la Party.`);
+      get().addLog(`🌟 ¡ASCENSO TOTAL DEL GRUPO! El DM ha elevado a todo el grupo a Nivel ${maxNewLvl} (Método: ${method === 'roll' ? 'Dados al Azar' : 'Promedio Fijo D&D 5e'}).`);
 
       return {
         lastLevelUpEvent: event,
@@ -1677,7 +1926,9 @@ export const useStore = create<StoreState>((set, get) => ({
 
     if (activeRoomId && event) {
       updateRoomState(activeRoomId, { lastLevelUpEvent: event });
-      updatedPlayers.forEach(p => savePlayerInRoom(activeRoomId!, p));
+      updatedPlayers
+        .filter(p => p.roomId === activeRoomId && p.id !== 'drizzt_dourden_demo')
+        .forEach(p => savePlayerInRoom(activeRoomId!, p));
     }
   },
     
@@ -1889,7 +2140,9 @@ export const useStore = create<StoreState>((set, get) => ({
           lastTurnEvent: event
         });
         if (isNewRound) {
-          updatedPlayers.forEach(p => savePlayerInRoom(activeRoomId!, p));
+          updatedPlayers
+            .filter(p => p.roomId === activeRoomId && p.id !== 'drizzt_dourden_demo')
+            .forEach(p => savePlayerInRoom(activeRoomId!, p));
         }
       }
     } else {
@@ -1921,7 +2174,9 @@ export const useStore = create<StoreState>((set, get) => ({
         updateRoomState(activeRoomId, {
           lastTurnEvent: event
         });
-        updatedPlayers.forEach(p => savePlayerInRoom(activeRoomId!, p));
+        updatedPlayers
+          .filter(p => p.roomId === activeRoomId && p.id !== 'drizzt_dourden_demo')
+          .forEach(p => savePlayerInRoom(activeRoomId!, p));
       }
     }
   },

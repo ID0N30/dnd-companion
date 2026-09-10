@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useStore, CharacterState } from "@/store/useStore";
 import { CLASS_SAVING_THROWS, CLASS_HIT_DIE, calculateMaxHP } from "@/lib/dndClassFeatures";
 import { 
-  subscribeRoom, subscribeRoomPlayers, subscribeRoomLogs, savePlayerInRoom, updateRoomState, addRoomLog, Room 
+  subscribeRoom, subscribeRoomPlayers, subscribeRoomLogs, savePlayerInRoom, deletePlayerFromRoom, updateRoomState, addRoomLog, Room 
 } from "@/lib/rooms";
 import CharacterSheetPage from "@/app/sheet/page";
 import DMPage from "@/app/dm/page";
@@ -114,8 +114,17 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         }
       }
 
-      // Filter out kicked flags and demo characters from real room players
-      const activeRoomPlayers = roomPlayers.filter(p => !(p as any).kicked && p.id !== 'drizzt_dourden_demo');
+      // Filter out kicked flags, demo characters, and cross-room leaked characters (self-healing)
+      const activeRoomPlayers = roomPlayers.filter(p => {
+        if ((p as any).kicked) return false;
+        if (p.id === 'drizzt_dourden_demo') return false;
+        if (p.roomId && p.roomId !== roomId) {
+          // Purge leaked/zombie character document from this room's subcollection in Firestore
+          deletePlayerFromRoom(roomId, p.id);
+          return false;
+        }
+        return true;
+      });
 
       // Preserve user's local owned characters FOR THIS ROOM ONLY so they are NEVER permanently lost
       const currentPlayers = useStore.getState().players;
@@ -174,11 +183,13 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     }
   }, [players, activePlayerId, isDM, room, user, roomId]);
 
-  // Auto-sync active character to Firestore ONLY when mutated locally
+  // Auto-sync active character to Firestore ONLY when mutated locally and belongs to this room
   useEffect(() => {
     if (!roomId || !activePlayerId || isDM) return;
     const activeChar = players.find(p => p.id === activePlayerId);
     if (!activeChar) return;
+    if (activeChar.roomId !== roomId) return; // Strict guard: never sync mismatched character to this room
+    if (activeChar.id === 'drizzt_dourden_demo') return;
 
     const currentJSON = JSON.stringify(activeChar);
     if (lastRemoteSnapshot.current && !lastRemoteSnapshot.current.includes(currentJSON)) {
@@ -193,7 +204,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
     const updatePresence = (onlineStatus: boolean) => {
       const activeChar = useStore.getState().players.find(p => p.id === activePlayerId);
-      if (activeChar) {
+      if (activeChar && activeChar.roomId === roomId && activeChar.id !== 'drizzt_dourden_demo') {
         savePlayerInRoom(roomId, { ...activeChar, isOnline: onlineStatus, lastSeen: Date.now() }, true);
       }
     };
@@ -214,7 +225,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   const handleExitRoom = () => {
     if (roomId && activePlayerId && !isDM) {
       const activeChar = players.find(p => p.id === activePlayerId);
-      if (activeChar) {
+      if (activeChar && activeChar.roomId === roomId && activeChar.id !== 'drizzt_dourden_demo') {
         savePlayerInRoom(roomId, { ...activeChar, isOnline: false, lastSeen: Date.now() }, true);
       }
     }
@@ -405,12 +416,12 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                 <Users className="w-8 h-8" /> Integrantes de {room.name}
               </h2>
               <span className="text-xs font-bold text-ink-light bg-parchment px-3 py-1.5 rounded border border-ink/20">
-                🟢 {players.filter(p => p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 65000)).length} en línea / {players.length} totales
+                🟢 {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo' && p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 65000)).length} en línea / {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').length} totales
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-              {players.map(p => {
+              {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').map(p => {
                 const online = p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 65000);
                 return (
                   <div key={p.id} className={`p-6 rounded-xl border-2 shadow-xl space-y-4 ${p.isDead ? 'bg-black/80 border-magic-red text-white' : 'bg-parchment-dark border-magic-gold/40'} ${!online ? 'opacity-70' : ''}`}>
@@ -476,7 +487,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
               <p className="text-xs text-ink-light">Elige tu personaje activo para esta campaña o crea uno nuevo.</p>
 
               <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-                {(user ? players.filter(p => p.ownerId === user.uid || (!p.ownerId && p.id === activePlayerId)) : []).map(p => (
+                {(user ? players.filter(p => (p.ownerId === user.uid || (!p.ownerId && p.id === activePlayerId)) && (p.roomId === roomId)) : []).map(p => (
                   <div 
                     key={p.id} 
                     className={`p-3.5 rounded border-2 flex justify-between items-center transition ${p.isDead ? 'bg-black/60 border-red-900 opacity-60' : (p.id === activePlayerId ? 'bg-parchment border-magic-gold' : 'bg-parchment/50 border-ink/20')}`}
@@ -493,15 +504,16 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                       onClick={() => {
                         const updatedChar = { 
                           ...p, 
+                          roomId: roomId,
                           ownerId: user?.uid || p.ownerId, 
                           ownerName: user?.displayName || user?.email || p.ownerName || 'Jugador',
                           isOnline: true,
                           lastSeen: Date.now()
                         };
                         delete (updatedChar as any).kicked;
+                        setActivePlayerId(p.id);
                         useStore.getState().updateActiveCharacter(updatedChar);
                         if (roomId) savePlayerInRoom(roomId, updatedChar, true);
-                        setActivePlayerId(p.id);
                         setShowSelectModal(false);
                       }}
                       className={`px-4 py-1.5 rounded font-bold text-xs cursor-pointer transition ${p.isDead ? 'bg-red-950 text-red-500 cursor-not-allowed' : (p.id === activePlayerId ? 'bg-magic-gold text-black' : 'bg-ink text-parchment-dark hover:bg-magic-gold hover:text-black')}`}
@@ -510,7 +522,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                     </button>
                   </div>
                 ))}
-                {(user ? players.filter(p => p.ownerId === user.uid || (!p.ownerId && p.id === activePlayerId)) : []).length === 0 && (
+                {(user ? players.filter(p => (p.ownerId === user.uid || (!p.ownerId && p.id === activePlayerId)) && (p.roomId === roomId)) : []).length === 0 && (
                   <p className="text-xs italic text-ink-light text-center py-4">No tienes ningún aventurero creado en esta campaña. ¡Crea el tuyo para comenzar!</p>
                 )}
               </div>

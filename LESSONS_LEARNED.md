@@ -53,3 +53,47 @@ Este documento registra los aprendizajes críticos, patrones de diseño probados
   - La sala de pruebas (`sin_campaña`, `demo`, `prueba`) se excluye de los destinos de reasignación.
   - Los códigos internos de Firestore (`room.id`) se traducen a sus nombres públicos visibles (`room.name`) mediante `getCampaignDisplayName`.
   - Si una campaña destino requiere contraseña, se valida en Firestore con `verifyRoomPassword` antes de ejecutar la transferencia con `assignCharacterToRoom`.
+
+---
+
+## 5. Aislamiento Estricto de Campañas y Eliminación Permanente en Firestore
+
+### ⚠️ Eliminación Real vs Filtrado Local
+- **El Problema**: Eliminar un personaje únicamente del estado en memoria (`set({ players: ... })`) y de `localStorage` deja el documento intacto en la subcolección de Firestore (`rooms/${roomId}/players/${playerId}`). Cuando cualquier usuario entra a la sala, la suscripción en tiempo real de Firestore (`onSnapshot`) vuelve a descargar y revivir el personaje eliminado.
+- **La Solución**:
+  - `deleteCharacter` y el modal de Ajustes de Cuenta deben invocar físicamente `deleteDoc(doc(db, "rooms", roomId, "players", playerId))` a través de `deletePlayerFromRoom`.
+  - Al reasignar un personaje de Campaña A a Campaña B, el documento en Campaña A **debe borrarse de Firestore** antes de guardarse en Campaña B.
+  - Las suscripciones (`subscribeRoomPlayers`) implementan auto-limpieza (self-healing): si se detecta un personaje remoto cuyo `roomId` no coincide con la sala actual, se descarta de la vista y se purga de Firestore.
+
+### ⚠️ Barrera de Defensa en Profundidad en `savePlayerInRoom`
+- Si una función intenta guardar un personaje cuyo `character.roomId` no coincide con el `roomId` destino, `savePlayerInRoom` aborta la escritura de inmediato. Ninguna operación masiva o desincronización puede inyectar personajes foráneos en una campaña ajena.
+- Las acciones masivas del DM (`toggleCombatMode`, `levelUpParty`, `advanceTurn`) siempre filtran con `.filter(p => p.roomId === activeRoomId && p.id !== 'drizzt_dourden_demo')` antes de guardar.
+
+### ⚠️ LocalStorage Seguro para Múltiples Campañas
+- Jamás sobrescribir `dnd_all_local_players` con `get().players` si el estado en memoria está limitado a los personajes de una sola sala.
+- Utilizar funciones de upsert y borrado selectivo (`syncAllLocalPlayersToStorage` y `removeLocalPlayerFromStorage`) que preservan los personajes de todas las demás campañas en el almacenamiento local.
+
+---
+
+## 6. Dinámica de Atributos, Puntos de Golpe y Dados de Golpe (D&D 5ª Edición Oficial)
+
+### ⚠️ Reglas Oficiales de Puntos de Golpe (PG / HP)
+1. **Primer Nivel (Puntos de Golpe Iniciales)**:
+   - No se tiran dados. Se obtiene el valor máximo del Dado de Golpe de la clase + el modificador de Constitución (`Math.max(1, hitDie + conMod)`).
+   - Ejemplo: Guerrero (d10) con CON 16 (+3) inicia con 13 PG.
+2. **Subida de Nivel (Nivel 2+)**:
+   - Soporte para los dos métodos oficiales de D&D 5e seleccionables por el DM:
+     - **Método Fijo (Recomendado)**: Mitad del dado redondeado hacia arriba + 1 (`Math.floor(hitDie / 2) + 1`) + Modificador de CON. (d6 ➔ 4+CON, d8 ➔ 5+CON, d10 ➔ 6+CON, d12 ➔ 7+CON).
+     - **Método de Dados (Al azar)**: Tirada de `1d[hitDie]` + Modificador de CON.
+3. **Mínimo de 1 PG por Nivel**:
+   - Aunque el modificador de CON sea negativo (ej. CON 6, mod -2), la regla oficial estipula que al subir de nivel siempre se gana al menos 1 PG (`Math.max(1, ganancia)`).
+4. **Modificador de Constitución Retroactivo**:
+   - Si la puntuación de CON aumenta o disminuye permanentemente (por subida de características, dotes o ajuste del DM), el total de PG máximos se recalcula retroactivamente para todos los niveles alcanzados:
+     `hpDelta = (newConMod - oldConMod) * level`
+   - La vida máxima no puede descender por debajo de `level` (garantía de 1 PG mínimo por nivel).
+5. **Reserva de Dados de Golpe y Descansos**:
+   - Cada personaje tiene un pool `hitDice: { current: level, max: level, die: classHitDie }`.
+   - **Descanso Corto**: El jugador puede gastar dados de golpe individuales para curarse (`1d[die] + conMod` por dado gastado).
+   - **Descanso Largo**: Se recupera toda la vida y se regenera la mitad del total de dados de golpe (`Math.max(1, Math.floor(max / 2))`).
+
+

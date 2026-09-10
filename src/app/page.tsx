@@ -8,14 +8,16 @@ import { useAuth } from "@/context/AuthContext";
 import { useStore } from "@/store/useStore";
 import { subscribePublicRooms, createRoom, verifyRoomPassword, Room } from "@/lib/rooms";
 import AuthModal from "@/components/AuthModal";
+import AccountSettingsModal from "@/components/AccountSettingsModal";
 import { 
-  Book, Shield, Swords, LogIn, LogOut, Plus, Lock, Globe, Users, Key, AlertCircle, Sparkles, UserCheck, Search, Edit3
+  Book, Shield, Swords, LogIn, LogOut, Plus, Lock, Globe, Users, Key, AlertCircle, Sparkles, UserCheck, Search, Edit3, Settings
 } from "lucide-react";
 
 export default function WelcomePage() {
   const router = useRouter();
   const { user, isLoggedIn, isGuest, isFirebaseReady, signInGoogle, signInAsGuest, updateUserDisplayName, logout } = useAuth();
   const showAlert = useStore((state) => state.showAlert);
+  const rehydrateLocalPlayers = useStore((state) => state.rehydrateLocalPlayers);
   
   const [publicRooms, setPublicRooms] = useState<Room[]>([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -24,10 +26,10 @@ export default function WelcomePage() {
   const [enteredPassword, setEnteredPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
 
-  // Search & Edit Name States
   const [searchQuery, setSearchQuery] = useState("");
   const [nameModalOpen, setNameModalOpen] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
 
   // New Room Form
   const [roomForm, setRoomForm] = useState({
@@ -37,13 +39,14 @@ export default function WelcomePage() {
     allowGuests: true,
   });
 
-  // Subscribe to realtime public rooms
+  // Rehydrate local players and subscribe to realtime public rooms
   useEffect(() => {
+    rehydrateLocalPlayers();
     const unsub = subscribePublicRooms((rooms) => {
       setPublicRooms(rooms);
     });
     return () => unsub();
-  }, []);
+  }, [rehydrateLocalPlayers]);
 
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,11 +125,11 @@ export default function WelcomePage() {
                 <UserCheck className="w-4 h-4 text-magic-gold" /> {user?.displayName || user?.email}
               </span>
               <button
-                onClick={() => { setNameInput(user?.displayName || ''); setNameModalOpen(true); }}
-                className="flex items-center gap-1 bg-parchment text-ink hover:text-magic-gold p-1.5 rounded border border-ink/20 transition text-xs font-bold cursor-pointer"
-                title="Editar Nombre de Cuenta"
+                onClick={() => setAccountSettingsOpen(true)}
+                className="flex items-center gap-1.5 bg-parchment text-ink hover:text-magic-gold px-3 py-1.5 rounded border border-ink/20 transition text-xs font-bold cursor-pointer"
+                title="Ajustes de Cuenta y Mis Personajes"
               >
-                <Edit3 className="w-3.5 h-3.5" /> <span className="hidden md:inline">Editar Nombre</span>
+                <Settings className="w-4 h-4 text-magic-gold" /> <span className="hidden sm:inline">Ajustes de Cuenta</span>
               </button>
               <button 
                 onClick={logout}
@@ -433,6 +436,7 @@ export default function WelcomePage() {
       </AnimatePresence>
 
       <AuthModal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+      <AccountSettingsModal open={accountSettingsOpen} onClose={() => setAccountSettingsOpen(false)} availableRooms={publicRooms} />
 
     </main>
   );

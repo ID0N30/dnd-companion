@@ -6,12 +6,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useStore, ItemType, Item, Spell } from "@/store/useStore";
 import { getClassFeaturesForLevel, ClassFeature } from "@/lib/dndClassFeatures";
 import DiceRoller, { triggerDiceRoll } from "@/components/DiceRoller";
+import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import TutorialModal from "@/components/TutorialModal";
 import DMPage from "@/app/dm/page";
 import { sendDirectMessageToDM, subscribeRoom, Room } from "@/lib/rooms";
+import AccountSettingsModal from "@/components/AccountSettingsModal";
 import { 
   PenTool, Shield, Heart, Zap, Sparkles, BookOpen, Package, Clock, 
-  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X
+  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X, Settings
 } from "lucide-react";
 
 const SKILLS_5E = [
@@ -47,6 +49,7 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
 
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"sheet" | "dm">("sheet");
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
 
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [room, setRoom] = useState<Room | null>(null);
@@ -2862,11 +2865,15 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
 
       </div>
 
-      {/* 3D DICE ROLLER LAUNCHER */}
+      {/* 3D DICE ROLLER & DM INBOX FLOATING LAUNCHERS */}
       <DiceRoller />
+      {(isDemoMode || isDM) && <DMInboxFloatingButton roomId={room?.id} isDemo={isDemoMode} isDM={isDM} />}
 
       {/* TUTORIAL MODAL */}
       <TutorialModal open={tutorialOpen} onClose={() => setTutorialOpen(false)} />
+
+      {/* ACCOUNT SETTINGS & CHARACTER MANAGEMENT MODAL */}
+      <AccountSettingsModal open={accountModalOpen} onClose={() => setAccountModalOpen(false)} />
     </main>
   );
 }

@@ -32,22 +32,42 @@ export const triggerDiceRoll = (
   }
 };
 
+let globalActiveDiceRollerId: string | null = null;
+
 export default function DiceRoller() {
   const [openSelector, setOpenSelector] = useState(false);
   const [isRolling, setIsRolling] = useState(false);
   const [currentDice, setCurrentDice] = useState<DiceType>('d20');
   const [activeRoll, setActiveRoll] = useState<RollResult | null>(null);
+  
+  const [instanceId] = useState(() => 'dice_' + Math.random().toString(36).substring(2, 9));
+  const [isPrimary, setIsPrimary] = useState(true);
+
+  useEffect(() => {
+    globalActiveDiceRollerId = instanceId;
+    setIsPrimary(true);
+
+    return () => {
+      if (globalActiveDiceRollerId === instanceId) {
+        globalActiveDiceRollerId = null;
+      }
+    };
+  }, [instanceId]);
 
   // Listen to global dice roll events (e.g. clicking a skill, attribute, or initiative)
   useEffect(() => {
+    if (!isPrimary) return;
     const handleCustomRoll = (e: any) => {
+      if (globalActiveDiceRollerId !== instanceId) return;
       const { diceType, modifier, reason, forcedValue, onAccept } = e.detail;
       executeRoll(diceType || 'd20', modifier || 0, reason || 'Prueba', forcedValue, onAccept);
     };
 
     window.addEventListener('app_dice_roll', handleCustomRoll);
     return () => window.removeEventListener('app_dice_roll', handleCustomRoll);
-  }, []);
+  }, [isPrimary, instanceId]);
+
+  if (!isPrimary) return null;
 
   const getSides = (type: DiceType): number => {
     switch (type) {
@@ -106,8 +126,10 @@ export default function DiceRoller() {
     <>
       {/* FLOATING TRIGGER BUTTON (Bottom Right) */}
       <button
+        type="button"
         onClick={() => setOpenSelector(!openSelector)}
-        className="fixed bottom-6 right-6 z-40 bg-magic-gold text-black p-3.5 rounded-full shadow-[0_0_20px_rgba(245,208,97,0.8)] border-2 border-white hover:scale-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center"
+        style={{ position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 100 }}
+        className="w-14 h-14 min-w-[3.5rem] min-h-[3.5rem] max-w-[3.5rem] max-h-[3.5rem] shrink-0 bg-magic-gold text-black rounded-full shadow-[0_0_20px_rgba(245,208,97,0.8)] border-2 border-white hover:scale-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center pointer-events-auto"
         title="Lanzar Dados Mágicos D&D"
       >
         <Dices className="w-7 h-7 animate-pulse" />
@@ -120,7 +142,7 @@ export default function DiceRoller() {
             initial={{ opacity: 0, y: 20, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="fixed bottom-20 right-6 z-40 bg-parchment-dark border-4 border-magic-gold p-4 rounded-xl shadow-2xl font-sans w-64 space-y-3"
+            className="fixed bottom-20 right-6 z-[100] bg-parchment-dark border-4 border-magic-gold p-4 rounded-xl shadow-2xl font-sans w-64 space-y-3"
           >
             <div className="flex justify-between items-center border-b border-ink/20 pb-2">
               <span className="font-cinzel font-bold text-magic-gold text-sm flex items-center gap-1.5">

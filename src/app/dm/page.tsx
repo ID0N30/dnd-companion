@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStore, CharacterState, ItemType, Item, Spell } from "@/store/useStore";
-import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, subscribeRoom, deleteDirectMessage, Room, getLogCategory, LogCategory, DirectMessage, deleteRoom } from "@/lib/rooms";
+import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, subscribeRoom, Room, getLogCategory, LogCategory, DirectMessage, deleteRoom } from "@/lib/rooms";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import TutorialModal from "@/components/TutorialModal";
+import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import { 
   Swords, Shield, Heart, Clock, Users, ScrollText, Eye, X, Zap, Package, BookOpen, Sparkles, ChevronDown, ChevronUp, UserX, Settings, Lock, Award, Plus, Trash2, CheckCircle2, Circle, ShieldAlert, FlaskConical, Scroll, Briefcase, Sword, HelpCircle, Mail, Search, Maximize2, Filter
 } from "lucide-react";
@@ -30,29 +31,6 @@ export default function DMPage({ roomId }: { roomId?: string }) {
   const [logSearchText, setLogSearchText] = useState('');
   const [fullLogModalOpen, setFullLogModalOpen] = useState(false);
 
-  // DM Inbox States & Demo Fallbacks
-  const [inboxPlayerFilter, setInboxPlayerFilter] = useState<string>('all');
-  const [inboxSearchText, setInboxSearchText] = useState<string>('');
-  const [fullInboxModalOpen, setFullInboxModalOpen] = useState<boolean>(false);
-  const [demoMessages, setDemoMessages] = useState<DirectMessage[]>([
-    {
-      id: 'demo_msg_1',
-      senderId: 'drizzt_dourden_demo',
-      senderName: "Drizzt Do'Urden",
-      characterName: "Drizzt Do'Urden",
-      content: 'DM, encontré una extraña runa drow en la cueva. ¿Puedo hacer una prueba de Historia o Arcanos para identificar su origen?',
-      timestamp: Date.now() - 1000 * 60 * 15
-    },
-    {
-      id: 'demo_msg_2',
-      senderId: 'demo_player_2',
-      senderName: 'Gimli',
-      characterName: 'Gimli',
-      content: 'Tengo un mal presagio sobre la puerta de hierro... Me preparo para lanzar un ataque de oportunidad si algo emerge.',
-      timestamp: Date.now() - 1000 * 60 * 45
-    }
-  ]);
-
   useEffect(() => {
     if (!roomId) return;
     const unsub = subscribeRoom(roomId, (roomData) => {
@@ -66,32 +44,6 @@ export default function DMPage({ roomId }: { roomId?: string }) {
   const effectivePlayers = isDemo 
     ? players.filter(p => p.id === activeId || p.id === 'drizzt_dourden_demo')
     : players;
-
-  const effectiveDirectMessages: DirectMessage[] = room?.directMessages || (isDemo ? demoMessages : []);
-
-  const handleDeleteDirectMessage = async (msgId: string) => {
-    const activeRoomId = roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
-    if (activeRoomId) {
-      await deleteDirectMessage(activeRoomId, msgId);
-    } else {
-      setDemoMessages(prev => prev.filter(m => m.id !== msgId));
-    }
-  };
-
-  const playerNamesInParty = players.map(p => p.name);
-  const messageSenderNames = effectiveDirectMessages.map(m => m.characterName || m.senderName);
-  const allPlayerOptions = Array.from(new Set([...playerNamesInParty, ...messageSenderNames])).filter(Boolean);
-
-  const filteredInboxMessages = effectiveDirectMessages.filter(msg => {
-    const senderName = msg.characterName || msg.senderName || '';
-    const matchesPlayer = inboxPlayerFilter === 'all' || 
-      senderName.toLowerCase() === inboxPlayerFilter.toLowerCase() || 
-      msg.senderId === inboxPlayerFilter;
-    const matchesSearch = !inboxSearchText.trim() || 
-      senderName.toLowerCase().includes(inboxSearchText.toLowerCase()) || 
-      msg.content.toLowerCase().includes(inboxSearchText.toLowerCase());
-    return matchesPlayer && matchesSearch;
-  });
 
   const isPlayerOnline = (p: CharacterState) => {
     if (p.isOnline === false) return false;
@@ -315,19 +267,6 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                 <Swords className="w-6 h-6 sm:w-8 sm:h-8" /> Panel Maestro
               </h2>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setFullInboxModalOpen(true)}
-                  className="relative flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-2.5 py-1.5 rounded font-bold text-xs shadow hover:scale-105 transition cursor-pointer border border-yellow-300"
-                  title="Abrir Buzón del DM"
-                >
-                  <Mail className="w-4 h-4 text-black" />
-                  <span>Buzón</span>
-                  {effectiveDirectMessages.length > 0 && (
-                    <span className="bg-magic-red text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full shadow animate-bounce ml-0.5">
-                      {effectiveDirectMessages.length}
-                    </span>
-                  )}
-                </button>
                 <button
                   onClick={() => setTutorialOpen(true)}
                   className="flex items-center gap-1 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-2.5 py-1.5 rounded font-bold text-xs shadow hover:scale-105 transition cursor-pointer"
@@ -1392,135 +1331,13 @@ export default function DMPage({ roomId }: { roomId?: string }) {
         )}
       </AnimatePresence>
 
-      {/* FULL DM INBOX MODAL (EXPANDED VIEW & PLAYER FILTER) */}
-      <AnimatePresence>
-        {fullInboxModalOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4 font-sans backdrop-blur-sm">
-            <div className="bg-parchment-dark border-4 border-magic-gold p-6 rounded-2xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col text-ink space-y-4">
-              {/* Header */}
-              <div className="flex justify-between items-center border-b border-ink/20 pb-3">
-                <div>
-                  <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                    <Mail className="w-6 h-6 text-magic-gold" /> Buzón del DM ({effectiveDirectMessages.length} mensajes)
-                  </h3>
-                  <p className="text-xs text-ink-light mt-0.5">Consulta y gestiona todos los mensajes directos, notas secretas y trasfondos enviados por tus jugadores.</p>
-                </div>
-                <button onClick={() => setFullInboxModalOpen(false)} className="p-2 text-ink-light hover:text-ink cursor-pointer" title="Cerrar buzón">
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
 
-              {/* Filter Controls Bar */}
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-parchment p-3.5 rounded-xl border border-ink/20 text-xs">
-                {/* Player Filter Dropdown */}
-                <div className="flex items-center gap-2 w-full sm:w-auto flex-1 max-w-md">
-                  <span className="font-bold text-ink whitespace-nowrap flex items-center gap-1">
-                    <Filter className="w-4 h-4 text-magic-gold" /> Filtrar por Jugador:
-                  </span>
-                  <select
-                    value={inboxPlayerFilter}
-                    onChange={e => setInboxPlayerFilter(e.target.value)}
-                    className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold cursor-pointer"
-                  >
-                    <option value="all">👥 Todos los Jugadores ({effectiveDirectMessages.length})</option>
-                    {allPlayerOptions.map(name => {
-                      const count = effectiveDirectMessages.filter(m => (m.characterName || m.senderName) === name).length;
-                      return (
-                        <option key={name} value={name}>
-                          ⚔️ {name} ({count} msgs)
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                {/* Text Search Input */}
-                <div className="relative w-full sm:w-64">
-                  <input
-                    type="text"
-                    value={inboxSearchText}
-                    onChange={e => setInboxSearchText(e.target.value)}
-                    placeholder="Buscar contenido de mensaje..."
-                    className="w-full p-2 pl-8 bg-parchment-dark border border-ink/30 rounded text-ink font-bold focus:outline-none focus:border-magic-gold"
-                  />
-                  <Search className="w-4 h-4 text-ink-light absolute left-2.5 top-2.5" />
-                </div>
-
-                {/* Reset Filters Button */}
-                {(inboxPlayerFilter !== 'all' || inboxSearchText !== '') && (
-                  <button
-                    onClick={() => {
-                      setInboxPlayerFilter('all');
-                      setInboxSearchText('');
-                    }}
-                    className="px-3 py-1.5 bg-red-950/20 text-red-600 border border-red-500/40 rounded font-bold hover:bg-magic-red hover:text-white transition cursor-pointer whitespace-nowrap"
-                  >
-                    Restablecer
-                  </button>
-                )}
-              </div>
-
-              {/* Scrollable Message Cards */}
-              <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-                {filteredInboxMessages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-48 text-center space-y-2">
-                    <Mail className="w-12 h-12 text-ink/20" />
-                    <p className="text-sm font-bold text-ink-light">No hay mensajes en el buzón que coincidan con el filtro.</p>
-                    <p className="text-xs text-ink/50">Prueba seleccionando otro jugador o borrando el texto de búsqueda.</p>
-                  </div>
-                ) : (
-                  filteredInboxMessages.map(msg => (
-                    <div key={msg.id} className="p-4 bg-parchment rounded-xl border border-ink/20 shadow-md space-y-2 hover:border-magic-gold transition">
-                      <div className="flex justify-between items-center border-b border-ink/15 pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-magic-gold px-2.5 py-0.5 rounded bg-magic-gold/10 border border-magic-gold/30 flex items-center gap-1.5">
-                            ⚔️ {msg.characterName || msg.senderName}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-ink/60 font-mono">
-                          <span>
-                            📅 {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                          <button
-                            onClick={() => handleDeleteDirectMessage(msg.id)}
-                            className="px-2 py-1 bg-red-950/20 text-red-600 rounded border border-red-500/30 hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1 font-sans text-xs font-bold"
-                            title="Eliminar este mensaje"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" /> Eliminar
-                          </button>
-                        </div>
-                      </div>
-                      <p className="text-sm text-ink leading-relaxed whitespace-pre-wrap font-sans bg-parchment-dark/50 p-3 rounded-lg border border-ink/10">
-                        {msg.content}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* TUTORIAL MODAL */}
       <TutorialModal open={tutorialOpen} onClose={() => setTutorialOpen(false)} />
 
-      {/* Floating DM Inbox Button (Positioned next to DiceRoller to prevent overlap) */}
-      <div className="fixed bottom-6 right-20 sm:right-24 z-40">
-        <button
-          onClick={() => setFullInboxModalOpen(true)}
-          className="relative flex items-center gap-2 bg-gradient-to-r from-amber-500 via-gold-500 to-yellow-500 text-black px-4 py-3 rounded-full shadow-[0_0_20px_rgba(245,208,97,0.7)] hover:scale-110 active:scale-95 transition-all cursor-pointer border-2 border-white font-sans font-bold text-sm"
-          title="Abrir Buzón del DM"
-        >
-          <Mail className="w-5 h-5 text-black" />
-          <span className="hidden sm:inline">Buzón DM</span>
-          {effectiveDirectMessages.length > 0 && (
-            <span className="bg-magic-red text-white text-xs font-extrabold px-2 py-0.5 rounded-full shadow border border-white animate-bounce">
-              {effectiveDirectMessages.length}
-            </span>
-          )}
-        </button>
-      </div>
+      {/* Floating DM Inbox Component */}
+      <DMInboxFloatingButton roomId={roomId} isDemo={isDemo} isDM={true} />
 
     </main>
   );

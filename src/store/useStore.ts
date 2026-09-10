@@ -117,6 +117,39 @@ export type CharacterState = {
   lastSeen?: number;
 };
 
+export const getClassOptimizedStats = (charClass: string) => {
+  const norm = (charClass || '').toLowerCase().trim();
+  const saves = CLASS_SAVING_THROWS[charClass] || ['str', 'con'];
+
+  if (norm.includes('mago')) {
+    return { str: 8, dex: 14, con: 14, int: 16, wis: 12, cha: 10 };
+  } else if (norm.includes('hechicero') || norm.includes('brujo')) {
+    return { str: 8, dex: 14, con: 14, int: 10, wis: 12, cha: 16 };
+  } else if (norm.includes('bardo')) {
+    return { str: 8, dex: 14, con: 14, int: 10, wis: 12, cha: 16 };
+  } else if (norm.includes('pícaro') || norm.includes('explorador')) {
+    return { str: 8, dex: 16, con: 14, int: 12, wis: 14, cha: 10 };
+  } else if (norm.includes('monje')) {
+    return { str: 10, dex: 16, con: 14, int: 8, wis: 14, cha: 10 };
+  } else if (norm.includes('clérigo')) {
+    return { str: 14, dex: 10, con: 14, int: 8, wis: 16, cha: 12 };
+  } else if (norm.includes('paladín')) {
+    return { str: 16, dex: 10, con: 14, int: 8, wis: 10, cha: 14 };
+  } else if (norm.includes('bárbaro')) {
+    return { str: 16, dex: 14, con: 14, int: 8, wis: 10, cha: 10 };
+  }
+  
+  // Default Guerrero / General Heavy
+  const primary = saves[0] || 'str';
+  const secondary = saves[1] || 'con';
+  const stats = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
+  (stats as any)[primary] = 16;
+  (stats as any)[secondary] = 14;
+  if (stats.con < 14) stats.con = 14;
+  if (stats.dex < 12 && primary !== 'dex') stats.dex = 12;
+  return stats;
+};
+
 export const createDefaultCharacter = (
   id: string, 
   name: string, 
@@ -124,12 +157,13 @@ export const createDefaultCharacter = (
   charClass: string, 
   background: string,
   level: number = 1,
-  stats = { str: 16, dex: 14, con: 14, int: 10, wis: 12, cha: 8 },
+  stats?: { str: number; dex: number; con: number; int: number; wis: number; cha: number },
   ownerId?: string,
   ownerName?: string,
   roomId?: string
 ): CharacterState => {
-  const officialHP = calculateMaxHP(charClass || "Guerrero", level, stats.con);
+  const finalStats = stats || getClassOptimizedStats(charClass || "Guerrero");
+  const officialHP = calculateMaxHP(charClass || "Guerrero", level, finalStats.con);
   const officialProfBonus = Math.floor((level - 1) / 4) + 2;
   const officialSaveTypes = CLASS_SAVING_THROWS[charClass || "Guerrero"] || ["str", "con"];
 
@@ -161,9 +195,9 @@ export const createDefaultCharacter = (
     inspiration: false,
     currency: { cp: 0, sp: 0, ep: 0, gp: 15, pp: 0 },
     hp: { current: officialHP, max: officialHP, temp: 0 },
-    ac: 10 + Math.floor((stats.dex - 10) / 2),
+    ac: 10 + Math.floor((finalStats.dex - 10) / 2),
     proficiencyBonus: officialProfBonus,
-    stats,
+    stats: finalStats,
     savingThrows: officialSaveTypes,
     pinnedSkills: [],
     spellSlots: {
@@ -303,6 +337,9 @@ export interface StoreState {
   currencyMode: 'standard' | 'all';
   setCurrencyMode: (currencyMode: 'standard' | 'all') => void;
   convertPlayerCurrencyToStandard: (playerId: string) => void;
+  deleteCharacter: (characterId: string) => void;
+  assignCharacterToRoom: (characterId: string, roomId: string) => void;
+  rehydrateLocalPlayers: () => void;
   
   addItem: (item: Item, isTemp: boolean, duration?: number) => void;
   updateItem: (itemId: string, updates: Partial<Item>) => void;
@@ -468,7 +505,86 @@ export const useStore = create<StoreState>((set, get) => ({
       activePlayerId: newId
     }));
     get().addLog(`✨ ¡Nuevo aventurero creado!: ${newChar.name} (${newChar.race} ${newChar.charClass} Nivel ${newChar.level})`);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('dnd_all_local_players', JSON.stringify(get().players));
+      } catch (e) {}
+    }
     return newId;
+  },
+
+  deleteCharacter: (characterId) => {
+    const target = get().players.find(p => p.id === characterId);
+    set((state) => {
+      const remaining = state.players.filter(p => p.id !== characterId);
+      const nextActiveId = state.activePlayerId === characterId ? (remaining[0]?.id || '') : state.activePlayerId;
+      return {
+        players: remaining,
+        activePlayerId: nextActiveId
+      };
+    });
+    if (target) {
+      get().addLog(`🗑️ Personaje eliminado: ${target.name}.`);
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(`dnd_private_notes_${characterId}`);
+        localStorage.setItem('dnd_all_local_players', JSON.stringify(get().players));
+      } catch (e) {}
+    }
+  },
+
+  assignCharacterToRoom: (characterId, roomId) => {
+    const cleanRoomId = roomId.trim();
+    let updatedChar: CharacterState | undefined;
+    set((state) => ({
+      players: state.players.map(p => {
+        if (p.id !== characterId) return p;
+        updatedChar = { ...p, roomId: cleanRoomId };
+        return updatedChar;
+      })
+    }));
+    if (updatedChar && cleanRoomId) {
+      savePlayerInRoom(cleanRoomId, updatedChar);
+      get().addLog(`📌 Personaje "${updatedChar.name}" asignado exitosamente a la campaña: ${cleanRoomId}.`);
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('dnd_all_local_players', JSON.stringify(get().players));
+      } catch (e) {}
+    }
+  },
+
+  rehydrateLocalPlayers: () => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('dnd_all_local_players');
+        if (stored) {
+          const parsed: CharacterState[] = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            set((state) => {
+              const map = new Map<string, CharacterState>();
+              state.players.forEach(p => map.set(p.id, p));
+              parsed.forEach(p => {
+                if (!map.has(p.id)) {
+                  map.set(p.id, p);
+                } else {
+                  const existing = map.get(p.id)!;
+                  map.set(p.id, {
+                    ...existing,
+                    ...p,
+                    roomId: p.roomId || existing.roomId
+                  });
+                }
+              });
+              const merged = Array.from(map.values());
+              const nextActive = state.activePlayerId || (merged[0]?.id || '');
+              return { players: merged, activePlayerId: nextActive };
+            });
+          }
+        }
+      } catch (e) {}
+    }
   },
 
   loadFamousDemoCharacter: () => {
@@ -527,7 +643,6 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
     if (logMsg) {
       get().addLog(logMsg);
-      if (playerRoomId) addRoomLog(playerRoomId, logMsg);
     }
   },
 
@@ -572,7 +687,6 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
     if (logMsg) {
       get().addLog(logMsg);
-      if (playerRoomId) addRoomLog(playerRoomId, logMsg);
     }
   },
 
@@ -634,7 +748,6 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
     if (logMsg) {
       get().addLog(logMsg);
-      if (playerRoomId) addRoomLog(playerRoomId, logMsg);
     }
   },
 

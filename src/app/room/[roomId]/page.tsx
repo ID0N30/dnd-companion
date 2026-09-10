@@ -12,8 +12,10 @@ import {
 import CharacterSheetPage from "@/app/sheet/page";
 import DMPage from "@/app/dm/page";
 import DiceRoller from "@/components/DiceRoller";
+import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import CelestialLevelUpModal from "@/components/CelestialLevelUpModal";
-import { Swords, Shield, Heart, Users, ScrollText, Eye, ArrowLeft, LogOut, Sparkles, Plus, CheckCircle, Skull, UserCheck, Clock } from "lucide-react";
+import AccountSettingsModal from "@/components/AccountSettingsModal";
+import { Swords, Shield, Heart, Users, ScrollText, Eye, ArrowLeft, LogOut, Sparkles, Plus, CheckCircle, Skull, UserCheck, Clock, User } from "lucide-react";
 
 const RACES = ["Humano", "Elfo", "Enano", "Mediano", "Dracónido", "Tieflling", "Gnomo", "Semielfo", "Semiorco"];
 const CLASSES = ["Guerrero", "Mago", "Pícaro", "Clérigo", "Bardo", "Bárbaro", "Paladín", "Explorador", "Brujo", "Hechicero", "Monje"];
@@ -32,6 +34,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   // Character Creator Modal State
   const [showSelectModal, setShowSelectModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [newCharForm, setNewCharForm] = useState({
     name: "",
     race: "Humano",
@@ -368,8 +371,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         </div>
       </header>
 
-      {/* Mount DiceRoller & Celestial Level Up System */}
-      <DiceRoller />
+      {/* Celestial Level Up System */}
       <CelestialLevelUpModal isDM={isDM} />
 
       {/* ROOM TAB CONTENT */}
@@ -593,6 +595,13 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* FLOATING ACTION BUTTONS (DICE ROLLER & DM INBOX) */}
+      <DiceRoller />
+      {isDM && <DMInboxFloatingButton roomId={roomId} isDM={isDM} />}
+
+      {/* ACCOUNT SETTINGS & CHARACTER MANAGEMENT MODAL */}
+      <AccountSettingsModal open={accountModalOpen} onClose={() => setAccountModalOpen(false)} />
 
     </main>
   );

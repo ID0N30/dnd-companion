@@ -436,7 +436,7 @@ export interface StoreState {
   setBaseStatScore: (stat: string, score: number) => void;
   updatePlayerStatsByDM: (playerId: string, stats: Partial<CharacterState['stats']>) => void;
   updatePlayerHPByDM: (playerId: string, hpUpdates: Partial<CharacterState['hp']>) => void;
-  addItemToPlayer: (playerId: string, item: Item) => void;
+  addItemToPlayer: (playerId: string, item: Item, targetRoomId?: string) => void;
   removeItemFromPlayer: (playerId: string, itemId: string) => void;
   addSpellToPlayer: (playerId: string, spell: Spell) => void;
   removeSpellToPlayer: (playerId: string, spellId: string) => void;
@@ -955,12 +955,19 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  addItemToPlayer: (playerId, item) => {
+  addItemToPlayer: (playerId, item, targetRoomId) => {
     let targetPlayer: CharacterState | undefined;
     const targetP = get().players.find(p => p.id === playerId);
+    let effectiveRoomId = targetRoomId || targetP?.roomId || '';
+    if ((!effectiveRoomId || effectiveRoomId === 'sin_campaña') && typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/room\/([^\/]+)/);
+      if (match && match[1]) {
+        effectiveRoomId = match[1];
+      }
+    }
     const event = {
       id: 'item_evt_' + Date.now(),
-      roomId: targetP?.roomId || '',
+      roomId: effectiveRoomId,
       playerId,
       itemName: item.name,
       quantity: item.quantity,
@@ -969,18 +976,22 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
-        targetPlayer = { ...p, inventory: [...p.inventory, item] };
+        targetPlayer = { ...p, roomId: effectiveRoomId || p.roomId, inventory: [...p.inventory, item] };
         get().addLog(`🎁 El DM ha otorgado a ${p.name}: ${item.name} x${item.quantity}`);
         return targetPlayer;
       }),
       lastItemReceivedEvent: event
     }));
     if (targetPlayer) {
+      if (effectiveRoomId && targetPlayer.roomId !== effectiveRoomId) {
+        targetPlayer.roomId = effectiveRoomId;
+      }
       persistCharacterChanges(targetPlayer, true);
     }
-    if (targetPlayer?.roomId) {
-      addRoomLog(targetPlayer.roomId, `🎁 El DM otorgó a ${targetPlayer.name} el objeto: "${item.name}" (x${item.quantity}).`);
-      updateRoomState(targetPlayer.roomId, { lastItemReceivedEvent: event });
+    const finalRoomId = targetPlayer?.roomId || effectiveRoomId;
+    if (finalRoomId && finalRoomId !== 'sin_campaña') {
+      addRoomLog(finalRoomId, `🎁 El DM otorgó a ${targetPlayer?.name || 'jugador'} el objeto: "${item.name}" (x${item.quantity}).`);
+      updateRoomState(finalRoomId, { lastItemReceivedEvent: event });
     }
   },
 

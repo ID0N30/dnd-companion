@@ -4,10 +4,10 @@ import { useState, useEffect, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
-import { useStore, CharacterState } from "@/store/useStore";
+import { useStore, CharacterState, syncAllLocalPlayersToStorage } from "@/store/useStore";
 import { CLASS_SAVING_THROWS, CLASS_HIT_DIE, calculateMaxHP } from "@/lib/dndClassFeatures";
 import { 
-  subscribeRoom, subscribeRoomPlayers, subscribeRoomLogs, savePlayerInRoom, deletePlayerFromRoom, updateRoomState, addRoomLog, Room 
+  subscribeRoom, subscribeRoomPlayers, subscribeRoomLogs, savePlayerInRoom, updatePlayerPresence, deletePlayerFromRoom, updateRoomState, addRoomLog, Room 
 } from "@/lib/rooms";
 import CharacterSheetPage from "@/app/sheet/page";
 import DMPage from "@/app/dm/page";
@@ -44,7 +44,6 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   });
 
   const isDM = Boolean(user && room && user.uid === room.dmId);
-  const lastRemoteSnapshot = useRef<string>("");
   const wasKickedRef = useRef<boolean>(false);
   const sessionJoinedAt = useRef<number>(Date.now());
   const [turnToast, setTurnToast] = useState<boolean>(false);
@@ -90,8 +89,6 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     });
 
     const unsubPlayers = subscribeRoomPlayers(roomId, (roomPlayers) => {
-      lastRemoteSnapshot.current = JSON.stringify(roomPlayers);
-
       // Check if current user was kicked
       if (user && activePlayerId && !isDM && !wasKickedRef.current) {
         const myRemoteChar = roomPlayers.find(p => p.id === activePlayerId);
@@ -139,6 +136,12 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         }
       });
 
+      // Synchronize latest remote player states (including DM updates to items, gold, etc.) to local storage
+      const myOwnedRemoteChars = activeRoomPlayers.filter(p => user && p.ownerId === user.uid);
+      if (myOwnedRemoteChars.length > 0) {
+        syncAllLocalPlayersToStorage(myOwnedRemoteChars);
+      }
+
       useStore.setState({ players: combined });
     });
 
@@ -185,29 +188,12 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     }
   }, [players, activePlayerId, isDM, room, user, roomId]);
 
-  // Auto-sync active character to Firestore ONLY when mutated locally and belongs to this room
-  useEffect(() => {
-    if (!roomId || !activePlayerId || isDM) return;
-    const activeChar = players.find(p => p.id === activePlayerId);
-    if (!activeChar) return;
-    if (activeChar.roomId !== roomId) return; // Strict guard: never sync mismatched character to this room
-    if (activeChar.id === 'drizzt_dourden_demo') return;
-
-    const currentJSON = JSON.stringify(activeChar);
-    if (lastRemoteSnapshot.current && !lastRemoteSnapshot.current.includes(currentJSON)) {
-      savePlayerInRoom(roomId, activeChar, true);
-    }
-  }, [players, activePlayerId, roomId, isDM]);
-
-  // Heartbeat & Presence tracking for active character in room
+  // Heartbeat & Presence tracking for active character in room (Isolated: only touches isOnline and lastSeen)
   useEffect(() => {
     if (!roomId || !activePlayerId || isDM) return;
 
     const updatePresence = (onlineStatus: boolean) => {
-      const activeChar = useStore.getState().players.find(p => p.id === activePlayerId);
-      if (activeChar && activeChar.roomId === roomId && activeChar.id !== 'drizzt_dourden_demo') {
-        savePlayerInRoom(roomId, { ...activeChar, isOnline: onlineStatus, lastSeen: Date.now() }, true);
-      }
+      updatePlayerPresence(roomId, activePlayerId, onlineStatus);
     };
 
     updatePresence(true);
@@ -225,10 +211,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
   const handleExitRoom = () => {
     if (roomId && activePlayerId && !isDM) {
-      const activeChar = players.find(p => p.id === activePlayerId);
-      if (activeChar && activeChar.roomId === roomId && activeChar.id !== 'drizzt_dourden_demo') {
-        savePlayerInRoom(roomId, { ...activeChar, isOnline: false, lastSeen: Date.now() }, true);
-      }
+      updatePlayerPresence(roomId, activePlayerId, false);
     }
     router.push('/');
   };

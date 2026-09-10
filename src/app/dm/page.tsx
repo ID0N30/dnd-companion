@@ -1302,7 +1302,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                               equipped: dmNewItem.equipped,
                               isTemporary: isTemp,
                               duration: duration
-                            });
+                            }, roomId || inspectedPlayer.roomId);
                             syncPlayer(inspectedPlayer.id);
                             setDmNewItem({ name: "", type: "general", desc: "", qty: 1, damage: "", acBonus: 0, equipped: false, turns: "" });
                             showAlert(`Objeto "${dmNewItem.name}" otorgado a ${inspectedPlayer.name}.`, "Objeto Otorgado", "success");

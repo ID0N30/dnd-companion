@@ -313,6 +313,17 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
   }
 };
 
+// 6.2 Lightweight presence tracking: updates ONLY isOnline and lastSeen without touching inventory/stats
+export const updatePlayerPresence = async (roomId: string, playerId: string, isOnline: boolean) => {
+  if (!db || !roomId || !playerId || playerId === 'drizzt_dourden_demo') return;
+  try {
+    const playerRef = doc(db, "rooms", roomId, "players", playerId);
+    await updateDoc(playerRef, { isOnline, lastSeen: Date.now() });
+  } catch (err) {
+    // Non-critical, ignore presence write failures
+  }
+};
+
 // 6.5 Delete Player Character from Campaign Room (Permanent Firestore deletion with auto token refresh)
 export const deletePlayerFromRoom = async (roomId: string, playerId: string) => {
   if (!db || !roomId || !playerId) return;

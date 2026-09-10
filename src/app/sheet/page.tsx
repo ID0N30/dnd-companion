@@ -90,13 +90,22 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
       lastItemReceivedEvent.playerId === character.id &&
       (!lastItemReceivedEvent.roomId || lastItemReceivedEvent.roomId === character.roomId)
     ) {
+      // Must be recent (within 2 minutes) so past campaign events don't trigger toasts on rejoin
+      const isFresh = (Date.now() - (lastItemReceivedEvent.timestamp || 0)) < 120000;
       const eventKey = `seen_item_evt_${lastItemReceivedEvent.id || lastItemReceivedEvent.itemName + '_' + lastItemReceivedEvent.timestamp}`;
-      if (typeof window !== 'undefined' && !sessionStorage.getItem(eventKey)) {
-        sessionStorage.setItem(eventKey, 'true');
+      if (isFresh && typeof window !== 'undefined' && !localStorage.getItem(eventKey)) {
+        localStorage.setItem(eventKey, 'true');
         setItemToast({ open: true, itemName: lastItemReceivedEvent.itemName, quantity: lastItemReceivedEvent.quantity });
       }
     }
   }, [lastItemReceivedEvent, character.id, character.roomId]);
+
+  useEffect(() => {
+    if (itemToast?.open) {
+      const timer = setTimeout(() => setItemToast(null), 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [itemToast]);
 
   useEffect(() => {
     const isStandard = (room?.currencyMode === 'standard' || useStore.getState().currencyMode === 'standard');

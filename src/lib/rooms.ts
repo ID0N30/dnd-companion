@@ -501,6 +501,49 @@ export const deleteDirectMessage = async (roomId: string, messageId: string) => 
   }
 };
 
+export const markDirectMessageAsRead = async (roomId: string, messageId: string) => {
+  if (!db || !roomId || !messageId) return;
+  try {
+    const roomRef = doc(db, "rooms", roomId);
+    const roomSnap = await getDoc(roomRef);
+    if (!roomSnap.exists()) return;
+    const data = roomSnap.data() as Room;
+    const currentMsgs = data.directMessages || [];
+    
+    const targetMsg = currentMsgs.find(m => m.id === messageId);
+    if (!targetMsg || targetMsg.read === true) return;
+
+    const updated = currentMsgs.map(m => m.id === messageId ? { ...m, read: true } : m);
+    await updateDoc(roomRef, { directMessages: cleanFirebaseData(updated) });
+  } catch (err: any) {
+    logError(err, 'markDirectMessageAsRead', 'WARNING');
+  }
+};
+
+export const markAllDirectMessagesAsRead = async (roomId: string, senderId?: string) => {
+  if (!db || !roomId) return;
+  try {
+    const roomRef = doc(db, "rooms", roomId);
+    const roomSnap = await getDoc(roomRef);
+    if (!roomSnap.exists()) return;
+    const data = roomSnap.data() as Room;
+    const currentMsgs = data.directMessages || [];
+    
+    const hasUnread = currentMsgs.some(m => (!senderId || m.senderId === senderId || (m.characterName || m.senderName) === senderId) && !m.read);
+    if (!hasUnread) return;
+
+    const updated = currentMsgs.map(m => {
+      if (!senderId || m.senderId === senderId || (m.characterName || m.senderName) === senderId) {
+        return { ...m, read: true };
+      }
+      return m;
+    });
+    await updateDoc(roomRef, { directMessages: cleanFirebaseData(updated) });
+  } catch (err: any) {
+    logError(err, 'markAllDirectMessagesAsRead', 'WARNING');
+  }
+};
+
 // 12. Delete Entire Room / Campaign (DM Creator Action)
 export const deleteRoom = async (roomId: string) => {
   if (!db || !roomId) return;

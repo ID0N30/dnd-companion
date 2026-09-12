@@ -13,7 +13,7 @@ import { sendDirectMessageToDM, subscribeRoom, Room } from "@/lib/rooms";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
 import { 
   PenTool, Shield, Heart, Zap, Sparkles, BookOpen, Package, Clock, 
-  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X, Settings, Dice5
+  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X, Settings, Dice5, CheckCheck
 } from "lucide-react";
 
 export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } = {}) {
@@ -38,7 +38,7 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
   const [featureFilter, setFeatureFilter] = useState<'all' | 'active' | 'passive' | 'short' | 'long'>('all');
   const [featureSearch, setFeatureSearch] = useState('');
   const [focusFeaturesModalOpen, setFocusFeaturesModalOpen] = useState(false);
-  const [dmMessageModal, setDmMessageModal] = useState({ open: false, content: '' });
+  const [dmMessageModal, setDmMessageModal] = useState<{ open: boolean; content: string; tab: 'compose' | 'history' }>({ open: false, content: '', tab: 'compose' });
   const [itemToast, setItemToast] = useState<{ open: boolean; itemName: string; quantity: number } | null>(null);
 
   // Currency Modals State
@@ -664,7 +664,7 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
 
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={() => setDmMessageModal({ open: true, content: '' })}
+              onClick={() => setDmMessageModal({ open: true, content: '', tab: 'compose' })}
               className="flex items-center gap-1.5 bg-parchment-dark text-ink hover:text-magic-gold px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm border border-ink/20 transition cursor-pointer"
               title="Enviar mensaje directo o trasfondo al DM"
             >
@@ -2846,67 +2846,144 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
             )}
           </AnimatePresence>
 
-          {/* DM DIRECT MESSAGE MODAL */}
+          {/* DM DIRECT MESSAGE MODAL WITH SENT HISTORY & READ RECEIPTS */}
           <AnimatePresence>
             {dmMessageModal.open && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3 font-sans">
-                <div className="bg-parchment-dark border-4 border-magic-gold p-5 rounded-xl shadow-2xl w-[95%] max-w-lg space-y-4">
-                  <div className="flex justify-between items-center border-b border-ink/20 pb-3">
+                <div className="bg-parchment-dark border-4 border-magic-gold p-5 rounded-xl shadow-2xl w-[95%] max-w-lg space-y-4 max-h-[85vh] flex flex-col">
+                  {/* Header */}
+                  <div className="flex justify-between items-center border-b border-ink/20 pb-3 shrink-0">
                     <h3 className="text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                      ✉️ Enviar Mensaje / Trasfondo al DM
+                      ✉️ Mensajes con el DM
                     </h3>
-                    <button onClick={() => setDmMessageModal({ open: false, content: '' })} className="p-1 text-ink-light hover:text-ink">
+                    <button onClick={() => setDmMessageModal({ open: false, content: '', tab: 'compose' })} className="p-1 text-ink-light hover:text-ink">
                       <X className="w-5 h-5" />
                     </button>
                   </div>
-                  <p className="text-xs text-ink-light">
-                    Envía notas de historia, secretos, intenciones o peticiones privadas a tu Maestro de la Mazmorra (DM). Máximo 500 caracteres (máximo 5 mensajes activos).
-                  </p>
-                  <div>
-                    <textarea
-                      value={dmMessageModal.content}
-                      onChange={(e) => setDmMessageModal({ ...dmMessageModal, content: e.target.value.slice(0, 500) })}
-                      placeholder="Escribe tu mensaje privado para el DM..."
-                      rows={5}
-                      className="w-full p-3 bg-parchment border border-ink/30 rounded-lg text-xs text-ink font-sans leading-relaxed focus:outline-none focus:border-magic-gold"
-                    />
-                    <div className="flex justify-between items-center text-[10px] text-ink-light mt-1">
-                      <span>Solo visible para el DM de la sala.</span>
-                      <span className={dmMessageModal.content.length >= 500 ? 'text-magic-red font-bold' : ''}>
-                        {dmMessageModal.content.length} / 500
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-2 border-t border-ink/20">
-                    <button
-                      onClick={() => setDmMessageModal({ open: false, content: '' })}
-                      className="px-4 py-2 text-xs font-bold text-ink-light hover:text-ink cursor-pointer"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (!dmMessageModal.content.trim()) return;
-                        const roomId = character.roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
-                        if (!roomId) {
-                          showAlert("Debes estar en una sala de campaña para enviar mensajes al DM.", "Sala Requerida", "warning");
-                          return;
-                        }
-                        await sendDirectMessageToDM(roomId, {
-                          senderId: character.id,
-                          senderName: character.name,
-                          characterName: character.name,
-                          content: dmMessageModal.content.trim()
-                        });
-                        showAlert("✉️ Mensaje enviado con éxito al DM.", "Mensaje Enviado", "success");
-                        setDmMessageModal({ open: false, content: '' });
-                      }}
-                      disabled={!dmMessageModal.content.trim()}
-                      className={`px-5 py-2 bg-magic-gold text-black rounded text-xs font-bold hover:bg-yellow-500 transition shadow cursor-pointer ${!dmMessageModal.content.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      Enviar Mensaje
-                    </button>
-                  </div>
+
+                  {/* Tabs */}
+                  {(() => {
+                    const mySentMessages = (room?.directMessages || []).filter(m => m.senderId === character.id);
+                    return (
+                      <>
+                        <div className="flex border-b border-ink/20 shrink-0 text-xs font-bold font-cinzel">
+                          <button
+                            onClick={() => setDmMessageModal(prev => ({ ...prev, tab: 'compose' }))}
+                            className={`px-4 py-2 border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
+                              dmMessageModal.tab === 'compose'
+                                ? 'border-magic-gold text-magic-gold bg-magic-gold/10'
+                                : 'border-transparent text-ink-light hover:text-ink'
+                            }`}
+                          >
+                            ✏️ Redactar
+                          </button>
+                          <button
+                            onClick={() => setDmMessageModal(prev => ({ ...prev, tab: 'history' }))}
+                            className={`px-4 py-2 border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
+                              dmMessageModal.tab === 'history'
+                                ? 'border-magic-gold text-magic-gold bg-magic-gold/10'
+                                : 'border-transparent text-ink-light hover:text-ink'
+                            }`}
+                          >
+                            📬 Mis Mensajes ({mySentMessages.length})
+                          </button>
+                        </div>
+
+                        {/* Tab 1: Compose */}
+                        {dmMessageModal.tab === 'compose' ? (
+                          <div className="space-y-4 flex-1 flex flex-col justify-between">
+                            <div className="space-y-2">
+                              <p className="text-xs text-ink-light">
+                                Envía notas de historia, secretos, intenciones o peticiones privadas a tu Maestro de la Mazmorra (DM). Máximo 500 caracteres (máximo 5 mensajes activos).
+                              </p>
+                              <textarea
+                                value={dmMessageModal.content}
+                                onChange={(e) => setDmMessageModal({ ...dmMessageModal, content: e.target.value.slice(0, 500) })}
+                                placeholder="Escribe tu mensaje privado para el DM..."
+                                rows={5}
+                                className="w-full p-3 bg-parchment border border-ink/30 rounded-lg text-xs text-ink font-sans leading-relaxed focus:outline-none focus:border-magic-gold"
+                              />
+                              <div className="flex justify-between items-center text-[10px] text-ink-light">
+                                <span>Solo visible para el DM de la sala.</span>
+                                <span className={dmMessageModal.content.length >= 500 ? 'text-magic-red font-bold' : ''}>
+                                  {dmMessageModal.content.length} / 500
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2 border-t border-ink/20">
+                              <button
+                                onClick={() => setDmMessageModal({ open: false, content: '', tab: 'compose' })}
+                                className="px-4 py-2 text-xs font-bold text-ink-light hover:text-ink cursor-pointer"
+                              >
+                                Cancelar
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (!dmMessageModal.content.trim()) return;
+                                  const roomId = character.roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
+                                  if (!roomId) {
+                                    showAlert("Debes estar en una sala de campaña para enviar mensajes al DM.", "Sala Requerida", "warning");
+                                    return;
+                                  }
+                                  await sendDirectMessageToDM(roomId, {
+                                    senderId: character.id,
+                                    senderName: character.name,
+                                    characterName: character.name,
+                                    content: dmMessageModal.content.trim()
+                                  });
+                                  showAlert("✉️ Mensaje enviado con éxito al DM.", "Mensaje Enviado", "success");
+                                  setDmMessageModal({ open: true, content: '', tab: 'history' });
+                                }}
+                                disabled={!dmMessageModal.content.trim()}
+                                className={`px-5 py-2 bg-magic-gold text-black rounded text-xs font-bold hover:bg-yellow-500 transition shadow cursor-pointer ${!dmMessageModal.content.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                Enviar Mensaje
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* Tab 2: Sent Messages History with Realtime Read Confirmation */
+                          <div className="flex-1 overflow-y-auto pr-1 space-y-3 max-h-[50vh]">
+                            {mySentMessages.length === 0 ? (
+                              <div className="text-center py-8 space-y-2">
+                                <p className="text-xs text-ink-light italic">No has enviado mensajes al DM en esta campaña aún.</p>
+                                <button
+                                  onClick={() => setDmMessageModal(prev => ({ ...prev, tab: 'compose' }))}
+                                  className="text-xs text-magic-gold font-bold underline cursor-pointer"
+                                >
+                                  Redactar mi primer mensaje
+                                </button>
+                              </div>
+                            ) : (
+                              mySentMessages.map(msg => (
+                                <div key={msg.id} className="p-3 bg-parchment rounded-lg border border-ink/20 space-y-2 text-xs">
+                                  <div className="flex justify-between items-center text-[11px] font-mono border-b border-ink/10 pb-1 flex-wrap gap-1">
+                                    <span className="text-ink/60">
+                                      📅 {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+
+                                    {/* Realtime Read Status */}
+                                    {msg.read ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-bold font-sans">
+                                        <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> Leído por el DM
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold font-sans">
+                                        <Clock className="w-3.5 h-3.5 text-amber-400" /> Enviado (Pendiente)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-ink leading-relaxed whitespace-pre-wrap font-sans bg-parchment-dark/40 p-2.5 rounded border border-ink/10">
+                                    {msg.content}
+                                  </p>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </motion.div>
             )}

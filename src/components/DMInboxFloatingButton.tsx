@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, X, Search, Filter, Trash2 } from "lucide-react";
-import { subscribeRoom, deleteDirectMessage, DirectMessage, Room } from "@/lib/rooms";
+import { Mail, X, Search, Filter, Trash2, CheckCheck, Check } from "lucide-react";
+import { subscribeRoom, deleteDirectMessage, markDirectMessageAsRead, markAllDirectMessagesAsRead, DirectMessage, Room } from "@/lib/rooms";
 import { useStore } from "@/store/useStore";
 import { useAuth } from "@/context/AuthContext";
 
@@ -84,6 +84,72 @@ export default function DMInboxFloatingButton({
 
     return () => unsub();
   }, [roomId, isDemo]);
+
+  // Mark single message as read
+  const handleMarkAsRead = useCallback(async (msgId: string) => {
+    // Optimistic update
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, read: true } : m));
+
+    if (isDemo || !roomId) {
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('dnd_demo_direct_messages');
+        const msgs = stored ? JSON.parse(stored) : INITIAL_DEMO_MESSAGES;
+        const updated = msgs.map((m: DirectMessage) => m.id === msgId ? { ...m, read: true } : m);
+        localStorage.setItem('dnd_demo_direct_messages', JSON.stringify(updated));
+      }
+      return;
+    }
+
+    await markDirectMessageAsRead(roomId, msgId);
+  }, [isDemo, roomId]);
+
+  // Mark all (or filtered) messages as read
+  const handleMarkAllAsRead = useCallback(async (targetFilter: string = playerFilter) => {
+    const unreadMessages = messages.filter(m => {
+      const sender = m.characterName || m.senderName;
+      const matches = targetFilter === 'all' || sender === targetFilter;
+      return matches && !m.read;
+    });
+
+    if (unreadMessages.length === 0) return;
+
+    // Optimistic update
+    setMessages(prev => prev.map(m => {
+      const sender = m.characterName || m.senderName;
+      if (targetFilter === 'all' || sender === targetFilter) {
+        return { ...m, read: true };
+      }
+      return m;
+    }));
+
+    if (isDemo || !roomId) {
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('dnd_demo_direct_messages');
+        const msgs = stored ? JSON.parse(stored) : INITIAL_DEMO_MESSAGES;
+        const updated = msgs.map((m: DirectMessage) => {
+          const sender = m.characterName || m.senderName;
+          if (targetFilter === 'all' || sender === targetFilter) {
+            return { ...m, read: true };
+          }
+          return m;
+        });
+        localStorage.setItem('dnd_demo_direct_messages', JSON.stringify(updated));
+      }
+      return;
+    }
+
+    await markAllDirectMessagesAsRead(roomId, targetFilter === 'all' ? undefined : targetFilter);
+  }, [messages, playerFilter, isDemo, roomId]);
+
+  // Automatically mark unread messages as read when DM opens the modal
+  useEffect(() => {
+    if (modalOpen) {
+      const hasUnread = messages.some(m => !m.read);
+      if (hasUnread) {
+        handleMarkAllAsRead('all');
+      }
+    }
+  }, [modalOpen, handleMarkAllAsRead, messages]);
 
   const handleDeleteMessage = (msgId: string) => {
     showConfirm(
@@ -186,9 +252,10 @@ export default function DMInboxFloatingButton({
                     <option value="all">👥 Todos los Jugadores ({messages.length})</option>
                     {allPlayerOptions.map(name => {
                       const count = messages.filter(m => (m.characterName || m.senderName) === name).length;
+                      const unreadPlayerCount = messages.filter(m => (m.characterName || m.senderName) === name && !m.read).length;
                       return (
                         <option key={name} value={name}>
-                          ⚔️ {name} ({count} msgs)
+                          ⚔️ {name} ({count} msgs{unreadPlayerCount > 0 ? ` • ${unreadPlayerCount} sin leer` : ''})
                         </option>
                       );
                     })}
@@ -207,18 +274,31 @@ export default function DMInboxFloatingButton({
                   <Search className="w-4 h-4 text-ink-light absolute left-2.5 top-2.5" />
                 </div>
 
-                {/* Reset Filters */}
-                {(playerFilter !== 'all' || searchText !== '') && (
-                  <button
-                    onClick={() => {
-                      setPlayerFilter('all');
-                      setSearchText('');
-                    }}
-                    className="px-3 py-1.5 bg-red-950/20 text-red-600 border border-red-500/40 rounded font-bold hover:bg-magic-red hover:text-white transition cursor-pointer whitespace-nowrap"
-                  >
-                    Restablecer
-                  </button>
-                )}
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={() => handleMarkAllAsRead(playerFilter)}
+                      className="px-3 py-1.5 bg-emerald-950/30 text-emerald-400 border border-emerald-500/40 rounded font-bold hover:bg-emerald-600 hover:text-white transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
+                      title="Marcar todos los mensajes como leídos"
+                    >
+                      <CheckCheck className="w-3.5 h-3.5" /> Marcar como leídos
+                    </button>
+                  )}
+
+                  {/* Reset Filters */}
+                  {(playerFilter !== 'all' || searchText !== '') && (
+                    <button
+                      onClick={() => {
+                        setPlayerFilter('all');
+                        setSearchText('');
+                      }}
+                      className="px-3 py-1.5 bg-red-950/20 text-red-600 border border-red-500/40 rounded font-bold hover:bg-magic-red hover:text-white transition cursor-pointer whitespace-nowrap"
+                    >
+                      Restablecer
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Scrollable Messages List */}
@@ -233,18 +313,45 @@ export default function DMInboxFloatingButton({
                   filteredMessages.map(msg => (
                     <div
                       key={msg.id}
-                      className="p-4 bg-parchment rounded-xl border border-ink/20 shadow-md space-y-2 hover:border-magic-gold transition"
+                      className={`p-4 bg-parchment rounded-xl border shadow-md space-y-2 transition ${
+                        !msg.read 
+                          ? 'border-magic-gold/80 bg-parchment shadow-[0_0_15px_rgba(245,208,97,0.15)]' 
+                          : 'border-ink/20 hover:border-magic-gold/40'
+                      }`}
                     >
-                      <div className="flex justify-between items-center border-b border-ink/15 pb-2">
-                        <div className="flex items-center gap-2">
+                      <div className="flex justify-between items-center border-b border-ink/15 pb-2 flex-wrap gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-bold text-sm text-magic-gold px-2.5 py-0.5 rounded bg-magic-gold/10 border border-magic-gold/30 flex items-center gap-1.5 font-cinzel">
                             ⚔️ {msg.characterName || msg.senderName}
                           </span>
+
+                          {/* Read / Unread Status Badge */}
+                          {!msg.read ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-magic-red/20 text-magic-red border border-magic-red/30 text-[10px] font-bold animate-pulse">
+                              🔴 No leído
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                              <CheckCheck className="w-3 h-3 text-emerald-400" /> Leído
+                            </span>
+                          )}
                         </div>
+
                         <div className="flex items-center gap-3 text-xs text-ink/60 font-mono">
                           <span>
                             📅 {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
+
+                          {!msg.read && (
+                            <button
+                              onClick={() => handleMarkAsRead(msg.id)}
+                              className="px-2 py-1 bg-emerald-950/20 text-emerald-400 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition cursor-pointer flex items-center gap-1 font-sans text-xs font-bold"
+                              title="Marcar este mensaje como leído"
+                            >
+                              <Check className="w-3.5 h-3.5" /> Leído
+                            </button>
+                          )}
+
                           <button
                             onClick={() => handleDeleteMessage(msg.id)}
                             className="px-2 py-1 bg-red-950/20 text-red-600 rounded border border-red-500/30 hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1 font-sans text-xs font-bold"

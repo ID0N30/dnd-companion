@@ -203,6 +203,9 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       const livingChar = myRoomPlayers.find(p => !p.isDead) || myRoomPlayers[0];
       if (livingChar) {
         setActivePlayerId(livingChar.id);
+      } else if (activePlayerId) {
+        // User has no character created in this room yet; clear activePlayerId to prevent characters from other rooms leaking
+        setActivePlayerId("");
       }
     }
   }, [players, activePlayerId, isDM, room, user, roomId, loadingRoom]);
@@ -228,6 +231,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     if (roomId && activePlayerId && !isDM) {
       updatePlayerPresence(roomId, activePlayerId, false);
     }
+    setActivePlayerId("");
     router.push('/');
   };
 
@@ -287,7 +291,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     );
   }
 
-  const activeChar = players.find(p => p.id === activePlayerId);
+  const activeChar = players.find(p => p.id === activePlayerId && p.roomId === roomId);
 
   return (
     <main className="min-h-screen relative flex flex-col font-sans">

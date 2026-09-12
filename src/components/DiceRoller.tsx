@@ -168,7 +168,7 @@ export default function DiceRoller() {
         )}
       </AnimatePresence>
 
-      {/* 3D DICE TUMBLING ANIMATION OVERLAY */}
+      {/* DICE TUMBLING ANIMATION OVERLAY */}
       <AnimatePresence>
         {isRolling && (
           <motion.div

@@ -46,6 +46,24 @@ next-env.d.ts
 
 # debug logs & metrics
 firebase-debug.log*
+firestore-debug.log*
+*.log
 /metricas
 metricas/
+
+# documents & binaries
+*.docx
+*.pdf
+
+# editors & IDEs
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS temporary files
+Thumbs.db
+desktop.ini
+*.tmp
+*.bak
 

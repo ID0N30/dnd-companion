@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useStore, CharacterState, ItemType, Item, Spell, Currency, SKILLS_5E, syncAllLocalPlayersToStorage } from "@/store/useStore";
+import { useStore, CharacterState, ItemType, Item, Spell, Currency, SKILLS_5E, syncAllLocalPlayersToStorage, isDemoPlayer } from "@/store/useStore";
 import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, subscribeRoom, Room, getLogCategory, LogCategory, DirectMessage, deleteRoom } from "@/lib/rooms";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import TutorialModal from "@/components/TutorialModal";
@@ -40,10 +40,9 @@ export default function DMPage({ roomId }: { roomId?: string }) {
   }, [roomId]);
 
   const isDemo = !roomId;
-  const activeId = useStore.getState().activePlayerId;
   const effectivePlayers = isDemo 
-    ? players.filter(p => p.id === activeId || p.id === 'drizzt_dourden_demo')
-    : players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo');
+    ? players.filter(p => isDemoPlayer(p.id))
+    : players.filter(p => p.roomId === roomId && !isDemoPlayer(p.id));
 
   const isPlayerOnline = (p: CharacterState) => {
     if (p.isOnline === false) return false;

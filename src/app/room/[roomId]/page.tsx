@@ -15,6 +15,7 @@ import DiceRoller from "@/components/DiceRoller";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import CelestialLevelUpModal from "@/components/CelestialLevelUpModal";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
+import { recordRecentRoom } from "@/lib/recentRooms";
 import { Swords, Shield, Heart, Users, ScrollText, Eye, ArrowLeft, LogOut, Sparkles, Plus, CheckCircle, Skull, UserCheck, Clock, User } from "lucide-react";
 
 const RACES = ["Humano", "Elfo", "Enano", "Mediano", "Dracónido", "Tieflling", "Gnomo", "Semielfo", "Semiorco"];
@@ -80,6 +81,12 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       setLoadingRoom(false);
       
       if (data) {
+        recordRecentRoom({
+          id: data.id,
+          name: data.name,
+          dmName: data.dmName,
+          hasPassword: data.hasPassword
+        });
         useStore.setState({
           isCombatMode: data.isCombatMode,
           initiativeOrder: data.initiativeOrder || [],

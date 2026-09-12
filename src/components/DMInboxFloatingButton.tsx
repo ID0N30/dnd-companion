@@ -6,18 +6,9 @@ import { Mail, X, Search, Filter, Trash2, CheckCheck, Check } from "lucide-react
 import { subscribeRoom, deleteDirectMessage, markDirectMessageAsRead, markAllDirectMessagesAsRead, DirectMessage, Room } from "@/lib/rooms";
 import { useStore } from "@/store/useStore";
 import { useAuth } from "@/context/AuthContext";
+import { DEMO_INITIAL_MESSAGES } from "@/lib/demoData";
 
-const INITIAL_DEMO_MESSAGES: DirectMessage[] = [
-  {
-    id: 'demo_msg_1',
-    senderId: 'demo_player_1',
-    senderName: 'Jugador Prueba',
-    characterName: "Drizzt Do'Urden",
-    content: '¡Hola DM! Mi personaje explorador se mantiene alerta en el bosque observando posibles emboscadas drow.',
-    timestamp: Date.now() - 3600000,
-    read: false
-  }
-];
+const INITIAL_DEMO_MESSAGES: DirectMessage[] = DEMO_INITIAL_MESSAGES;
 
 let globalActiveDMInboxId: string | null = null;
 

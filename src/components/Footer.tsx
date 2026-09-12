@@ -43,8 +43,8 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/sheet?demo=true" className="hover:text-magic-gold transition flex items-center gap-1">
-                  Mesa de Prueba (Demo)
+                <Link href="/demo" className="hover:text-magic-gold transition flex items-center gap-1">
+                  Mesa de Prueba (Demo & Showcase)
                 </Link>
               </li>
               <li>

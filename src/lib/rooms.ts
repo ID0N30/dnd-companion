@@ -119,12 +119,28 @@ export const createRoom = async (data: {
     logError(err, 'createRoom', 'CRITICAL');
     throw err;
   }
+
+  const trimmedName = data.name.trim();
+  if (!trimmedName) {
+    throw new Error("El nombre de la campaña no puede estar vacío.");
+  }
   
   try {
+    // Check for duplicate campaign names (case-insensitive) across existing rooms
+    const existingRoomsSnap = await getDocs(collection(db, "rooms"));
+    const isDuplicate = existingRoomsSnap.docs.some(d => {
+      const roomData = d.data() as Room;
+      return (roomData.name || "").trim().toLowerCase() === trimmedName.toLowerCase();
+    });
+
+    if (isDuplicate) {
+      throw new Error(`Ya existe una campaña llamada "${trimmedName}". Por favor elige un nombre único para evitar confusiones.`);
+    }
+
     const roomRef = doc(collection(db, "rooms"));
     const newRoom: Room = {
       id: roomRef.id,
-      name: data.name,
+      name: trimmedName,
       dmId: data.dmId,
       dmName: data.dmName,
       isPublic: data.isPublic,

@@ -10,8 +10,9 @@ import { subscribePublicRooms, createRoom, verifyRoomPassword, Room } from "@/li
 import AuthModal from "@/components/AuthModal";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
 import TeamLobbyPromo from "@/components/TeamLobbyPromo";
+import { getRecentRooms, removeRecentRoom, RecentRoom } from "@/lib/recentRooms";
 import { 
-  Book, Shield, Swords, LogIn, LogOut, Plus, Lock, Globe, Users, Key, AlertCircle, Sparkles, UserCheck, Search, Edit3, Settings
+  Book, Shield, Swords, LogIn, LogOut, Plus, Lock, Globe, Users, Key, AlertCircle, Sparkles, UserCheck, Search, Edit3, Settings, Clock, X
 } from "lucide-react";
 
 export default function WelcomePage() {
@@ -21,6 +22,7 @@ export default function WelcomePage() {
   const rehydrateLocalPlayers = useStore((state) => state.rehydrateLocalPlayers);
   
   const [publicRooms, setPublicRooms] = useState<Room[]>([]);
+  const [recentRooms, setRecentRooms] = useState<RecentRoom[]>([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [joinModalRoom, setJoinModalRoom] = useState<Room | null>(null);
@@ -40,14 +42,20 @@ export default function WelcomePage() {
     allowGuests: true,
   });
 
-  // Rehydrate local players and subscribe to realtime public rooms
+  // Rehydrate local players, load recent campaigns, and subscribe to realtime public rooms
   useEffect(() => {
     rehydrateLocalPlayers();
+    setRecentRooms(getRecentRooms());
     const unsub = subscribePublicRooms((rooms) => {
       setPublicRooms(rooms);
     });
     return () => unsub();
   }, [rehydrateLocalPlayers]);
+
+  const handleRemoveRecent = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setRecentRooms(removeRecentRoom(id));
+  };
 
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,6 +190,118 @@ export default function WelcomePage() {
       {/* ACTION & ROOMS CONTAINER */}
       <div className="w-full max-w-5xl space-y-8 font-sans">
         
+        {/* RECENT CAMPAIGNS SHELF */}
+        {recentRooms.length > 0 && (
+          <div className="bg-parchment-dark p-5 rounded-xl border-2 border-magic-gold shadow-xl space-y-3">
+            <div className="flex justify-between items-center flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-magic-gold" />
+                <h3 className="text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
+                  Campañas Recientes
+                </h3>
+                <span className="text-[10px] bg-magic-gold/20 text-magic-gold border border-magic-gold/40 px-2 py-0.5 rounded font-bold">
+                  {recentRooms.length}
+                </span>
+              </div>
+              <p className="text-xs text-ink-light italic">
+                Tus mesas de juego recientes en este dispositivo
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+              {recentRooms.map((recent) => (
+                <div
+                  key={recent.id}
+                  onClick={() => {
+                    const found = publicRooms.find(r => r.id === recent.id);
+                    if (found) {
+                      handleJoinRoom(found);
+                    } else {
+                      const fallbackRoom: Room = {
+                        id: recent.id,
+                        name: recent.name,
+                        dmId: '',
+                        dmName: recent.dmName,
+                        isPublic: true,
+                        hasPassword: Boolean(recent.hasPassword),
+                        allowGuests: true,
+                        isCombatMode: false,
+                        initiativeOrder: [],
+                        currentTurnIndex: 0
+                      };
+                      handleJoinRoom(fallbackRoom);
+                    }
+                  }}
+                  className="group relative bg-parchment p-3.5 rounded-lg border border-ink/20 hover:border-magic-gold shadow-md hover:shadow-lg transition-all cursor-pointer flex flex-col justify-between space-y-2.5"
+                >
+                  <div className="flex justify-between items-start gap-1">
+                    <h4 className="font-bold font-cinzel text-ink group-hover:text-magic-gold transition truncate flex-1 text-sm">
+                      {recent.name}
+                    </h4>
+                    <button
+                      onClick={(e) => handleRemoveRecent(e, recent.id)}
+                      className="text-ink-light hover:text-magic-red p-1 rounded transition shrink-0 cursor-pointer"
+                      title="Quitar de recientes"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="flex justify-between items-center text-[10px] text-ink-light border-t border-ink/10 pt-1.5">
+                    <span className="truncate">DM: <strong className="text-ink">{recent.dmName}</strong></span>
+                    {recent.hasPassword ? (
+                      <span className="flex items-center gap-0.5 text-yellow-400 font-bold">
+                        <Lock className="w-2.5 h-2.5" /> Privada
+                      </span>
+                    ) : (
+                      <span className="text-emerald-400 font-bold uppercase text-[9px]">Pública</span>
+                    )}
+                  </div>
+
+                  <div className="w-full py-1.5 bg-magic-gold text-black font-bold font-cinzel rounded text-center text-xs shadow group-hover:bg-yellow-500 transition">
+                    Reanudar Partida →
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* SHOWCASE & FEATURE EXPLORER BANNER (MESA DE PRUEBAS) */}
+        <div className="bg-gradient-to-br from-[#1c140e] via-[#241a12] to-[#120d09] border-2 border-magic-gold/50 rounded-2xl p-5 sm:p-7 shadow-2xl relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="absolute top-0 right-0 bg-magic-gold text-black text-[9px] font-extrabold px-3 py-1 rounded-bl uppercase tracking-wider font-sans">
+            ✦ SHOWCASE & SANDBOX INTERACTIVO
+          </div>
+
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🏰</span>
+              <h2 className="text-2xl sm:text-3xl font-bold text-magic-gold font-cinzel">
+                Mesa de Pruebas & Explorador de Funciones
+              </h2>
+            </div>
+            <p className="text-xs sm:text-sm text-ink-light leading-relaxed">
+              ¿Quieres descubrir la plataforma antes de jugar? Prueba el sistema completo sin crear cuenta: explora la <strong>Party Legendaria de 4 héroes</strong> (Guerrero, Clériga, Pícaro y Mago), simula <strong>tiradas animadas con cálculo automático</strong>, gestiona ranuras de conjuro, rueda de turnos táctica y prueba el <strong>Panel Maestro del DM</strong> en un entorno 100% aislado.
+            </p>
+            <div className="flex gap-2 flex-wrap text-[11px] pt-1">
+              <span className="bg-magic-gold/10 text-magic-gold border border-magic-gold/30 px-2.5 py-0.5 rounded-full font-bold">⭐ Party Completa de 4 Héroes</span>
+              <span className="bg-magic-gold/10 text-magic-gold border border-magic-gold/30 px-2.5 py-0.5 rounded-full font-bold">🎲 Tiradas Animadas & Modificadores Automáticos 5e</span>
+              <span className="bg-magic-gold/10 text-magic-gold border border-magic-gold/30 px-2.5 py-0.5 rounded-full font-bold">🛡️ Panel DM en Vivo</span>
+              <span className="bg-magic-gold/10 text-magic-gold border border-magic-gold/30 px-2.5 py-0.5 rounded-full font-bold">🔄 100% Local & Restaurable</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row md:flex-col gap-2 w-full md:w-auto shrink-0 items-center">
+            <Link 
+              href="/demo" 
+              className="w-full text-center px-6 py-3 bg-gradient-to-r from-magic-gold to-yellow-500 hover:from-yellow-400 hover:to-amber-500 text-black font-bold rounded-xl transition text-sm block shadow-lg hover:scale-[1.02] cursor-pointer"
+            >
+              🎮 Entrar a la Mesa de Pruebas →
+            </Link>
+            <span className="text-[10px] text-center text-ink-light italic">Sin registro ni conexión requerida</span>
+          </div>
+        </div>
+
         {/* ROOM CREATION & QUICK ACCESS HEADER */}
         <div className="bg-parchment-dark/70 p-4 sm:p-6 rounded-xl border border-ink/20 shadow-md space-y-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -220,70 +340,53 @@ export default function WelcomePage() {
         </div>
 
         {/* PUBLIC ROOMS LIST */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          
-          {/* Demo / Off-line Test Room (Always Available) */}
-          <div className="bg-parchment-dark p-6 rounded-xl border-2 border-magic-gold shadow-xl flex flex-col justify-between space-y-4 relative overflow-hidden">
-            <div className="absolute top-0 right-0 bg-magic-gold text-black text-[9px] font-bold px-3 py-1 rounded-bl uppercase font-sans">
-              ✦ DEMO & TUTORIAL
-            </div>
-            <div>
-              <div className="flex justify-between items-start mb-2 pt-1">
-                <h3 className="text-xl font-bold text-magic-gold font-cinzel">Mesa de Prueba (Demo)</h3>
-              </div>
-              <p className="text-xs text-ink-light mb-3 leading-relaxed">
-                Experimenta con el héroe legendario <strong>Drizzt Do'Urden</strong> (Elfo Oscuro Nivel 5), prueba el Panel Maestro (DM) libre y consulta el <strong>Tutorial Inicial Guiado</strong>.
-              </p>
-              <div className="flex gap-1.5 flex-wrap text-[10px]">
-                <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">⭐ Drizzt Do'Urden</span>
-                <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">🛡️ Panel DM Libre</span>
-                <span className="bg-ink/10 text-ink px-2 py-0.5 rounded font-bold">📖 Tutorial Guiado</span>
-              </div>
-            </div>
-            <Link 
-              href="/sheet?demo=true" 
-              className="w-full text-center py-2.5 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition text-sm block shadow cursor-pointer"
-            >
-              Entrar a Mesa de Prueba
-            </Link>
+        {publicRooms.filter(room => room.name.toLowerCase().includes(searchQuery.toLowerCase()) || room.dmName.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+          <div className="bg-parchment-dark p-8 rounded-xl border border-ink/20 text-center space-y-3">
+            <p className="text-sm font-bold text-ink-light">
+              {searchQuery ? `No se encontraron campañas que coincidan con "${searchQuery}".` : 'No hay campañas públicas activas en este momento.'}
+            </p>
+            <p className="text-xs text-ink-light/80">
+              ¡Crea una nueva campaña arriba como DM o explora la <Link href="/demo" className="text-magic-gold underline font-bold">Mesa de Pruebas</Link>!
+            </p>
           </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Realtime Rooms from Firestore */}
+            {publicRooms
+              .filter(room => room.name.toLowerCase().includes(searchQuery.toLowerCase()) || room.dmName.toLowerCase().includes(searchQuery.toLowerCase()))
+              .map(room => (
+              <div key={room.id} className="bg-parchment-dark p-6 rounded-xl border-2 border-ink/20 shadow-xl flex flex-col justify-between space-y-4">
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-xl font-bold text-ink font-cinzel truncate">{room.name}</h3>
+                    {room.hasPassword ? (
+                      <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 px-2 py-0.5 rounded font-bold flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Privada
+                      </span>
+                    ) : (
+                      <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded font-bold uppercase">Pública</span>
+                    )}
+                  </div>
 
-          {/* Realtime Rooms from Firestore */}
-          {publicRooms
-            .filter(room => room.name.toLowerCase().includes(searchQuery.toLowerCase()) || room.dmName.toLowerCase().includes(searchQuery.toLowerCase()))
-            .map(room => (
-            <div key={room.id} className="bg-parchment-dark p-6 rounded-xl border-2 border-ink/20 shadow-xl flex flex-col justify-between space-y-4">
-              <div>
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="text-xl font-bold text-ink font-cinzel truncate">{room.name}</h3>
-                  {room.hasPassword ? (
-                    <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 px-2 py-0.5 rounded font-bold flex items-center gap-1">
-                      <Lock className="w-3 h-3" /> Privada
+                  <p className="text-xs text-ink-light mb-3">DM: <span className="text-ink font-bold">{room.dmName}</span></p>
+
+                  <div className="flex gap-2 flex-wrap text-[10px]">
+                    <span className={`px-2 py-0.5 rounded border ${room.allowGuests ? 'bg-ink/10 text-ink' : 'bg-magic-red/10 text-magic-red border-magic-red/30'}`}>
+                      {room.allowGuests ? 'Permite Invitados' : 'Requiere Login'}
                     </span>
-                  ) : (
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded font-bold uppercase">Pública</span>
-                  )}
+                  </div>
                 </div>
 
-                <p className="text-xs text-ink-light mb-3">DM: <span className="text-ink font-bold">{room.dmName}</span></p>
-
-                <div className="flex gap-2 flex-wrap text-[10px]">
-                  <span className={`px-2 py-0.5 rounded border ${room.allowGuests ? 'bg-ink/10 text-ink' : 'bg-magic-red/10 text-magic-red border-magic-red/30'}`}>
-                    {room.allowGuests ? 'Permite Invitados' : 'Requiere Login'}
-                  </span>
-                </div>
+                <button
+                  onClick={() => handleJoinRoom(room)}
+                  className="w-full py-2.5 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition text-sm cursor-pointer shadow"
+                >
+                  {room.hasPassword ? 'Ingresar Contraseña' : 'Unirse a la Sala'}
+                </button>
               </div>
-
-              <button
-                onClick={() => handleJoinRoom(room)}
-                className="w-full py-2.5 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition text-sm cursor-pointer shadow"
-              >
-                {room.hasPassword ? 'Ingresar Contraseña' : 'Unirse a la Sala'}
-              </button>
-            </div>
-          ))}
-
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* PROMO / ALLIANCE: TeamLobby Gamer Platform */}
         <TeamLobbyPromo targetUrl="https://team-lobby.vercel.app/" />
@@ -302,14 +405,29 @@ export default function WelcomePage() {
               <form onSubmit={handleCreateRoom} className="space-y-4 text-sm">
                 <div>
                   <label className="block font-bold mb-1">Nombre de la Sala</label>
-                  <input 
-                    type="text" 
-                    required 
-                    value={roomForm.name}
-                    onChange={e => setRoomForm({...roomForm, name: e.target.value})}
-                    placeholder="Ej. La Cripta del Dragón"
-                    className="w-full p-2.5 bg-parchment border border-ink/30 text-ink rounded font-bold"
-                  />
+                  {(() => {
+                    const isDuplicate = publicRooms.some(r => r.name.trim().toLowerCase() === roomForm.name.trim().toLowerCase()) && roomForm.name.trim().length > 0;
+                    return (
+                      <>
+                        <input 
+                          type="text" 
+                          required 
+                          value={roomForm.name}
+                          onChange={e => setRoomForm({...roomForm, name: e.target.value})}
+                          placeholder="Ej. La Cripta del Dragón"
+                          className={`w-full p-2.5 bg-parchment border text-ink rounded font-bold focus:outline-none ${
+                            isDuplicate ? 'border-magic-red focus:border-magic-red' : 'border-ink/30 focus:border-magic-gold'
+                          }`}
+                        />
+                        {isDuplicate && (
+                          <p className="text-xs text-amber-400 font-bold flex items-center gap-1.5 mt-1.5 bg-amber-500/10 p-2 rounded border border-amber-500/30">
+                            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                            Ya existe una campaña activa con este nombre. Por favor elige un nombre único.
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -345,13 +463,27 @@ export default function WelcomePage() {
                     value={roomForm.password}
                     onChange={e => setRoomForm({...roomForm, password: e.target.value})}
                     placeholder="Dejar vacío para entrada libre"
-                    className="w-full p-2.5 bg-parchment border border-ink/30 text-ink rounded"
+                    className="w-full p-2.5 bg-parchment border border-ink/30 text-ink rounded focus:outline-none focus:border-magic-gold"
                   />
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4 border-t border-ink/20">
-                  <button type="button" onClick={() => setCreateModalOpen(false)} className="px-4 py-2 text-ink-light hover:text-ink font-bold">Cancelar</button>
-                  <button type="submit" className="px-6 py-2 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition shadow">Crear Sala</button>
+                  <button type="button" onClick={() => setCreateModalOpen(false)} className="px-4 py-2 text-ink-light hover:text-ink font-bold cursor-pointer">Cancelar</button>
+                  {(() => {
+                    const isDuplicate = publicRooms.some(r => r.name.trim().toLowerCase() === roomForm.name.trim().toLowerCase()) && roomForm.name.trim().length > 0;
+                    const isDisabled = isDuplicate || !roomForm.name.trim();
+                    return (
+                      <button 
+                        type="submit" 
+                        disabled={isDisabled}
+                        className={`px-6 py-2 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 transition shadow ${
+                          isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                        }`}
+                      >
+                        Crear Sala
+                      </button>
+                    );
+                  })()}
                 </div>
               </form>
             </motion.div>

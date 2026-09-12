@@ -3,6 +3,7 @@ import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import { addRoomLog, updateRoomState, savePlayerInRoom, deletePlayerFromRoom } from "@/lib/rooms";
 import { auth } from "@/lib/firebase";
+import { getFactoryDemoParty } from "@/lib/demoData";
 
 export type Modifier = {
   id: string;
@@ -173,6 +174,11 @@ export const getClassOptimizedStats = (charClass: string) => {
   return stats;
 };
 
+export const isDemoPlayer = (playerId?: string): boolean => {
+  if (!playerId) return false;
+  return playerId.startsWith('demo_') || playerId === 'drizzt_dourden_demo';
+};
+
 // Safe LocalStorage helpers for all characters across campaigns
 export const syncAllLocalPlayersToStorage = (updatedCharacters: CharacterState[]) => {
   if (typeof window === 'undefined') return;
@@ -182,11 +188,11 @@ export const syncAllLocalPlayersToStorage = (updatedCharacters: CharacterState[]
     const map = new Map<string, CharacterState>();
     if (Array.isArray(existing)) {
       existing.forEach(p => {
-        if (p && p.id && p.id !== 'drizzt_dourden_demo') map.set(p.id, p);
+        if (p && p.id && !isDemoPlayer(p.id)) map.set(p.id, p);
       });
     }
     updatedCharacters.forEach(p => {
-      if (p && p.id && p.id !== 'drizzt_dourden_demo') {
+      if (p && p.id && !isDemoPlayer(p.id)) {
         map.set(p.id, p);
       }
     });
@@ -209,7 +215,7 @@ export const removeLocalPlayerFromStorage = (characterId: string) => {
 
 // Centralized character persistence across local and remote storage
 export const persistCharacterChanges = (character: CharacterState, forceRemoteWrite: boolean = true) => {
-  if (!character || !character.id || character.id === 'drizzt_dourden_demo') return;
+  if (!character || !character.id || isDemoPlayer(character.id)) return;
 
   // 1. Always persist to localStorage for offline access and page reload/rehydration
   syncAllLocalPlayersToStorage([character]);
@@ -430,6 +436,8 @@ export interface StoreState {
   setActivePlayerId: (id: string) => void;
   createCharacter: (name: string, race: string, charClass: string, background: string, level?: number, stats?: any, ownerId?: string, ownerName?: string, roomId?: string) => string;
   loadFamousDemoCharacter: () => string;
+  loadDemoSandboxParty: () => string;
+  resetDemoSandbox: () => void;
   updateActiveCharacter: (updates: Partial<CharacterState>) => void;
   toggleInspiration: (playerId?: string, status?: boolean) => void;
   updateStat: (stat: string, value: number, isPermanent: boolean, duration?: number) => void;
@@ -599,7 +607,7 @@ export const useStore = create<StoreState>((set, get) => ({
           currentTurnIndex: 0
         });
         updatedPlayers
-          .filter(p => p.roomId === activeRoomId && p.id !== 'drizzt_dourden_demo')
+          .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
           .forEach(p => savePlayerInRoom(activeRoomId!, p));
       }
     } else {
@@ -722,14 +730,14 @@ export const useStore = create<StoreState>((set, get) => ({
         if (stored) {
           const parsed: CharacterState[] = JSON.parse(stored);
           if (Array.isArray(parsed)) {
-            const valid = parsed.filter(p => p && p.id && p.id !== 'drizzt_dourden_demo');
+            const valid = parsed.filter(p => p && p.id && !isDemoPlayer(p.id));
             set((state) => {
               const map = new Map<string, CharacterState>();
               valid.forEach(p => map.set(p.id, p));
               // Also keep any active non-demo character currently in state
               if (state.activePlayerId && !map.has(state.activePlayerId)) {
                 const cur = state.players.find(p => p.id === state.activePlayerId);
-                if (cur && cur.id !== 'drizzt_dourden_demo') map.set(cur.id, cur);
+                if (cur && !isDemoPlayer(cur.id)) map.set(cur.id, cur);
               }
               const merged = Array.from(map.values());
               const nextActive = merged.some(p => p.id === state.activePlayerId) ? state.activePlayerId : (merged[0]?.id || '');
@@ -754,6 +762,40 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
     get().addLog(`🌟 ¡Héroe Legendario Cargado!: Drizzt Do'Urden (Elfo Oscuro Guerrero Nivel 5) en la Mesa de Prueba.`);
     return drizzt.id;
+  },
+
+  loadDemoSandboxParty: () => {
+    const party = getFactoryDemoParty();
+    set((state) => {
+      const nonDemo = state.players.filter(p => !isDemoPlayer(p.id));
+      const targetActive = party[0]?.id || '';
+      return {
+        players: [...party, ...nonDemo],
+        activePlayerId: targetActive
+      };
+    });
+    get().addLog(`🌟 Mesa de Pruebas: Party Legendaria inicializada (Drizzt, Lyra, Varis y Elidoris).`);
+    return party[0]?.id || '';
+  },
+
+  resetDemoSandbox: () => {
+    const party = getFactoryDemoParty();
+    set((state) => {
+      const nonDemo = state.players.filter(p => !isDemoPlayer(p.id));
+      return {
+        players: [...party, ...nonDemo],
+        activePlayerId: party[0]?.id || '',
+        isCombatMode: false,
+        initiativeOrder: [],
+        currentTurnIndex: 0
+      };
+    });
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('dnd_demo_direct_messages');
+      } catch (e) {}
+    }
+    get().addLog(`🔄 Mesa de Pruebas: Restaurados todos los personajes, vida, ranuras y estados a los valores de fábrica.`);
   },
   
   updateActiveCharacter: (updates) => {
@@ -1218,7 +1260,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const terminology = get().hpTerminology || 'HP';
 
     triggerDiceRoll('d20', 0, `Salvación contra la Muerte (${p.name})`, dieValue, () => {
-      // Runs WHEN player accepts the 3D dice roll result modal!
+      // Runs WHEN player accepts the dice roll result modal!
       const currentP = get().players.find(char => char.id === targetId);
       if (!currentP) return;
 
@@ -2074,7 +2116,7 @@ export const useStore = create<StoreState>((set, get) => ({
     });
 
     const playerToSave = updatedPlayer as CharacterState | null;
-    if (activeRoomId && playerToSave && event && playerToSave.roomId === activeRoomId && playerToSave.id !== 'drizzt_dourden_demo') {
+    if (activeRoomId && playerToSave && event && playerToSave.roomId === activeRoomId && !isDemoPlayer(playerToSave.id)) {
       savePlayerInRoom(activeRoomId, playerToSave);
       updateRoomState(activeRoomId, { lastLevelUpEvent: event });
     }
@@ -2177,7 +2219,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (activeRoomId && event) {
       updateRoomState(activeRoomId, { lastLevelUpEvent: event });
       updatedPlayers
-        .filter(p => p.roomId === activeRoomId && p.id !== 'drizzt_dourden_demo')
+        .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
         .forEach(p => savePlayerInRoom(activeRoomId!, p));
     }
   },
@@ -2441,7 +2483,7 @@ export const useStore = create<StoreState>((set, get) => ({
         });
         if (isNewRound) {
           updatedPlayers
-            .filter(p => p.roomId === activeRoomId && p.id !== 'drizzt_dourden_demo')
+            .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
             .forEach(p => savePlayerInRoom(activeRoomId!, p));
         }
       }
@@ -2475,7 +2517,7 @@ export const useStore = create<StoreState>((set, get) => ({
           lastTurnEvent: event
         });
         updatedPlayers
-          .filter(p => p.roomId === activeRoomId && p.id !== 'drizzt_dourden_demo')
+          .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
           .forEach(p => savePlayerInRoom(activeRoomId!, p));
       }
     }

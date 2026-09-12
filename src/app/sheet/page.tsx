@@ -2894,7 +2894,7 @@ export default function CharacterSheetPage({ isDM = false }: { isDM?: boolean } 
                           <div className="space-y-4 flex-1 flex flex-col justify-between">
                             <div className="space-y-2">
                               <p className="text-xs text-ink-light">
-                                Envía notas de historia, secretos, intenciones o peticiones privadas a tu Maestro de la Mazmorra (DM). Máximo 500 caracteres (máximo 5 mensajes activos).
+                                Envía notas de historia, secretos, intenciones o peticiones privadas a tu Maestro de la Mazmorra (DM). Máximo 500 caracteres (se conservan siempre los 5 más recientes).
                               </p>
                               <textarea
                                 value={dmMessageModal.content}

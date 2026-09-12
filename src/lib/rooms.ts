@@ -464,13 +464,6 @@ export const sendDirectMessageToDM = async (roomId: string, message: Omit<Direct
     const data = roomSnap.data() as Room;
     const currentMsgs = data.directMessages || [];
     
-    // Limit to max 5 active messages per sender to prevent spam / quota overload
-    const userMsgs = currentMsgs.filter(m => m.senderId === message.senderId);
-    if (userMsgs.length >= 5) {
-      useStore.getState().showAlert("⚠️ Has alcanzado el límite máximo de 5 mensajes activos hacia el DM. Por favor espera a que revise tus mensajes.", "Límite de Mensajes", "warning");
-      return;
-    }
-
     const newMsg: DirectMessage = {
       ...message,
       id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
@@ -478,7 +471,19 @@ export const sendDirectMessageToDM = async (roomId: string, message: Omit<Direct
       read: false
     };
 
-    const updated = [...currentMsgs, newMsg];
+    // FIFO Sliding Window: Retain at most 4 previous messages from this sender so that with the new one, total is at most 5
+    const userMsgs = currentMsgs.filter(m => m.senderId === message.senderId);
+    let filteredCurrentMsgs = currentMsgs;
+
+    if (userMsgs.length >= 5) {
+      const sortedUserMsgs = [...userMsgs].sort((a, b) => a.timestamp - b.timestamp);
+      const excessCount = userMsgs.length - 4;
+      const msgsToRemove = sortedUserMsgs.slice(0, excessCount);
+      const removeIds = new Set(msgsToRemove.map(m => m.id));
+      filteredCurrentMsgs = currentMsgs.filter(m => !removeIds.has(m.id));
+    }
+
+    const updated = [...filteredCurrentMsgs, newMsg];
     await updateDoc(roomRef, { directMessages: cleanFirebaseData(updated) });
     await addRoomLog(roomId, `✉️ ${message.characterName} ha enviado un mensaje privado / trasfondo al DM.`);
   } catch (err: any) {

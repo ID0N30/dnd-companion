@@ -4,6 +4,9 @@ import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile
 } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { 
+  initializeAppCheck, ReCaptchaV3Provider, ReCaptchaEnterpriseProvider, AppCheck 
+} from "firebase/app-check";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "demo-api-key",
@@ -28,6 +31,25 @@ const app = getApps().length > 0
     ? initializeApp(firebaseConfig)
     : null;
 
+// Initialize Firebase App Check (reCAPTCHA v3 / Debug Token)
+export let appCheck: AppCheck | null = null;
+if (app && typeof window !== 'undefined') {
+  try {
+    if (process.env.NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN) {
+      (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = process.env.NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN;
+    }
+    const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+    if (recaptchaSiteKey) {
+      appCheck = initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+        isTokenAutoRefreshEnabled: true
+      });
+    }
+  } catch (appCheckErr) {
+    console.warn("[AppCheck] No se pudo inicializar Firebase App Check:", appCheckErr);
+  }
+}
+
 // Initialize Services
 export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
@@ -44,7 +66,7 @@ if (app && isUseEmulator && typeof window !== 'undefined') {
     if (db) {
       connectFirestoreEmulator(db, "127.0.0.1", 8080);
     }
-    console.log("🔥 Firebase conectado a Emuladores Locales (Auth: 9099, Firestore: 8080)");
+    console.log("Firebase conectado a Emuladores Locales (Auth: 9099, Firestore: 8080)");
   }
 }
 

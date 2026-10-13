@@ -66,7 +66,7 @@ export const logError = (
   // Detect Firebase specific quota or auth errors and promote severity
   if (code === 'resource-exhausted' || message.includes('Quota exceeded') || message.includes('resource-exhausted')) {
     severity = 'CRITICAL';
-    message = '⚠️ Cuota de Firebase Agotada: Se alcanzó el límite de operaciones gratuitas. Los datos se guardarán de forma local en este dispositivo.';
+    message = 'Cuota de Firebase Agotada: Se alcanzó el límite de operaciones gratuitas. Los datos se guardarán de forma local en este dispositivo.';
     code = 'resource-exhausted';
   } else if (code === 'auth/credential-already-in-use') {
     severity = 'WARNING';
@@ -100,10 +100,70 @@ export const logError = (
     }
   }
 
+  // Remote telemetry transport (Sentry / Webhook)
+  reportErrorToRemoteTelemetry(logEntry);
+
   // Notify active UI listeners
   listeners.forEach(fn => fn(logEntry));
 
   return logEntry;
+};
+
+/**
+ * Transporte no bloqueante de telemetría hacia Sentry o Webhook HTTP externo
+ */
+export const reportErrorToRemoteTelemetry = (logEntry: SystemErrorLog) => {
+  if (typeof window === 'undefined') return;
+  if (logEntry.severity !== 'CRITICAL' && logEntry.severity !== 'WARNING') return;
+
+  const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+  if (sentryDsn) {
+    try {
+      const url = new URL(sentryDsn);
+      const publicKey = url.username;
+      const host = url.host;
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      const projectId = pathParts[0];
+
+      if (publicKey && host && projectId) {
+        const endpoint = `https://${host}/api/${projectId}/store/?sentry_key=${publicKey}&sentry_version=7`;
+        const payload = {
+          event_id: logEntry.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32).padEnd(32, '0'),
+          timestamp: new Date(logEntry.timestamp).toISOString(),
+          level: logEntry.severity === 'CRITICAL' ? 'fatal' : 'warning',
+          logger: logEntry.context || 'dnd-companion',
+          message: logEntry.message,
+          extra: {
+            code: logEntry.code,
+            stack: logEntry.stack
+          }
+        };
+
+        fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload),
+          keepalive: true
+        }).catch(() => {});
+      }
+    } catch {
+      // Telemetry error suppressed to keep app stable
+    }
+  }
+
+  const webhookUrl = process.env.NEXT_PUBLIC_TELEMETRY_WEBHOOK_URL;
+  if (webhookUrl) {
+    try {
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(logEntry),
+        keepalive: true
+      }).catch(() => {});
+    } catch {}
+  }
 };
 
 // Save offline fallback data when Firebase fails or quota is exhausted

@@ -9,16 +9,21 @@ import DiceRoller, { triggerDiceRoll } from "@/components/DiceRoller";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import TutorialModal from "@/components/TutorialModal";
 import DMPage from "@/app/dm/page";
-import { sendDirectMessageToDM, subscribeRoom, Room } from "@/lib/rooms";
+import { sendDirectMessageToDM, subscribeRoom, subscribeRoomWhispers, Room, DirectMessage, markDirectMessageAsRead } from "@/lib/rooms";
+import { useAuth } from "@/context/AuthContext";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
 import { 
   PenTool, Shield, Heart, Zap, Sparkles, BookOpen, Package, Clock, 
-  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X, Settings, Dice5, CheckCheck, RotateCcw, Users
+  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X, Settings, Dice5, CheckCheck, RotateCcw, Users, MessageSquare, Reply
 } from "lucide-react";
+import { ASSETS } from "@/lib/assets";
+import { CombatStatusBanners } from "@/components/sheet/CombatStatusBanners";
+import { DemoSandboxToolbar } from "@/components/sheet/DemoSandboxToolbar";
+import { WhisperConversationModal } from "@/components/sheet/WhisperConversationModal";
 
 export default function CharacterSheetPage({ isDM = false, isDemoOverride = false }: { isDM?: boolean; isDemoOverride?: boolean } = {}) {
   const { 
-    players, activePlayerId, setActivePlayerId, isCombatMode, initiativeOrder, currentTurnIndex,
+    players, activePlayerId, setActivePlayerId, isCombatMode, initiativeOrder, currentTurnIndex, combatMonsters,
     advanceTurn, addModifier, removeModifier, updateStat, setBaseStatScore, modifyHPMax, modifyHPCurrent, modifyAC,
     togglePinSkill, toggleEquipItem, useSpellSlot, restoreSpellSlot, setSpellSlotMax, spendHitDie, shortRest, longRest, useClassFeature,
     addItem, updateItem, removeItem, addSpell, updateSpell, removeSpell, addCustomClassFeature, updateCustomClassFeature, removeCustomClassFeature, consumeItem,
@@ -26,6 +31,8 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
     loadDemoSandboxParty, resetDemoSandbox,
     updateCurrency, spendCurrency, convertPlayerCurrencyToStandard, showAlert, showConfirm
   } = useStore();
+
+  const { user } = useAuth();
 
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"sheet" | "dm">("sheet");
@@ -40,6 +47,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
   const [featureSearch, setFeatureSearch] = useState('');
   const [focusFeaturesModalOpen, setFocusFeaturesModalOpen] = useState(false);
   const [dmMessageModal, setDmMessageModal] = useState<{ open: boolean; content: string; tab: 'compose' | 'history' }>({ open: false, content: '', tab: 'compose' });
+  const [mySentMessages, setMySentMessages] = useState<DirectMessage[]>([]);
   const [itemToast, setItemToast] = useState<{ open: boolean; itemName: string; quantity: number } | null>(null);
 
   // Currency Modals State
@@ -69,8 +77,11 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
 
   const characterHitDice = getCharacterHitDice(character);
 
+  const unreadFromDMCount = mySentMessages.filter(m => m.isFromDM && !m.read).length;
+
   const currentTurnPlayerId = initiativeOrder[currentTurnIndex];
   const currentTurnPlayer = players.find(p => p.id === currentTurnPlayerId);
+  const currentTurnMonster = combatMonsters.find(m => m.id === currentTurnPlayerId);
   const isMyTurn = !isCombatMode || (currentTurnPlayerId === character.id);
 
   const [activeTab, setActiveTab] = useState<"stats" | "class_features" | "equipment" | "spells" | "notes">("stats");
@@ -79,11 +90,39 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
   const [turnToast, setTurnToast] = useState(false);
 
   useEffect(() => {
-    if (character && character.roomId) {
+    if (!isDemoMode && character && character.roomId) {
       const unsub = subscribeRoom(character.roomId, setRoom);
       return () => unsub();
     }
-  }, [character?.roomId]);
+  }, [character?.roomId, isDemoMode]);
+
+  useEffect(() => {
+    const effectiveRoomId = isDemoMode ? 'demo_sandbox_room' : character?.roomId;
+    if (!effectiveRoomId) {
+      setMySentMessages([]);
+      return;
+    }
+    const unsub = subscribeRoomWhispers(
+      effectiveRoomId,
+      { isDM: false, senderUid: user?.uid, characterId: character?.id },
+      (whispers) => setMySentMessages(whispers)
+    );
+    return () => unsub();
+  }, [character?.roomId, character?.id, user?.uid, isDemoMode]);
+
+  // Mark unread DM whispers as read when player views the conversation history
+  useEffect(() => {
+    if (dmMessageModal.open && dmMessageModal.tab === 'history') {
+      const effectiveRoomId = isDemoMode ? 'demo_sandbox_room' : character?.roomId;
+      const unreadWhispers = mySentMessages.filter(m => m.isFromDM && !m.read);
+      if (unreadWhispers.length > 0 && effectiveRoomId) {
+        unreadWhispers.forEach(msg => {
+          markDirectMessageAsRead(effectiveRoomId, msg.id);
+        });
+        setMySentMessages(prev => prev.map(m => m.isFromDM ? { ...m, read: true } : m));
+      }
+    }
+  }, [dmMessageModal.open, dmMessageModal.tab, mySentMessages, isDemoMode, character?.roomId]);
 
   useEffect(() => {
     if (
@@ -283,7 +322,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
       setSalvationModal({
         open: true,
         type: 'salvation',
-        title: '✨ ¡RESURRECCIÓN CELESTIAL Y MILAGRO DIVINO! ✨',
+        title: '¡RESURRECCIÓN CELESTIAL Y MILAGRO DIVINO!',
         desc: `¡El Maestro de la Mazmorra (DM) ha invocado el poder sagrado para revivir a ${character.name}! Tu alma ha vuelto a tu cuerpo con ${character.hp.current} ${hpTerminology || 'HP'} y estás de regreso en el mundo de los vivos.`
       });
     }
@@ -382,7 +421,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
       description: newFeature.desc,
       usage: newFeature.usage || undefined
     });
-    showAlert(`📜 Libertad de Campaña / Lore DM: Se ha otorgado el rasgo "${newFeature.name}" a ${character.name}.`, "Rasgo Otorgado", "success");
+    showAlert(`Libertad de Campaña / Lore DM: Se ha otorgado el rasgo "${newFeature.name}" a ${character.name}.`, "Rasgo Otorgado", "success");
     setNewFeature({ name: "", type: "active", usage: "", desc: "" });
   };
 
@@ -463,343 +502,118 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
         )}
       </AnimatePresence>
 
-      {/* Floating Item Received Toast Banner */}
+      {/* High-Impact Fullscreen DM Gift Modal (Zero Emojis) */}
       <AnimatePresence>
         {itemToast && itemToast.open && (
           <motion.div 
-            initial={{ opacity: 0, y: -50, scale: 0.8 }} 
-            animate={{ opacity: 1, y: 0, scale: 1 }} 
-            exit={{ opacity: 0, y: -20, scale: 0.9 }} 
-            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-magic-gold text-black px-5 py-3 rounded-xl shadow-[0_0_30px_rgba(245,208,97,0.9)] font-sans font-bold flex items-center justify-between gap-3 text-sm border-2 border-white w-[90%] md:w-auto"
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="fixed inset-0 z-[160] flex items-center justify-center bg-black/90 backdrop-blur-xl p-4 sm:p-6 font-sans"
           >
-            <div className="flex items-center gap-3">
-              <Package className="w-5 h-5 shrink-0 text-black animate-bounce" />
-              <span>🎁 ¡Has recibido un nuevo objeto del DM: <strong>{itemToast.itemName}</strong> (x{itemToast.quantity})!</span>
-            </div>
-            <button 
-              onClick={() => setItemToast(null)}
-              className="px-3 py-1 bg-black text-white hover:bg-zinc-800 text-xs rounded-lg transition-colors shadow shrink-0 cursor-pointer"
+            <motion.div 
+              initial={{ scale: 0.85, y: 30 }} 
+              animate={{ scale: 1, y: 0 }} 
+              exit={{ scale: 0.85, y: 30 }} 
+              className="w-full max-w-xl sm:max-w-2xl rounded-3xl overflow-hidden border-4 border-magic-gold shadow-[0_0_80px_rgba(245,208,97,0.85)] bg-gradient-to-b from-stone-950 via-zinc-900 to-black text-white relative text-center"
             >
-              ¡Entendido!
-            </button>
+              <div className="relative w-full h-48 sm:h-64 border-b-2 border-magic-gold/50 overflow-hidden">
+                <img 
+                  src={ASSETS.banners.dmGift} 
+                  alt="Tesoro del DM" 
+                  className="w-full h-full object-cover" 
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/40 to-transparent" />
+              </div>
+
+              <div className="p-6 sm:p-8 space-y-6">
+                <div>
+                  <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-gold tracking-widest drop-shadow-[0_2px_15px_rgba(245,208,97,0.6)] uppercase">
+                    TESORO DEL MAESTRO DE LA MAZMORRA
+                  </h2>
+                  <p className="text-sm sm:text-base text-zinc-300 font-sans mt-2">
+                    El Dungeon Master ha otorgado una nueva recompensa a tu inventario.
+                  </p>
+                </div>
+
+                {/* Object Showcase Box */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/90 border-2 border-magic-gold/60 shadow-inner flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 text-left">
+                    <img 
+                      src={ASSETS.icons.potion} 
+                      alt="Recompensa" 
+                      className="w-12 h-12 object-contain shrink-0 filter drop-shadow" 
+                    />
+                    <div>
+                      <span className="text-[10px] sm:text-xs uppercase tracking-widest text-magic-gold/80 block font-cinzel font-bold">
+                        Objeto Recibido
+                      </span>
+                      <h3 className="text-xl sm:text-2xl font-bold font-cinzel text-white leading-tight">
+                        {itemToast.itemName}
+                      </h3>
+                    </div>
+                  </div>
+                  <span className="px-4 py-1.5 rounded-full bg-magic-gold/20 border border-magic-gold text-magic-gold font-bold text-base shrink-0 font-cinzel">
+                    x{itemToast.quantity}
+                  </span>
+                </div>
+
+                <div>
+                  <button 
+                    onClick={() => setItemToast(null)}
+                    className="w-full bg-gradient-to-r from-yellow-500 via-magic-gold to-yellow-600 text-black font-cinzel font-bold text-base py-3 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02]"
+                  >
+                    RECLAMAR RECOMPENSA
+                  </button>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
       <div className="w-full max-w-[1300px] mx-auto bg-parchment-dark min-h-[90vh] rounded-sm border-4 md:border-[12px] border-ink/90 shadow-2xl relative p-3 sm:p-6 md:p-10 flex flex-col font-sans">
         
-        {/* CHARACTER DEATH BANNER */}
-        {character.isDead && (
-          <div className="mb-4 sm:mb-6 p-4 rounded-lg border-4 border-magic-red bg-black/90 text-white shadow-[0_0_30px_rgba(217,56,41,0.8)] font-sans flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">☠️</span>
-              <div>
-                <h3 className="font-bold text-lg text-magic-red font-cinzel tracking-wider">
-                  ¡HÉROE FALLECIDO!
-                </h3>
-                <p className="text-xs text-ink-light">
-                  {character.name} ha caído en combate y se encuentra sin vida. Solo el DM puede revivirlo desmarcando su muerte.
-                </p>
-              </div>
-            </div>
-            <span className="text-xs bg-magic-red text-white font-bold px-3 py-1 rounded uppercase animate-pulse">
-              Incapaz de Actuar
-            </span>
-          </div>
-        )}
-
-        {/* CHARACTER MORIBUNDO BANNER */}
-        {character.isDying && !character.isDead && (
-          <div className="mb-4 sm:mb-6 p-4 rounded-lg border-4 border-magic-red bg-red-950/90 text-white shadow-[0_0_30px_rgba(217,56,41,0.8)] font-sans flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl animate-pulse">🩸</span>
-              <div>
-                <h3 className="font-bold text-lg text-magic-gold font-cinzel tracking-wider flex items-center gap-2 flex-wrap">
-                  ¡ESTADO MORIBUNDO (0 {hpTerminology || 'HP'})! <span className="text-xs bg-magic-red text-white px-2 py-0.5 rounded font-bold uppercase animate-pulse">Inconsciente</span>
-                </h3>
-                <p className="text-xs text-red-200">
-                  Has caído a 0 puntos de golpe. Al inicio de cada turno debes lanzar una Salvación contra la Muerte (d20). Acumula 3 éxitos para estabilizarte o 3 fallos para morir.
-                </p>
-
-                {/* Counter tracker */}
-                <div className="flex gap-4 sm:gap-6 mt-3 font-sans text-xs flex-wrap">
-                  <div className="flex items-center gap-1.5 bg-black/40 px-3 py-1 rounded border border-emerald-500/40">
-                    <span className="font-bold text-emerald-400">Éxitos (3):</span>
-                    <div className="flex gap-1">
-                      {Array.from({ length: 3 }).map((_, i) => (
-                        <span key={i} className="text-base">{i < (character.deathSaves?.successes || 0) ? '🟢' : '⚪'}</span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 bg-black/40 px-3 py-1 rounded border border-magic-red/40">
-                    <span className="font-bold text-magic-red">Fallos (3):</span>
-                    <div className="flex gap-1">
-                      {Array.from({ length: 3 }).map((_, i) => (
-                        <span key={i} className="text-base">{i < (character.deathSaves?.failures || 0) ? '🔴' : '⚪'}</span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto shrink-0">
-              <button
-                onClick={() => rollDeathSave(character.id, (modalData) => {
-                  setSalvationModal({
-                    open: true,
-                    type: modalData.type,
-                    title: modalData.title,
-                    desc: modalData.desc
-                  });
-                })}
-                disabled={isCombatMode && !isMyTurn}
-                className={`px-4 py-2.5 bg-magic-gold text-black font-bold rounded shadow-[0_0_15px_rgba(245,208,97,0.8)] hover:bg-yellow-500 transition text-xs flex items-center justify-center gap-1.5 cursor-pointer ${isCombatMode && !isMyTurn ? 'opacity-50 cursor-not-allowed' : ''}`}
-                title={isCombatMode && !isMyTurn ? "Debes esperar a tu turno de combate" : "Lanzar d20 sin modificadores contra la muerte"}
-              >
-                🎲 Lanzar Salvación (d20)
-              </button>
-              <button
-                onClick={() => stabilizePlayer(character.id, 1)}
-                className="px-4 py-2.5 bg-emerald-600 text-white font-bold rounded shadow hover:bg-emerald-700 transition text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                title={`Si un compañero te ayuda o cura, recuperas 1 ${hpTerminology || 'HP'} y la consciencia`}
-              >
-                🩹 Auxilio de Compañero (+1 {hpTerminology || 'HP'})
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* CHARACTER ESTABILIZADO BANNER */}
-        {character.isStable && !character.isDead && character.hp.current === 0 && (
-          <div className="mb-4 sm:mb-6 p-4 rounded-lg border-4 border-magic-gold bg-black/90 text-white shadow-[0_0_20px_rgba(245,208,97,0.6)] font-sans flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">🛡️</span>
-              <div>
-                <h3 className="font-bold text-lg text-magic-gold font-cinzel tracking-wider">
-                  ¡HÉROE ESTABILIZADO (0 {hpTerminology || 'HP'})!
-                </h3>
-                <p className="text-xs text-ink-light">
-                  Alcanzaste 3 Éxitos o fuiste auxiliado. Estás inconsciente pero fuera de peligro mortal.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => stabilizePlayer(character.id, 1)}
-              className="px-4 py-2.5 bg-magic-gold text-black font-bold rounded shadow hover:bg-yellow-500 transition text-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
-            >
-              🩹 Recibir Curación (+1 {hpTerminology || 'HP'})
-            </button>
-          </div>
-        )}
-
-        {/* COMBAT TURN STATUS BANNER */}
-        {isCombatMode && (
-          <div className="mb-4 sm:mb-6 p-3 sm:p-4 rounded-lg border-2 shadow-lg flex justify-between items-center flex-wrap gap-3 font-sans animate-fade-in transition-all bg-parchment border-magic-gold">
-            <div className="flex items-center gap-3">
-              <span className="text-xl sm:text-2xl">⚔️</span>
-              <div>
-                {isMyTurn ? (
-                  <h3 className="font-bold text-sm sm:text-lg text-magic-gold flex items-center gap-2 flex-wrap">
-                    ¡ES TU TURNO DE COMBATE! <span className="text-[10px] sm:text-xs bg-magic-gold text-black px-2 py-0.5 rounded font-bold uppercase animate-pulse">Acción Requerida</span>
-                  </h3>
-                ) : (
-                  <h3 className="font-bold text-sm sm:text-base text-ink flex items-center gap-2">
-                    Turno de: <span className="text-magic-gold">{currentTurnPlayer?.name || 'Otro Jugador'}</span>
-                  </h3>
-                )}
-                <p className="text-xs text-ink-light">
-                  {isMyTurn 
-                    ? 'Realiza tu acción o ataque y presiona "¡Terminar mi Turno!"' 
-                    : `Iniciativa actual: ${currentTurnPlayer?.initiative?.total || 0}. Por favor espera tu turno.`}
-                </p>
-              </div>
-            </div>
-
-            {character.initiative && (
-              <div className="text-xs bg-ink/10 p-2 rounded border border-ink/20 font-sans w-full sm:w-auto text-center sm:text-left">
-                <span className="text-ink-light block text-[10px] sm:text-xs">Tu Iniciativa:</span>
-                <span className="font-bold text-magic-gold text-sm sm:text-base">
-                  {character.initiative.total} <span className="text-[10px] text-ink-light font-normal">(Dado {character.initiative.die} + Mod DEX {character.initiative.dexMod >= 0 ? '+'+character.initiative.dexMod : character.initiative.dexMod})</span>
-                </span>
-              </div>
-            )}
-          </div>
-        )}
+        {/* COMBAT AND HEALTH STATUS BANNERS */}
+        <CombatStatusBanners
+          character={character}
+          hpTerminology={hpTerminology}
+          isCombatMode={isCombatMode}
+          isMyTurn={isMyTurn}
+          currentTurnPlayer={currentTurnPlayer}
+          currentTurnMonster={currentTurnMonster}
+          rollDeathSave={rollDeathSave}
+          stabilizePlayer={stabilizePlayer}
+          setSalvationModal={setSalvationModal}
+        />
 
         {/* DEMO / SHOWCASE SANDBOX CONTROL BAR */}
         {isDemoMode && (
-          <div className="bg-gradient-to-r from-[#1c140e] via-[#241a12] to-[#120d09] border-2 border-magic-gold/60 rounded-2xl p-4 sm:p-5 shadow-2xl mb-6 relative overflow-hidden font-sans">
-            <div className="absolute top-0 right-0 bg-magic-gold text-black text-[9px] font-extrabold px-3 py-0.5 rounded-bl uppercase tracking-wider">
-              ✦ MESA DE PRUEBAS • SANDBOX AISLADO
-            </div>
-
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-ink/20 pb-4 mb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xl sm:text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                    🏰 Mesa de Pruebas & Explorador de Funciones
-                  </h2>
-                </div>
-                <p className="text-xs text-ink-light mt-1 max-w-3xl leading-relaxed">
-                  Carta de presentación interactiva de <strong>D&D Companion</strong>: sin registro ni base de datos.
-                  Todas las modificaciones ocurren en local. Experimenta libremente con la party y restaura los valores iniciales cuando quieras.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap shrink-0">
-                <button
-                  onClick={() => {
-                    showConfirm(
-                      "¿Deseas restablecer todos los héroes, puntos de vida, ranuras de hechizo y estado a los valores originales de fábrica?",
-                      () => {
-                        resetDemoSandbox();
-                        showAlert("Se han restablecido todos los personajes a su estado de fábrica.", "Mesa Restaurada", "success");
-                      },
-                      "Restaurar Valores de Fábrica",
-                      "Sí, Restaurar Todo",
-                      "Cancelar"
-                    );
-                  }}
-                  className="px-3 py-1.5 bg-ink/20 hover:bg-ink/30 text-ink hover:text-magic-gold border border-ink/30 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-                  title="Restaura la party completa al estado original de demostración"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-magic-gold" /> Restaurar Fábrica
-                </button>
-
-                <Link
-                  href="/"
-                  className="px-3.5 py-1.5 bg-gradient-to-r from-magic-gold to-yellow-500 hover:from-yellow-400 hover:to-amber-500 text-black rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow cursor-pointer font-bold"
-                >
-                  <Sparkles className="w-3.5 h-3.5" /> Crear Campaña Real →
-                </Link>
-              </div>
-            </div>
-
-            {/* Sub-bar: Hero Selector & View Switcher */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-              {/* Hero Switcher */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] font-bold text-ink-light flex items-center gap-1 mr-1 uppercase tracking-wider">
-                  <Users className="w-3.5 h-3.5 text-magic-gold" /> Personaje:
-                </span>
-                {players.filter(p => isDemoPlayer(p.id)).map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setActivePlayerId(p.id);
-                      if (viewMode !== 'sheet') setViewMode('sheet');
-                    }}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                      character.id === p.id && viewMode === 'sheet'
-                        ? 'bg-magic-gold text-black shadow-md border border-white/40' 
-                        : 'bg-parchment-dark text-ink hover:text-magic-gold border border-ink/20'
-                    }`}
-                  >
-                    <span>{p.charClass === 'Guerrero' ? '⚔️' : p.charClass === 'Clérigo' ? '☀️' : p.charClass === 'Pícaro' ? '🗡️' : '🔥'}</span>
-                    <span>{p.name.split(' ')[0]}</span>
-                    <span className="text-[10px] opacity-75">({p.charClass})</span>
-                  </button>
-                ))}
-              </div>
-
-              {/* View Toggle */}
-              <div className="flex bg-parchment-dark p-1 rounded-lg border border-ink/20 text-xs font-bold shrink-0">
-                <button
-                  onClick={() => setViewMode("sheet")}
-                  className={`px-3 py-1.5 rounded flex items-center gap-1.5 transition cursor-pointer ${viewMode === 'sheet' ? 'bg-magic-gold text-black shadow' : 'text-ink hover:text-magic-gold'}`}
-                >
-                  <User className="w-3.5 h-3.5" /> Vista Héroe
-                </button>
-                <button
-                  onClick={() => setViewMode("dm")}
-                  className={`px-3 py-1.5 rounded flex items-center gap-1.5 transition cursor-pointer ${viewMode === 'dm' ? 'bg-magic-gold text-black shadow' : 'text-ink hover:text-magic-gold'}`}
-                >
-                  <Shield className="w-3.5 h-3.5" /> Vista DM (Party Completa)
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Event Simulation Toolbar */}
-            <div className="mt-3 pt-3 border-t border-ink/10 flex items-center gap-2 flex-wrap text-xs">
-              <span className="text-magic-gold font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider">
-                ⚡ Pruebas Rápidas:
-              </span>
-              <button
-                onClick={() => triggerDiceRoll('d20', 3, `Prueba de Demostración (${character.name})`)}
-                className="px-2.5 py-1 bg-parchment/70 hover:bg-parchment text-ink rounded border border-ink/20 font-bold transition flex items-center gap-1 cursor-pointer"
-                title="Lanza un d20 animado con modificadores automáticos 5e"
-              >
-                🎲 Tirar d20 Animado
-              </button>
-              <button
-                onClick={() => {
-                  modifyHPCurrent(-15);
-                  showAlert(`💥 ${character.name} recibió 15 de daño para comprobar la barra interactiva de vida.`, "Daño Simulado", "warning");
-                }}
-                className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded border border-red-500/30 font-bold transition flex items-center gap-1 cursor-pointer"
-                title="Aplica 15 de daño al personaje activo"
-              >
-                💥 Recibir -15 HP
-              </button>
-              <button
-                onClick={() => {
-                  modifyHPCurrent(-character.hp.current);
-                  showAlert(`🩸 ${character.name} ha caído a 0 HP. Ahora puedes probar el sistema de Salvaciones contra la Muerte 5e (éxitos y fallos).`, "Estado Agonizante", "danger");
-                }}
-                className="px-2.5 py-1 bg-red-950/40 hover:bg-red-900/40 text-red-300 rounded border border-red-500/40 font-bold transition flex items-center gap-1 cursor-pointer"
-                title="Pone los HP a 0 para probar la pantalla y salvaciones de muerte"
-              >
-                🩸 Caer a 0 HP (Agonizante)
-              </button>
-              <button
-                onClick={() => {
-                  longRest();
-                  showAlert(`⛺ ${character.name} ha completado un Descanso Largo: vida máxima restaurada y ranuras de conjuro recuperadas.`, "Descanso Largo", "success");
-                }}
-                className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30 font-bold transition flex items-center gap-1 cursor-pointer"
-                title="Restaura toda la vida y ranuras mágicas"
-              >
-                ⛺ Descanso Largo
-              </button>
-              <button
-                onClick={() => {
-                  addItem({
-                    id: 'legendary_ring_' + Date.now(),
-                    name: 'Anillo de Resistencia Ígnea',
-                    type: 'general',
-                    description: 'Anillo forjado en las fraguas enanas. Otorga resistencia al daño de fuego.',
-                    quantity: 1,
-                    equipped: false
-                  }, false);
-                  showAlert(`🎁 ¡Has recibido el "Anillo de Resistencia Ígnea"! Revisa tu pestaña de Equipamiento.`, "Botín del DM", "success");
-                }}
-                className="px-2.5 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 rounded border border-purple-500/30 font-bold transition flex items-center gap-1 cursor-pointer"
-                title="Simula recibir un objeto legendario otorgado por el DM"
-              >
-                🎁 Simular Botín DM
-              </button>
-              <button
-                onClick={() => toggleInspiration(character.id)}
-                className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 rounded border border-amber-500/30 font-bold transition flex items-center gap-1 cursor-pointer"
-                title="Concede o gasta Inspiración 5e"
-              >
-                ⭐ {character.inspiration ? 'Gastar Inspiración' : 'Conceder Inspiración'}
-              </button>
-            </div>
-          </div>
+          <DemoSandboxToolbar
+            character={character}
+            players={players}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            setActivePlayerId={setActivePlayerId}
+            resetDemoSandbox={resetDemoSandbox}
+            modifyHPCurrent={modifyHPCurrent}
+            longRest={longRest}
+            addItem={addItem}
+            toggleInspiration={toggleInspiration}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
+          />
         )}
 
         {/* Header Navigation Bar */}
         <div className="flex justify-between items-center mb-4 flex-wrap gap-2 font-sans border-b border-ink/10 pb-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Link
-              href="/"
+              href={isDemoMode ? "/campaigns" : "/"}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-parchment-dark text-ink hover:text-magic-gold rounded-lg border border-ink/20 text-xs font-bold transition shadow-sm"
-              title="Volver a la página principal"
+              title={isDemoMode ? "Ir al Salón de Campañas" : "Volver a la página principal"}
             >
-              <Home className="w-3.5 h-3.5 text-magic-gold" /> Inicio
+              <Home className="w-3.5 h-3.5 text-magic-gold" /> {isDemoMode ? "Campañas" : "Inicio"}
             </Link>
 
             {!isDemoMode && (
@@ -824,18 +638,27 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
 
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={() => setDmMessageModal({ open: true, content: '', tab: 'compose' })}
-              className="flex items-center gap-1.5 bg-parchment-dark text-ink hover:text-magic-gold px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm border border-ink/20 transition cursor-pointer"
-              title="Enviar mensaje directo o trasfondo al DM"
+              onClick={() => setDmMessageModal({ 
+                open: true, 
+                content: '', 
+                tab: unreadFromDMCount > 0 ? 'history' : 'compose' 
+              })}
+              className="relative flex items-center gap-1.5 bg-parchment-dark text-ink hover:text-magic-gold px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm border border-ink/20 transition cursor-pointer"
+              title="Enviar mensaje directo o consultar conversación con el DM"
             >
-              ✉️ Mensaje al DM
+              <MessageSquare className="w-3.5 h-3.5" /> Mensaje al DM
+              {unreadFromDMCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 bg-magic-red text-white text-[10px] font-extrabold rounded-full border border-white animate-bounce shadow">
+                  {unreadFromDMCount}
+                </span>
+              )}
             </button>
 
             <button
               onClick={() => setTutorialOpen(true)}
               className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-3.5 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition cursor-pointer border border-white/40"
             >
-              <HelpCircle className="w-4 h-4" /> 📖 Tutorial de Inicio
+              <HelpCircle className="w-4 h-4" /> Tutorial de Inicio
             </button>
           </div>
         </div>
@@ -856,7 +679,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                       className={`px-3 py-1.5 rounded-lg border-2 font-sans font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${character.inspiration ? 'bg-magic-gold text-black border-white shadow-[0_0_15px_rgba(245,208,97,0.8)]' : 'bg-parchment text-ink border-ink/20 hover:border-magic-gold'}`}
                     >
                       <Sparkles className={`w-4 h-4 ${character.inspiration ? 'fill-black text-black' : 'text-magic-gold'}`} />
-                      <span>⛺ Descansos e Inspiración</span>
+                      <span>Descansos e Inspiración</span>
                       <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
                     </button>
 
@@ -875,7 +698,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             }}
                             className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between transition cursor-pointer ${character.inspiration ? 'bg-magic-gold text-black' : 'hover:bg-ink/10 text-ink'}`}
                           >
-                            <span className="flex items-center gap-2">⭐ Inspiración D&D 5e</span>
+                            <span className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-magic-gold" /> Inspiración D&D 5e</span>
                             <span className="text-[10px]">{character.inspiration ? 'ACTIVO' : 'Inactivo'}</span>
                           </button>
 
@@ -886,7 +709,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             }}
                             className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between hover:bg-ink/10 text-ink transition cursor-pointer border-t border-ink/10"
                           >
-                            <span className="flex items-center gap-2">☕ Descanso Corto (1 hora)</span>
+                            <span className="flex items-center gap-2">Descanso Corto (1 hora)</span>
                             <span className="text-[10px] text-ink-light font-normal">Recarga Habilidades</span>
                           </button>
 
@@ -902,7 +725,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                                 : 'hover:bg-ink/10 text-magic-gold'
                             }`}
                           >
-                            <span className="flex items-center gap-2">🎲 Gastar Dado de Golpe</span>
+                            <span className="flex items-center gap-2"><img src={ASSETS.icons.d20} className="w-3.5 h-3.5 object-contain inline-block shrink-0" alt="d20" /> Gastar Dado de Golpe</span>
                             <span className="text-[10px] font-mono font-bold">{characterHitDice.current}/{characterHitDice.max} d{characterHitDice.die}</span>
                           </button>
 
@@ -913,7 +736,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             }}
                             className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between hover:bg-ink/10 text-ink transition cursor-pointer border-t border-ink/10"
                           >
-                            <span className="flex items-center gap-2">⛺ Descanso Largo (8 horas)</span>
+                            <span className="flex items-center gap-2">Descanso Largo (8 horas)</span>
                             <span className="text-[10px] text-ink-light font-normal">Restaura Todo + Dados</span>
                           </button>
                         </motion.div>
@@ -932,7 +755,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
             {/* Armor Class (CA) */}
             <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-parchment-dark rounded-xl border-2 border-magic-gold/60 shadow-md min-w-[85px] sm:min-w-[100px] relative">
               <div className="flex items-center gap-1 mb-0.5">
-                <Shield className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-magic-gold shrink-0" />
+                <img src={ASSETS.icons.shield} className="w-4 h-4 sm:w-5 sm:h-5 object-contain inline-block shrink-0" alt="CA" />
                 <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider font-cinzel text-ink">CA</span>
               </div>
               
@@ -956,7 +779,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
             {/* Puntos de Vida (HP / PG) */}
             <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-parchment-dark rounded-xl border-2 border-magic-red/60 shadow-md min-w-[130px] sm:min-w-[150px] relative">
               <div className="flex items-center gap-1.5 mb-1 flex-wrap justify-center">
-                <Heart className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-magic-red fill-magic-red shrink-0" />
+                <img src={ASSETS.icons.potion} className={`w-4 h-4 sm:w-5 sm:h-5 object-contain inline-block shrink-0 ${character.hp.current <= 0 ? 'animate-pulse' : ''}`} alt="HP" />
                 <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider font-cinzel text-ink">
                   {hpTerminology || 'HP'}
                 </span>
@@ -1000,7 +823,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
             {/* Dados de Golpe (Hit Dice - D&D 5e) */}
             <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-parchment-dark rounded-xl border-2 border-magic-gold/60 shadow-md min-w-[110px] sm:min-w-[125px] relative">
               <div className="flex items-center gap-1.5 mb-1 flex-wrap justify-center">
-                <Dice5 className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-magic-gold shrink-0" />
+                <img src={ASSETS.icons.d20} className="w-4 h-4 sm:w-5 sm:h-5 object-contain inline-block shrink-0" alt="Dados" />
                 <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider font-cinzel text-ink">
                   Dados Golpe
                 </span>
@@ -1036,7 +859,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                       : `Gastar 1d${characterHitDice.die} + ${Math.floor((character.stats.con - 10) / 2)} Mod CON para curarte en descanso corto`
                   }
                 >
-                  ☕ Gastar Dado
+                  Gastar Dado
                 </button>
               </div>
             </div>
@@ -1055,7 +878,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                 title={character.isDead ? "Tu personaje está muerto." : (!isMyTurn ? `Es el turno de ${currentTurnPlayer?.name}.` : "Terminar tu turno y avanzar.")}
               >
                 <Clock className="w-4 h-4 shrink-0" /> 
-                <span>{character.isDead ? "☠️ Fallecido" : (isMyTurn ? "¡Terminar Turno!" : "Esperando...")}</span>
+                <span>{character.isDead ? "Fallecido" : (isMyTurn ? "¡Terminar Turno!" : "Esperando...")}</span>
               </button>
             )}
           </div>
@@ -1126,80 +949,129 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
             )}
           </AnimatePresence>
 
-          {/* MORIBUNDO / DEATH / ANGELIC SALVATION EVENT MODAL */}
+          {/* MORIBUNDO / DEATH / ANGELIC SALVATION FULLSCREEN HIGH-IMPACT MODAL (CERO EMOJIS) */}
           <AnimatePresence>
             {salvationModal.open && (
               <motion.div 
                 initial={{ opacity: 0 }} 
                 animate={{ opacity: 1 }} 
                 exit={{ opacity: 0 }} 
-                className="fixed inset-0 bg-black/85 flex items-center justify-center z-[100] p-4 backdrop-blur-md"
+                className="fixed inset-0 z-[160] flex items-center justify-center bg-black/92 backdrop-blur-xl p-4 sm:p-6 font-sans"
               >
-                <motion.div 
-                  initial={{ scale: 0.8, y: 30 }} 
-                  animate={{ scale: 1, y: 0 }} 
-                  exit={{ scale: 0.8, y: 30 }} 
-                  className={`w-[95%] max-w-lg rounded-2xl p-6 sm:p-8 text-center font-sans shadow-2xl relative overflow-hidden border-4 ${
-                    salvationModal.type === 'salvation'
-                      ? 'bg-gradient-to-b from-sky-950 via-slate-900 to-amber-950 border-yellow-400 shadow-[0_0_60px_rgba(250,204,21,0.9)] text-white'
-                      : salvationModal.type === 'death'
-                        ? 'bg-gradient-to-b from-black via-red-950 to-black border-magic-red shadow-[0_0_60px_rgba(217,56,41,0.9)] text-white'
-                        : 'bg-gradient-to-b from-red-950 via-stone-900 to-black border-amber-500 shadow-[0_0_50px_rgba(217,56,41,0.7)] text-white'
-                  }`}
-                >
-                  {/* Decorative Glow elements */}
-                  <div className={`absolute -top-24 -left-24 w-48 h-48 rounded-full blur-3xl opacity-50 ${
-                    salvationModal.type === 'salvation' ? 'bg-yellow-400' : 'bg-red-600'
-                  }`}></div>
-                  <div className={`absolute -bottom-24 -right-24 w-48 h-48 rounded-full blur-3xl opacity-50 ${
-                    salvationModal.type === 'salvation' ? 'bg-sky-400' : 'bg-red-900'
-                  }`}></div>
-
-                  <div className="relative z-10 space-y-4">
-                    <div className="text-5xl sm:text-6xl animate-bounce">
-                      {salvationModal.type === 'salvation' ? '🕊️ ✨ 👼' : salvationModal.type === 'death' ? '☠️ 💀 🗡️' : '🩸 ⏳ 💔'}
+                {salvationModal.type === 'death' ? (
+                  /* MODAL DE MUERTE DE ALTO IMPACTO */
+                  <motion.div 
+                    initial={{ scale: 0.85, y: 30 }} 
+                    animate={{ scale: 1, y: 0 }} 
+                    exit={{ scale: 0.85, y: 30 }} 
+                    className="w-full max-w-xl sm:max-w-2xl rounded-3xl overflow-hidden border-4 border-magic-red shadow-[0_0_80px_rgba(217,56,41,0.85)] bg-gradient-to-b from-black via-zinc-950 to-black text-white relative text-center"
+                  >
+                    <div className="relative w-full h-52 sm:h-64 border-b-2 border-magic-red/50 overflow-hidden">
+                      <img 
+                        src={ASSETS.banners.death} 
+                        alt="El Velo de la Muerte" 
+                        className="w-full h-full object-cover" 
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
                     </div>
 
-                    <h2 className={`text-2xl sm:text-3xl font-bold font-cinzel tracking-wider drop-shadow-md ${
-                      salvationModal.type === 'salvation'
-                        ? 'text-yellow-300 drop-shadow-[0_2px_15px_rgba(250,204,21,0.9)]'
-                        : 'text-magic-red drop-shadow-[0_2px_15px_rgba(217,56,41,0.9)]'
-                    }`}>
-                      {salvationModal.title}
+                    <div className="p-6 sm:p-8 space-y-5">
+                      <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-red tracking-wider drop-shadow-[0_2px_15px_rgba(217,56,41,0.9)] uppercase">
+                        EL HILO DE LA VIDA SE HA CORTADO
+                      </h2>
+
+                      <p className="text-sm sm:text-base text-zinc-300 font-sans leading-relaxed">
+                        {salvationModal.desc ? salvationModal.desc.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim() : `${character.name} ha sucumbido a sus heridas y ha fallecido.`}
+                      </p>
+
+                      <div className="p-4 bg-red-950/40 border border-magic-red/40 rounded-xl text-sm sm:text-base text-red-200 italic font-serif leading-relaxed">
+                        "El velo entre este mundo y el más allá se ha cerrado. Tu cuerpo cae inerte, pero tus hazañas perdurarán grabadas en la memoria de las leyendas."
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          onClick={() => setSalvationModal({ ...salvationModal, open: false })}
+                          className="w-full bg-gradient-to-r from-red-800 via-magic-red to-red-900 text-white font-cinzel font-bold text-base py-3 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02]"
+                        >
+                          ASIMILAR DESTINO
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : salvationModal.type === 'salvation' ? (
+                  /* MODAL DE REVIVIR DE ALTO IMPACTO */
+                  <motion.div 
+                    initial={{ scale: 0.85, y: 30 }} 
+                    animate={{ scale: 1, y: 0 }} 
+                    exit={{ scale: 0.85, y: 30 }} 
+                    className="w-full max-w-xl sm:max-w-2xl rounded-3xl overflow-hidden border-4 border-magic-gold shadow-[0_0_80px_rgba(245,208,97,0.85)] bg-gradient-to-b from-sky-950 via-slate-950 to-amber-950 text-white relative text-center"
+                  >
+                    <div className="relative w-full h-52 sm:h-64 border-b-2 border-magic-gold/50 overflow-hidden">
+                      <img 
+                        src={ASSETS.banners.revive} 
+                        alt="Milagro Divino" 
+                        className="w-full h-full object-cover" 
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-sky-950/90 via-sky-950/40 to-transparent" />
+                    </div>
+
+                    <div className="p-6 sm:p-8 space-y-5">
+                      <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-gold tracking-wider drop-shadow-[0_2px_15px_rgba(245,208,97,0.9)] uppercase">
+                        RESURRECCIÓN CELESTIAL Y MILAGRO DIVINO
+                      </h2>
+
+                      <p className="text-sm sm:text-base text-sky-100 font-sans leading-relaxed">
+                        {salvationModal.desc ? salvationModal.desc.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim() : `La chispa de la vida regresa al cuerpo de ${character.name}.`}
+                      </p>
+
+                      <div className="p-4 bg-amber-950/40 border border-magic-gold/40 rounded-xl text-sm sm:text-base text-amber-200 italic font-serif leading-relaxed">
+                        "La gracia divina envuelve tu alma. Recuperas el aliento y la llama de la vida renace ardiente en tu pecho."
+                      </div>
+
+                      <div className="inline-block px-4 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-500 text-emerald-300 text-xs sm:text-sm font-bold uppercase tracking-wider font-sans">
+                        Puntos de Golpe Restaurados: {character.hp.current} {hpTerminology || 'HP'}
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          onClick={() => setSalvationModal({ ...salvationModal, open: false })}
+                          className="w-full bg-gradient-to-r from-yellow-500 via-magic-gold to-yellow-600 text-black font-cinzel font-bold text-base py-3 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02]"
+                        >
+                          RENACER EN LA LUZ
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : (
+                  /* MODAL DE RESULTADO DE SALVACIÓN / MORIBUNDO */
+                  <motion.div 
+                    initial={{ scale: 0.85, y: 30 }} 
+                    animate={{ scale: 1, y: 0 }} 
+                    exit={{ scale: 0.85, y: 30 }} 
+                    className="w-full max-w-lg rounded-3xl overflow-hidden border-4 border-amber-600 shadow-[0_0_60px_rgba(217,119,6,0.6)] bg-gradient-to-b from-stone-950 via-zinc-900 to-black text-white relative text-center p-6 sm:p-8 space-y-5"
+                  >
+                    <div className="flex justify-center">
+                      <img src={ASSETS.icons.d20} className="w-14 h-14 object-contain filter drop-shadow" alt="Tirada d20" />
+                    </div>
+
+                    <h2 className="text-xl sm:text-2xl font-bold font-cinzel text-amber-400 tracking-wider uppercase">
+                      {salvationModal.title ? salvationModal.title.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim() : 'Salvación contra la Muerte'}
                     </h2>
 
-                    <p className={`text-sm sm:text-base leading-relaxed ${
-                      salvationModal.type === 'salvation' ? 'text-sky-100 font-sans' : 'text-red-100 font-sans'
-                    }`}>
-                      {salvationModal.desc}
+                    <p className="text-sm sm:text-base text-zinc-300 font-sans leading-relaxed">
+                      {salvationModal.desc ? salvationModal.desc.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim() : ''}
                     </p>
 
-                    {salvationModal.type === 'salvation' && (
-                      <div className="p-3 bg-yellow-400/10 border border-yellow-400/30 rounded-lg text-xs text-yellow-200 italic font-cinzel">
-                        "La gracia divina envuelve tu alma. Recuperas la respiración y el fuego de la vida renace en tu pecho."
-                      </div>
-                    )}
-
-                    {salvationModal.type === 'death' && (
-                      <div className="p-3 bg-red-900/30 border border-red-500/30 rounded-lg text-xs text-red-200 italic font-cinzel">
-                        "El velo entre este mundo y el más allá se ha cerrado. Tu cuerpo cae inerte pero tu nombre quedará en la leyenda."
-                      </div>
-                    )}
-
-                    <div className="pt-4">
+                    <div className="pt-2">
                       <button
                         onClick={() => setSalvationModal({ ...salvationModal, open: false })}
-                        className={`w-full py-3 rounded-xl font-bold font-cinzel text-base tracking-wider transition-all transform hover:scale-105 cursor-pointer shadow-lg ${
-                          salvationModal.type === 'salvation'
-                            ? 'bg-gradient-to-r from-yellow-400 via-amber-300 to-yellow-500 text-black hover:brightness-110 shadow-[0_0_20px_rgba(250,204,21,0.8)]'
-                            : 'bg-gradient-to-r from-red-700 via-magic-red to-red-800 text-white hover:brightness-110 shadow-[0_0_20px_rgba(217,56,41,0.8)]'
-                        }`}
+                        className="w-full bg-gradient-to-r from-amber-600 via-yellow-600 to-amber-700 text-black font-cinzel font-bold text-base py-3 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02]"
                       >
-                        {salvationModal.type === 'salvation' ? '✨ Aceptar la Luz Divina ✨' : salvationModal.type === 'death' ? '☠️ Entender mi Destino ☠️' : '🩸 Enfrentar a la Muerte 🩸'}
+                        CONTINUAR
                       </button>
                     </div>
-                  </div>
-                </motion.div>
+                  </motion.div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -1324,8 +1196,9 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             title={`Hacer clic para lanzar d20 + ${mod}`}
                           >
                             <div>
-                              <span className="font-bold uppercase tracking-wider text-xs sm:text-sm block flex items-center gap-1">
-                                🎲 {stat}
+                              <span className="font-bold uppercase tracking-wider text-xs sm:text-sm block flex items-center gap-1.5">
+                                <img src={ASSETS.icons.d20} className="w-3.5 h-3.5 object-contain inline-block shrink-0" alt="d20" />
+                                {stat}
                               </span>
                               <span className="text-[10px] text-ink-light font-sans block">Mod: {mod >= 0 ? `+${mod}` : mod}</span>
                             </div>
@@ -1344,8 +1217,9 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             title={`Tirada de Salvación ${stat.toUpperCase()}: d20 + ${saveBonus}`}
                           >
                             <span className="text-ink-light">Salvación ({stat.toUpperCase()}):</span>
-                            <span className={`font-bold px-1.5 py-0.5 rounded ${isProficientSave ? 'bg-magic-gold text-black' : 'bg-ink/10 text-ink'}`}>
-                              {saveBonus >= 0 ? `+${saveBonus}` : saveBonus} {isProficientSave && '✦'}
+                            <span className={`font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${isProficientSave ? 'bg-magic-gold text-black' : 'bg-ink/10 text-ink'}`}>
+                              <span>{saveBonus >= 0 ? `+${saveBonus}` : saveBonus}</span>
+                              {isProficientSave && <CheckCircle2 className="w-2.5 h-2.5" />}
                             </span>
                           </div>
                         </div>
@@ -1380,8 +1254,9 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             title={`Lanzar d20 + ${totalMod} para ${skillName}`}
                           >
                             <div className="truncate">
-                              <span className="font-bold text-xs sm:text-sm block truncate flex items-center gap-1">
-                                🎲 {skillName}
+                              <span className="font-bold text-xs sm:text-sm block truncate flex items-center gap-1.5">
+                                <img src={ASSETS.icons.d20} className="w-3.5 h-3.5 object-contain inline-block shrink-0" alt="d20" />
+                                {skillName}
                               </span>
                               <span className="text-[10px] text-ink-light uppercase">({skillDef.stat})</span>
                             </div>
@@ -1423,7 +1298,10 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                                     className="flex-1 truncate cursor-pointer flex items-center gap-1"
                                     title={`Lanzar d20 + ${totalMod} para ${skill.name}`}
                                   >
-                                    <span className="truncate">🎲 {skill.name} <span className="text-ink-light text-[10px]">({skill.stat})</span></span>
+                                    <span className="truncate flex items-center gap-1.5">
+                                      <img src={ASSETS.icons.d20} className="w-3 h-3 object-contain inline-block shrink-0" alt="d20" />
+                                      {skill.name} <span className="text-ink-light text-[10px]">({skill.stat})</span>
+                                    </span>
                                   </div>
                                   <div className="flex items-center gap-1 shrink-0 ml-1">
                                     {skillMods !== 0 && (
@@ -1524,25 +1402,25 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                         onClick={() => setFeatureFilter('active')}
                         className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'active' ? 'bg-magic-red text-white' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
                       >
-                        ⚡ Activas
+                        Activas
                       </button>
                       <button
                         onClick={() => setFeatureFilter('passive')}
                         className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'passive' ? 'bg-ink text-parchment-dark' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
                       >
-                        🛡️ Pasivas
+                        Pasivas
                       </button>
                       <button
                         onClick={() => setFeatureFilter('short')}
                         className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'short' ? 'bg-amber-600 text-white' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
                       >
-                        ☕ Descanso Corto
+                        Descanso Corto
                       </button>
                       <button
                         onClick={() => setFeatureFilter('long')}
                         className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'long' ? 'bg-indigo-600 text-white' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
                       >
-                        ⛺ Descanso Largo
+                        Descanso Largo
                       </button>
                     </div>
 
@@ -1576,7 +1454,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                         </h4>
                       </div>
                       <p className="text-xs text-ink-light italic">
-                        📜 Nota: Esta herramienta permite al DM conceder bendiciones, títulos, artefactos o habilidades por historia sin restricción de nivel.
+                        Nota: Esta herramienta permite al DM conceder bendiciones, títulos, artefactos o habilidades por historia sin restricción de nivel.
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div>
@@ -1596,8 +1474,8 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             onChange={e => setNewFeature({ ...newFeature, type: e.target.value as 'active' | 'passive' })}
                             className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold cursor-pointer"
                           >
-                            <option value="active">⚡ Activa</option>
-                            <option value="passive">🛡️ Pasiva</option>
+                            <option value="active">Activa</option>
+                            <option value="passive">Pasiva</option>
                           </select>
                         </div>
                         <div>
@@ -1644,7 +1522,9 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                           <div className="flex justify-between items-start gap-2">
                             <div>
                               <h4 className="font-bold text-lg text-magic-gold font-cinzel flex items-center gap-2">
-                                {feat.isCustom && <span>📜</span>}
+                                {feat.isCustom && (
+                                  <span className="text-[10px] bg-magic-gold/20 text-magic-gold px-1.5 py-0.5 rounded font-cinzel">Lore</span>
+                                )}
                                 {feat.name}
                               </h4>
                               {feat.isCustom && (
@@ -1655,7 +1535,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
                               <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
-                                {feat.type === 'active' ? '⚡ Activa' : '🛡️ Pasiva'}
+                                {feat.type === 'active' ? 'Activa' : 'Pasiva'}
                               </span>
                               {isEditing && (
                                 <div className="flex items-center gap-1">
@@ -1700,7 +1580,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                                     disabled={curUses !== undefined && curUses <= 0}
                                     className={`px-2.5 py-1 rounded text-[11px] font-bold text-white transition cursor-pointer ${curUses !== undefined && curUses <= 0 ? 'bg-gray-500 opacity-50 cursor-not-allowed' : 'bg-magic-red hover:bg-red-700 shadow-sm'}`}
                                   >
-                                    ⚡ Usar
+                                    Usar
                                   </button>
                                 )}
                               </div>
@@ -1719,7 +1599,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                           <div className="flex justify-between items-center border-b border-ink/20 pb-3 mb-4">
                             <div>
                               <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                                🔎 Modo Enfoque — Acciones de Clase ({character.charClass})
+                                Modo Enfoque — Acciones de Clase ({character.charClass})
                               </h3>
                               <p className="text-xs text-ink-light">Consulta detallada de todas las habilidades de tu héroe.</p>
                             </div>
@@ -1737,7 +1617,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                                     <div className="flex justify-between items-start gap-2 mb-2">
                                       <h4 className="font-bold text-xl text-magic-gold font-cinzel">{feat.name}</h4>
                                       <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
-                                        {feat.type === 'active' ? '⚡ Activa' : '🛡️ Pasiva'}
+                                        {feat.type === 'active' ? 'Activa' : 'Pasiva'}
                                       </span>
                                     </div>
                                     <p className="text-sm text-ink/90 leading-relaxed">{feat.description}</p>
@@ -1758,7 +1638,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                                             disabled={curUses !== undefined && curUses <= 0}
                                             className={`px-3 py-1 rounded font-bold text-white transition cursor-pointer ${curUses !== undefined && curUses <= 0 ? 'bg-gray-500 opacity-50 cursor-not-allowed' : 'bg-magic-red hover:bg-red-700'}`}
                                           >
-                                            ⚡ Usar Carga
+                                            Usar Carga
                                           </button>
                                         )}
                                       </div>
@@ -1808,7 +1688,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                       <div className="flex justify-between items-center flex-wrap gap-2 border-b border-ink/10 pb-3">
                         <div>
                           <h4 className="font-bold text-lg sm:text-xl font-cinzel text-magic-gold flex items-center gap-2">
-                            💰 Bolsa de Monedas ({isStandard ? 'Estándar CP/SP/GP' : 'D&D 5ª Edición'})
+                            Bolsa de Monedas ({isStandard ? 'Estándar CP/SP/GP' : 'D&D 5ª Edición'})
                           </h4>
                           <p className="text-xs text-ink-light">Monedas acumuladas en tu monedero y equivalencia en Piezas de Oro (PO / GP).</p>
                         </div>
@@ -1824,7 +1704,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             }}
                             className="flex items-center gap-1.5 bg-magic-red text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-700 transition shadow cursor-pointer"
                           >
-                            🛒 Gastar / Consumir Dinero
+                            Gastar / Consumir Dinero
                           </button>
                           <button
                             onClick={() => {
@@ -1990,12 +1870,12 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                             <span className="text-[10px] bg-ink/10 px-2 py-0.5 rounded capitalize">{item.type}</span>
                             {item.isTemporary && (
                               <span className="text-[10px] bg-purple-900/30 text-purple-400 font-bold px-2 py-0.5 rounded border border-purple-500/30">
-                                ⏳ Temporal ({item.duration ? `${item.duration} turnos` : 'Perm'})
+                                Temporal ({item.duration ? `${item.duration} turnos` : 'Perm'})
                               </span>
                             )}
                             {item.isConsumed && (
                               <span className="text-[10px] bg-red-900/40 text-red-300 font-bold px-2 py-0.5 rounded border border-red-500/40">
-                                🧪 CONSUMIDO (Se eliminará el próximo turno)
+                                CONSUMIDO (Se eliminará el próximo turno)
                               </span>
                             )}
                           </div>
@@ -2210,7 +2090,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                                   onClick={() => isAvailable ? useSpellSlot(level) : restoreSpellSlot(level)}
                                   className={`w-8 h-8 rounded border-2 flex items-center justify-center cursor-pointer transition text-sm ${isAvailable ? 'bg-magic-gold border-magic-gold text-black font-bold' : 'bg-transparent border-ink/30 text-ink/30'}`}
                                 >
-                                  {isAvailable ? '✦' : '✧'}
+                                  {isAvailable ? <Sparkles className="w-3.5 h-3.5" /> : <Circle className="w-3.5 h-3.5" />}
                                 </button>
                               );
                             })}
@@ -2272,7 +2152,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                     </h2>
                     <p className="text-xs text-ink-light mt-1 flex items-center gap-1.5 font-sans flex-wrap">
                       <span className="bg-amber-900/20 text-amber-900 border border-amber-900/30 px-2 py-0.5 rounded font-bold text-[10px] flex items-center gap-1">
-                        ☁️ Respaldado en Firebase ({notes.length}/10)
+                        Respaldado en Firebase ({notes.length}/10)
                       </span>
                       Sincronización automática en la nube para tu personaje. <strong>No son visibles por el DM</strong>.
                     </p>
@@ -2311,7 +2191,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                         <div>
                           <div className="flex justify-between items-start gap-2 border-b border-ink/10 pb-2 mb-2">
                             <h3 className="text-lg font-bold text-ink font-cinzel break-words flex items-center gap-2">
-                              {note.pinned && <span className="text-xs bg-magic-gold text-black font-bold px-1.5 py-0.5 rounded">📌 Fijada</span>}
+                              {note.pinned && <span className="text-xs bg-magic-gold text-black font-bold px-1.5 py-0.5 rounded">Fijada</span>}
                               {note.title}
                             </h3>
                             <div className="flex items-center gap-1 shrink-0">
@@ -2380,7 +2260,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                     <Scroll className="w-6 h-6" /> {noteModal.editingId ? "Editar Nota Personal" : "Crear Nueva Nota Personal"}
                   </h3>
                   <p className="text-xs text-ink-light">
-                    🔒 Esta nota es totalmente privada y no se compartirá con el DM.
+                    Esta nota es totalmente privada y no se compartirá con el DM.
                   </p>
 
                   <form onSubmit={handleSaveNote} className="space-y-4 text-xs sm:text-sm">
@@ -2708,11 +2588,11 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                         <label className="block font-bold mb-1">Tipo de Habilidad</label>
                         <select 
                           value={featureEditModal.type} 
-                          onChange={e => setFeatureEditModal({ ...featureEditModal, type: e.target.value as 'active' | 'passive' })}
+                          onChange={e => setFeatureEditModal({ ...featureEditModal, type: e.target.value as 'active' | 'passive' })} 
                           className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold cursor-pointer"
                         >
-                          <option value="active">⚡ Activa</option>
-                          <option value="passive">🛡️ Pasiva</option>
+                          <option value="active">Activa</option>
+                          <option value="passive">Pasiva</option>
                         </select>
                       </div>
                       <div>
@@ -2721,7 +2601,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                           type="text" 
                           placeholder="Ej. 1 por Descanso Largo"
                           value={featureEditModal.usage} 
-                          onChange={e => setFeatureEditModal({ ...featureEditModal, usage: e.target.value })}
+                          onChange={e => setFeatureEditModal({ ...featureEditModal, usage: e.target.value })} 
                           className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink"
                         />
                       </div>
@@ -2731,7 +2611,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                       <textarea 
                         rows={3}
                         value={featureEditModal.desc} 
-                        onChange={e => setFeatureEditModal({ ...featureEditModal, desc: e.target.value })}
+                        onChange={e => setFeatureEditModal({ ...featureEditModal, desc: e.target.value })} 
                         className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink"
                       />
                     </div>
@@ -2756,61 +2636,13 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
             )}
           </AnimatePresence>
 
-          {/* SALVATION / DEATH / MORIBUNDO MODAL */}
-          <AnimatePresence>
-            {salvationModal.open && (
-              <motion.div 
-                initial={{ opacity: 0 }} 
-                animate={{ opacity: 1 }} 
-                exit={{ opacity: 0 }} 
-                className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4 font-sans backdrop-blur-md"
-              >
-                <motion.div 
-                  initial={{ scale: 0.85, y: 30 }} 
-                  animate={{ scale: 1, y: 0 }} 
-                  exit={{ scale: 0.85, y: 30 }} 
-                  className={`border-4 rounded-xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 text-center relative ${
-                    salvationModal.type === 'death' 
-                      ? 'bg-black border-magic-red text-red-100 shadow-[0_0_50px_rgba(217,56,41,0.9)]' 
-                      : salvationModal.type === 'moribundo'
-                      ? 'bg-red-950/95 border-magic-red text-red-100 shadow-[0_0_40px_rgba(217,56,41,0.7)]'
-                      : 'bg-parchment-dark border-magic-gold text-ink shadow-[0_0_50px_rgba(245,208,97,0.8)]'
-                  }`}
-                >
-                  <h3 className={`text-xl sm:text-2xl font-bold font-cinzel tracking-wider leading-snug ${
-                    salvationModal.type === 'death' || salvationModal.type === 'moribundo' ? 'text-magic-red' : 'text-magic-gold'
-                  }`}>
-                    {salvationModal.title}
-                  </h3>
-
-                  <p className="text-sm leading-relaxed font-sans">
-                    {salvationModal.desc}
-                  </p>
-
-                  <div className="pt-4 border-t border-white/20 flex justify-center">
-                    <button 
-                      onClick={() => setSalvationModal({ ...salvationModal, open: false })} 
-                      className={`px-6 py-2.5 font-bold rounded shadow transition text-sm cursor-pointer font-sans ${
-                        salvationModal.type === 'death' || salvationModal.type === 'moribundo'
-                          ? 'bg-magic-red text-white hover:bg-red-700'
-                          : 'bg-magic-gold text-black hover:bg-yellow-500 shadow-[0_0_15px_rgba(245,208,97,0.8)]'
-                      }`}
-                    >
-                      ¡Entendido!
-                    </button>
-                  </div>
-                </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           {/* EDIT CURRENCY MODAL */}
           <AnimatePresence>
             {editCurrencyModalOpen && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 font-sans">
                 <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-parchment-dark border-4 border-magic-gold rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
                   <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                    💰 Editar Bolsa de Monedas
+                    Editar Bolsa de Monedas
                   </h3>
                   <p className="text-xs text-ink-light">Ajusta la cantidad de cada tipo de moneda que posee tu personaje.</p>
 
@@ -2821,7 +2653,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                   }} className="space-y-4">
                     <div className="grid grid-cols-2 gap-3 text-xs font-bold">
                       <div>
-                        <label className="block text-amber-600 mb-1">🔴 Cobre (CP)</label>
+                        <label className="block text-amber-600 mb-1">Cobre (CP)</label>
                         <input
                           type="number"
                           min="0"
@@ -2831,7 +2663,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-300 mb-1">⚪ Plata (SP)</label>
+                        <label className="block text-slate-300 mb-1">Plata (SP)</label>
                         <input
                           type="number"
                           min="0"
@@ -2842,7 +2674,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                       </div>
                       {!(useStore.getState().currencyMode === 'standard' || room?.currencyMode === 'standard') && (
                         <div>
-                          <label className="block text-cyan-400 mb-1">🔵 Electrum (EP)</label>
+                          <label className="block text-cyan-400 mb-1">Electrum (EP)</label>
                           <input
                             type="number"
                             min="0"
@@ -2853,7 +2685,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                         </div>
                       )}
                       <div>
-                        <label className="block text-magic-gold mb-1">🟡 Oro (GP / PO)</label>
+                        <label className="block text-magic-gold mb-1">Oro (GP / PO)</label>
                         <input
                           type="number"
                           min="0"
@@ -2864,7 +2696,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                       </div>
                       {!(useStore.getState().currencyMode === 'standard' || room?.currencyMode === 'standard') && (
                         <div className="col-span-2">
-                          <label className="block text-indigo-300 mb-1">🟣 Platino (PP)</label>
+                          <label className="block text-indigo-300 mb-1">Platino (PP)</label>
                           <input
                             type="number"
                             min="0"
@@ -2903,7 +2735,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 font-sans">
                 <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-parchment-dark border-4 border-magic-red rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
                   <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                    🛒 Gastar / Consumir Monedas
+                    Gastar / Consumir Monedas
                   </h3>
                   <p className="text-xs text-ink-light">Indica las monedas que deseas pagar o consumir durante tu aventura.</p>
 
@@ -3007,147 +2839,21 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
           </AnimatePresence>
 
           {/* DM DIRECT MESSAGE MODAL WITH SENT HISTORY & READ RECEIPTS */}
-          <AnimatePresence>
-            {dmMessageModal.open && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3 font-sans">
-                <div className="bg-parchment-dark border-4 border-magic-gold p-5 rounded-xl shadow-2xl w-[95%] max-w-lg space-y-4 max-h-[85vh] flex flex-col">
-                  {/* Header */}
-                  <div className="flex justify-between items-center border-b border-ink/20 pb-3 shrink-0">
-                    <h3 className="text-xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                      ✉️ Mensajes con el DM
-                    </h3>
-                    <button onClick={() => setDmMessageModal({ open: false, content: '', tab: 'compose' })} className="p-1 text-ink-light hover:text-ink">
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-
-                  {/* Tabs */}
-                  {(() => {
-                    const mySentMessages = (room?.directMessages || []).filter(m => m.senderId === character.id);
-                    return (
-                      <>
-                        <div className="flex border-b border-ink/20 shrink-0 text-xs font-bold font-cinzel">
-                          <button
-                            onClick={() => setDmMessageModal(prev => ({ ...prev, tab: 'compose' }))}
-                            className={`px-4 py-2 border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
-                              dmMessageModal.tab === 'compose'
-                                ? 'border-magic-gold text-magic-gold bg-magic-gold/10'
-                                : 'border-transparent text-ink-light hover:text-ink'
-                            }`}
-                          >
-                            ✏️ Redactar
-                          </button>
-                          <button
-                            onClick={() => setDmMessageModal(prev => ({ ...prev, tab: 'history' }))}
-                            className={`px-4 py-2 border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
-                              dmMessageModal.tab === 'history'
-                                ? 'border-magic-gold text-magic-gold bg-magic-gold/10'
-                                : 'border-transparent text-ink-light hover:text-ink'
-                            }`}
-                          >
-                            📬 Mis Mensajes ({mySentMessages.length})
-                          </button>
-                        </div>
-
-                        {/* Tab 1: Compose */}
-                        {dmMessageModal.tab === 'compose' ? (
-                          <div className="space-y-4 flex-1 flex flex-col justify-between">
-                            <div className="space-y-2">
-                              <p className="text-xs text-ink-light">
-                                Envía notas de historia, secretos, intenciones o peticiones privadas a tu Maestro de la Mazmorra (DM). Máximo 500 caracteres (se conservan siempre los 5 más recientes).
-                              </p>
-                              <textarea
-                                value={dmMessageModal.content}
-                                onChange={(e) => setDmMessageModal({ ...dmMessageModal, content: e.target.value.slice(0, 500) })}
-                                placeholder="Escribe tu mensaje privado para el DM..."
-                                rows={5}
-                                className="w-full p-3 bg-parchment border border-ink/30 rounded-lg text-xs text-ink font-sans leading-relaxed focus:outline-none focus:border-magic-gold"
-                              />
-                              <div className="flex justify-between items-center text-[10px] text-ink-light">
-                                <span>Solo visible para el DM de la sala.</span>
-                                <span className={dmMessageModal.content.length >= 500 ? 'text-magic-red font-bold' : ''}>
-                                  {dmMessageModal.content.length} / 500
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex justify-end gap-2 pt-2 border-t border-ink/20">
-                              <button
-                                onClick={() => setDmMessageModal({ open: false, content: '', tab: 'compose' })}
-                                className="px-4 py-2 text-xs font-bold text-ink-light hover:text-ink cursor-pointer"
-                              >
-                                Cancelar
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  if (!dmMessageModal.content.trim()) return;
-                                  const roomId = character.roomId || (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '');
-                                  if (!roomId) {
-                                    showAlert("Debes estar en una sala de campaña para enviar mensajes al DM.", "Sala Requerida", "warning");
-                                    return;
-                                  }
-                                  await sendDirectMessageToDM(roomId, {
-                                    senderId: character.id,
-                                    senderName: character.name,
-                                    characterName: character.name,
-                                    content: dmMessageModal.content.trim()
-                                  });
-                                  showAlert("✉️ Mensaje enviado con éxito al DM.", "Mensaje Enviado", "success");
-                                  setDmMessageModal({ open: true, content: '', tab: 'history' });
-                                }}
-                                disabled={!dmMessageModal.content.trim()}
-                                className={`px-5 py-2 bg-magic-gold text-black rounded text-xs font-bold hover:bg-yellow-500 transition shadow cursor-pointer ${!dmMessageModal.content.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              >
-                                Enviar Mensaje
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          /* Tab 2: Sent Messages History with Realtime Read Confirmation */
-                          <div className="flex-1 overflow-y-auto pr-1 space-y-3 max-h-[50vh]">
-                            {mySentMessages.length === 0 ? (
-                              <div className="text-center py-8 space-y-2">
-                                <p className="text-xs text-ink-light italic">No has enviado mensajes al DM en esta campaña aún.</p>
-                                <button
-                                  onClick={() => setDmMessageModal(prev => ({ ...prev, tab: 'compose' }))}
-                                  className="text-xs text-magic-gold font-bold underline cursor-pointer"
-                                >
-                                  Redactar mi primer mensaje
-                                </button>
-                              </div>
-                            ) : (
-                              mySentMessages.map(msg => (
-                                <div key={msg.id} className="p-3 bg-parchment rounded-lg border border-ink/20 space-y-2 text-xs">
-                                  <div className="flex justify-between items-center text-[11px] font-mono border-b border-ink/10 pb-1 flex-wrap gap-1">
-                                    <span className="text-ink/60">
-                                      📅 {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-
-                                    {/* Realtime Read Status */}
-                                    {msg.read ? (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-bold font-sans">
-                                        <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> Leído por el DM
-                                      </span>
-                                    ) : (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold font-sans">
-                                        <Clock className="w-3.5 h-3.5 text-amber-400" /> Enviado (Pendiente)
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-ink leading-relaxed whitespace-pre-wrap font-sans bg-parchment-dark/40 p-2.5 rounded border border-ink/10">
-                                    {msg.content}
-                                  </p>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <WhisperConversationModal
+            isOpen={dmMessageModal.open}
+            tab={dmMessageModal.tab}
+            content={dmMessageModal.content}
+            character={character}
+            user={user}
+            isDemoMode={isDemoMode}
+            mySentMessages={mySentMessages}
+            unreadFromDMCount={unreadFromDMCount}
+            onClose={() => setDmMessageModal({ open: false, content: '', tab: 'compose' })}
+            onTabChange={(tab) => setDmMessageModal((prev) => ({ ...prev, tab }))}
+            onContentChange={(content) => setDmMessageModal((prev) => ({ ...prev, content }))}
+            setMySentMessages={setMySentMessages}
+            showAlert={showAlert}
+          />
         </div>
         </div>
         )}

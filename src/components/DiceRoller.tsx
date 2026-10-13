@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dices, X, Sparkles, Trophy } from "lucide-react";
+import { ASSETS } from "@/lib/assets";
 
 export type DiceType = 'd4' | 'd6' | 'd8' | 'd10' | 'd12' | 'd20' | 'd100';
 
@@ -132,7 +133,7 @@ export default function DiceRoller() {
         className="w-14 h-14 min-w-[3.5rem] min-h-[3.5rem] max-w-[3.5rem] max-h-[3.5rem] shrink-0 bg-magic-gold text-black rounded-full shadow-[0_0_20px_rgba(245,208,97,0.8)] border-2 border-white hover:scale-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center pointer-events-auto"
         title="Lanzar Dados Mágicos D&D"
       >
-        <Dices className="w-7 h-7 animate-pulse" />
+        <img src={ASSETS.icons.d20} className="w-8 h-8 object-contain drop-shadow-md" alt="d20" />
       </button>
 
       {/* QUICK DICE SELECTOR DRAWER */}
@@ -146,7 +147,7 @@ export default function DiceRoller() {
           >
             <div className="flex justify-between items-center border-b border-ink/20 pb-2">
               <span className="font-cinzel font-bold text-magic-gold text-sm flex items-center gap-1.5">
-                <Dices className="w-4 h-4" /> Lanzador de Dados
+                <img src={ASSETS.icons.d20} className="w-4 h-4 object-contain" alt="d20" /> Lanzador de Dados
               </span>
               <button onClick={() => setOpenSelector(false)} className="text-ink-light hover:text-magic-red p-1 cursor-pointer">
                 <X className="w-4 h-4" />
@@ -187,7 +188,7 @@ export default function DiceRoller() {
               className="w-32 h-32 bg-magic-gold text-black rounded-2xl border-4 border-white flex items-center justify-center shadow-[0_0_50px_rgba(245,208,97,0.9)]"
             >
               <div className="text-center font-cinzel">
-                <Dices className="w-12 h-12 mx-auto animate-spin" />
+                <img src={ASSETS.icons.d20} className="w-12 h-12 mx-auto animate-spin object-contain" alt="d20" />
                 <span className="font-bold text-lg uppercase block mt-1">{currentDice}</span>
               </div>
             </motion.div>

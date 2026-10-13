@@ -73,7 +73,7 @@ export default function CookiesPage() {
           </p>
 
           <h2 className="text-lg font-bold font-cinzel text-magic-gold flex items-center gap-2 pt-4 border-t border-ink/10">
-            📬 4. Consultas
+            4. Consultas
           </h2>
           <p>
             Si tiene dudas sobre el almacenamiento de datos en la aplicación, contáctenos en:{" "}

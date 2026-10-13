@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS, getClassFeaturesForLevel, calculateLevelUpHPGain, getFixedHitDieValue } from "@/lib/dndClassFeatures";
 import { triggerDiceRoll } from "@/components/DiceRoller";
-import { addRoomLog, updateRoomState, savePlayerInRoom, deletePlayerFromRoom } from "@/lib/rooms";
+import { addRoomLog, updateRoomState, savePlayerInRoom, deletePlayerFromRoom, advanceRoomTurnAtomic, isDemoRoom } from "@/lib/rooms";
 import { auth } from "@/lib/firebase";
 import { getFactoryDemoParty } from "@/lib/demoData";
 
@@ -55,6 +55,17 @@ export type InitiativeRoll = {
   dexMod: number;
   total: number;
 };
+
+export interface CombatMonster {
+  id: string;
+  name: string;
+  hp: { current: number; max: number };
+  ac: number;
+  initiativeBonus: number;
+  initiative?: { die: number; dexMod: number; total: number };
+  isDead?: boolean;
+  type: 'enemy' | 'ally';
+}
 
 export type DeathSaves = {
   successes: number;
@@ -428,8 +439,13 @@ export interface StoreState {
   isCombatMode: boolean;
   initiativeOrder: string[];
   currentTurnIndex: number;
+  combatMonsters: CombatMonster[];
   toggleCombatMode: (status?: boolean, targetRoomId?: string, selectedPlayerIds?: string[]) => void;
-  advanceTurn: (targetRoomId?: string) => void;
+  advanceTurn: (targetRoomId?: string, isDM?: boolean) => void;
+  addCombatMonster: (monster: Omit<CombatMonster, 'id' | 'isDead' | 'initiative'>, targetRoomId?: string) => void;
+  updateCombatMonsterHP: (monsterId: string, amount: number, isDelta?: boolean, targetRoomId?: string) => void;
+  removeCombatMonster: (monsterId: string, targetRoomId?: string) => void;
+  clearCombatMonsters: (targetRoomId?: string) => void;
   
   players: CharacterState[];
   activePlayerId: string;
@@ -538,6 +554,194 @@ export const useStore = create<StoreState>((set, get) => ({
   isCombatMode: false,
   initiativeOrder: [],
   currentTurnIndex: 0,
+  combatMonsters: [],
+
+  addCombatMonster: (monster, targetRoomId) => {
+    let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
+    if (!activeRoomId && typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/room\/([^\/]+)/);
+      if (match && match[1]) {
+        activeRoomId = match[1];
+      }
+    }
+
+    const id = 'npc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const newMonster: CombatMonster = {
+      ...monster,
+      id,
+      isDead: false,
+    };
+
+    const isCombatMode = get().isCombatMode;
+    if (isCombatMode) {
+      const die = Math.floor(Math.random() * 20) + 1;
+      const total = die + monster.initiativeBonus;
+      newMonster.initiative = { die, dexMod: monster.initiativeBonus, total };
+
+      const currentOrder = [...get().initiativeOrder];
+      const allParticipantsMap = new Map<string, number>();
+      get().players.forEach(p => allParticipantsMap.set(p.id, p.initiative?.total ?? -999));
+      get().combatMonsters.forEach(m => allParticipantsMap.set(m.id, m.initiative?.total ?? -999));
+      allParticipantsMap.set(id, total);
+
+      let insertIndex = currentOrder.length;
+      for (let i = 0; i < currentOrder.length; i++) {
+        const otherTotal = allParticipantsMap.get(currentOrder[i]) ?? -999;
+        if (total > otherTotal) {
+          insertIndex = i;
+          break;
+        }
+      }
+      currentOrder.splice(insertIndex, 0, id);
+
+      const bonusSign = monster.initiativeBonus >= 0 ? '+' + monster.initiativeBonus : `${monster.initiativeBonus}`;
+      get().addLog(`[Combate] ${monster.name} (${monster.type === 'ally' ? 'PNJ Aliado' : 'Enemigo'}) se une al combate con Iniciativa ${total} (d20: ${die} + Bono: ${bonusSign}).`);
+
+      const updatedMonsters = [...get().combatMonsters, newMonster];
+      set({
+        combatMonsters: updatedMonsters,
+        initiativeOrder: currentOrder,
+      });
+
+      if (activeRoomId && !isDemoRoom(activeRoomId)) {
+        updateRoomState(activeRoomId, {
+          combatMonsters: updatedMonsters,
+          initiativeOrder: currentOrder,
+        });
+      }
+    } else {
+      const updatedMonsters = [...get().combatMonsters, newMonster];
+      set({
+        combatMonsters: updatedMonsters,
+      });
+
+      if (activeRoomId && !isDemoRoom(activeRoomId)) {
+        updateRoomState(activeRoomId, {
+          combatMonsters: updatedMonsters,
+        });
+      }
+    }
+  },
+
+  updateCombatMonsterHP: (monsterId, amount, isDelta = true, targetRoomId) => {
+    let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
+    if (!activeRoomId && typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/room\/([^\/]+)/);
+      if (match && match[1]) {
+        activeRoomId = match[1];
+      }
+    }
+
+    const currentMonsters = get().combatMonsters;
+    const targetMonster = currentMonsters.find(m => m.id === monsterId);
+    if (!targetMonster) return;
+
+    const currentHP = targetMonster.hp.current;
+    const rawHP = isDelta ? currentHP + amount : amount;
+    const newHP = Math.max(0, Math.min(targetMonster.hp.max, Math.round(rawHP)));
+    const diff = newHP - currentHP;
+    const isDead = newHP === 0;
+
+    if (diff < 0) {
+      get().addLog(`[Combate] ${targetMonster.name} recibió ${Math.abs(diff)} de daño. PG actuales: ${newHP}/${targetMonster.hp.max}.`);
+      if (isDead) {
+        get().addLog(`[Combate] ${targetMonster.name} ha sido derrotado (0 PG).`);
+      }
+    } else if (diff > 0) {
+      get().addLog(`[Combate] ${targetMonster.name} recuperó ${diff} PG. PG actuales: ${newHP}/${targetMonster.hp.max}.`);
+    }
+
+    const updatedMonsters = currentMonsters.map(m => {
+      if (m.id !== monsterId) return m;
+      return {
+        ...m,
+        hp: { ...m.hp, current: newHP },
+        isDead,
+      };
+    });
+
+    set({ combatMonsters: updatedMonsters });
+
+    if (activeRoomId && !isDemoRoom(activeRoomId)) {
+      updateRoomState(activeRoomId, {
+        combatMonsters: updatedMonsters,
+      });
+    }
+  },
+
+  removeCombatMonster: (monsterId, targetRoomId) => {
+    let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
+    if (!activeRoomId && typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/room\/([^\/]+)/);
+      if (match && match[1]) {
+        activeRoomId = match[1];
+      }
+    }
+
+    const targetMonster = get().combatMonsters.find(m => m.id === monsterId);
+    const updatedMonsters = get().combatMonsters.filter(m => m.id !== monsterId);
+    const oldOrder = get().initiativeOrder;
+    const removedIndex = oldOrder.indexOf(monsterId);
+    const updatedOrder = oldOrder.filter(id => id !== monsterId);
+
+    let newTurnIndex = get().currentTurnIndex;
+    if (updatedOrder.length === 0) {
+      newTurnIndex = 0;
+    } else {
+      if (removedIndex !== -1 && removedIndex < newTurnIndex) {
+        newTurnIndex = Math.max(0, newTurnIndex - 1);
+      } else if (newTurnIndex >= updatedOrder.length) {
+        newTurnIndex = 0;
+      }
+    }
+
+    if (targetMonster) {
+      get().addLog(`[Combate] ${targetMonster.name} ha sido retirado del combate.`);
+    }
+
+    set({
+      combatMonsters: updatedMonsters,
+      initiativeOrder: updatedOrder,
+      currentTurnIndex: newTurnIndex,
+    });
+
+    if (activeRoomId && !isDemoRoom(activeRoomId)) {
+      updateRoomState(activeRoomId, {
+        combatMonsters: updatedMonsters,
+        initiativeOrder: updatedOrder,
+        currentTurnIndex: newTurnIndex,
+      });
+    }
+  },
+
+  clearCombatMonsters: (targetRoomId) => {
+    let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
+    if (!activeRoomId && typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/room\/([^\/]+)/);
+      if (match && match[1]) {
+        activeRoomId = match[1];
+      }
+    }
+
+    const updatedOrder = get().initiativeOrder.filter(id => !id.startsWith('npc_'));
+    const newTurnIndex = updatedOrder.length === 0 ? 0 : Math.min(get().currentTurnIndex, updatedOrder.length - 1);
+
+    get().addLog(`[Combate] Se han eliminado todos los monstruos/PNJs del combate.`);
+
+    set({
+      combatMonsters: [],
+      initiativeOrder: updatedOrder,
+      currentTurnIndex: newTurnIndex,
+    });
+
+    if (activeRoomId && !isDemoRoom(activeRoomId)) {
+      updateRoomState(activeRoomId, {
+        combatMonsters: [],
+        initiativeOrder: updatedOrder,
+        currentTurnIndex: newTurnIndex,
+      });
+    }
+  },
   
   toggleCombatMode: (status, targetRoomId, selectedPlayerIds) => {
     const currentStatus = get().isCombatMode;
@@ -576,7 +780,7 @@ export const useStore = create<StoreState>((set, get) => ({
         const dexMod = Math.floor((dexValue - 10) / 2);
         const total = die + dexMod;
         
-        get().addLog(`🎲 Iniciativa de ${p.name}: Dado (${die}) + Mod DEX (${dexMod >= 0 ? '+'+dexMod : dexMod}) = ${total}`);
+        get().addLog(`[Iniciativa] Iniciativa de ${p.name}: Dado (${die}) + Mod DEX (${dexMod >= 0 ? '+'+dexMod : dexMod}) = ${total}`);
         
         return {
           ...p,
@@ -584,34 +788,71 @@ export const useStore = create<StoreState>((set, get) => ({
         };
       });
 
-      const sortedPresent = [...updatedPlayers]
-        .filter(p => targetIds.includes(p.id))
-        .sort((a, b) => (b.initiative?.total || 0) - (a.initiative?.total || 0));
-      
-      const order = sortedPresent.map(p => p.id);
-      const firstPlayer = sortedPresent[0];
+      const updatedMonsters = get().combatMonsters.map(m => {
+        if (m.isDead) return m;
+        const die = Math.floor(Math.random() * 20) + 1;
+        const bonus = m.initiativeBonus;
+        const total = die + bonus;
+        const bonusSign = bonus >= 0 ? '+' + bonus : `${bonus}`;
 
-      get().addLog(`⚔️ ¡MODO COMBATE INICIADO! Primer turno: ${firstPlayer?.name || 'Jugador'} (Iniciativa ${firstPlayer?.initiative?.total || 0})`);
+        get().addLog(`[Iniciativa] Iniciativa de ${m.name} (${m.type === 'ally' ? 'PNJ Aliado' : 'Enemigo'}): Dado (${die}) + Bono (${bonusSign}) = ${total}`);
+
+        return {
+          ...m,
+          initiative: { die, dexMod: bonus, total }
+        };
+      });
+
+      type Combatant = { id: string; name: string; total: number };
+      const combatants: Combatant[] = [];
+
+      updatedPlayers
+        .filter(p => targetIds.includes(p.id))
+        .forEach(p => {
+          combatants.push({
+            id: p.id,
+            name: p.name,
+            total: p.initiative?.total ?? 0
+          });
+        });
+
+      updatedMonsters
+        .filter(m => !m.isDead)
+        .forEach(m => {
+          combatants.push({
+            id: m.id,
+            name: m.name,
+            total: m.initiative?.total ?? 0
+          });
+        });
+
+      combatants.sort((a, b) => b.total - a.total);
+      const order = combatants.map(c => c.id);
+      const firstCombatant = combatants[0];
+
+      get().addLog(`[Combate] ¡MODO COMBATE INICIADO! Primer turno: ${firstCombatant?.name || 'Participante'} (Iniciativa ${firstCombatant?.total || 0})`);
 
       set({
         isCombatMode: true,
         players: updatedPlayers,
+        combatMonsters: updatedMonsters,
         initiativeOrder: order,
         currentTurnIndex: 0
       });
 
-      if (activeRoomId) {
+      if (activeRoomId && !isDemoRoom(activeRoomId)) {
         updateRoomState(activeRoomId, {
           isCombatMode: true,
           initiativeOrder: order,
-          currentTurnIndex: 0
+          currentTurnIndex: 0,
+          combatMonsters: updatedMonsters
         });
         updatedPlayers
           .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
           .forEach(p => savePlayerInRoom(activeRoomId!, p));
       }
     } else {
-      get().addLog(`🕊️ El DM ha finalizado el Modo Combate.`);
+      get().addLog(`[Combate] El DM ha finalizado el Modo Combate.`);
       set({
         isCombatMode: false,
         initiativeOrder: [],
@@ -619,7 +860,7 @@ export const useStore = create<StoreState>((set, get) => ({
         lastTurnEvent: null
       });
 
-      if (activeRoomId) {
+      if (activeRoomId && !isDemoRoom(activeRoomId)) {
         updateRoomState(activeRoomId, {
           isCombatMode: false,
           initiativeOrder: [],
@@ -787,7 +1028,8 @@ export const useStore = create<StoreState>((set, get) => ({
         activePlayerId: party[0]?.id || '',
         isCombatMode: false,
         initiativeOrder: [],
-        currentTurnIndex: 0
+        currentTurnIndex: 0,
+        combatMonsters: []
       };
     });
     if (typeof window !== 'undefined') {
@@ -2417,9 +2659,9 @@ export const useStore = create<StoreState>((set, get) => ({
   },
     
   lastTurnEvent: null,
-  advanceTurn: (targetRoomId) => {
+  advanceTurn: (targetRoomId, isDM) => {
     const event = { id: Date.now().toString() + Math.random(), timestamp: Date.now() };
-    const { isCombatMode, initiativeOrder, currentTurnIndex, players } = get();
+    const { isCombatMode, initiativeOrder, currentTurnIndex, players, combatMonsters } = get();
 
     let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
     if (!activeRoomId && typeof window !== 'undefined') {
@@ -2429,9 +2671,14 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
 
+    const currentUid = auth?.currentUser?.uid;
+    const isCallerDM = isDM === true || (typeof window !== 'undefined' && window.location.pathname.startsWith('/dm'));
+
     if (isCombatMode && initiativeOrder.length > 0) {
       const now = Date.now();
       const activeOrder = initiativeOrder.filter(pid => {
+        const monster = combatMonsters.find(m => m.id === pid && !m.isDead);
+        if (monster) return true;
         const p = players.find(player => player.id === pid);
         if (!p) return false;
         if (p.isOnline === false) return false;
@@ -2442,13 +2689,16 @@ export const useStore = create<StoreState>((set, get) => ({
       const effectiveOrder = activeOrder.length > 0 ? activeOrder : initiativeOrder;
       const nextIndex = (currentTurnIndex + 1) % effectiveOrder.length;
       const isNewRound = nextIndex === 0;
-      const nextPlayerId = effectiveOrder[nextIndex];
-      const nextPlayer = players.find(p => p.id === nextPlayerId);
+      const nextId = effectiveOrder[nextIndex];
+      const nextPlayer = players.find(p => p.id === nextId);
+      const nextMonster = combatMonsters.find(m => m.id === nextId);
+      const nextName = nextPlayer?.name || nextMonster?.name || 'Participante';
+      const nextInitTotal = nextPlayer?.initiative?.total ?? nextMonster?.initiative?.total ?? 0;
 
       if (isNewRound) {
-        get().addLog(`🔄 ¡Ronda de combate completada! Se redujeron los turnos de efectos temporales.`);
+        get().addLog(`[Combate] ¡Ronda de combate completada! Se redujeron los turnos de efectos temporales.`);
       }
-      get().addLog(`🗡️ Siguiente Turno: ${nextPlayer?.name || 'Jugador'} (Iniciativa ${nextPlayer?.initiative?.total || 0})`);
+      get().addLog(`[Turno] Siguiente Turno: ${nextName} (Iniciativa ${nextInitTotal})`);
 
       const updatedPlayers = isNewRound 
         ? players.map(p => ({
@@ -2476,19 +2726,19 @@ export const useStore = create<StoreState>((set, get) => ({
         players: updatedPlayers
       });
 
-      if (activeRoomId) {
-        updateRoomState(activeRoomId, {
-          currentTurnIndex: nextIndex,
-          lastTurnEvent: event
+      if (activeRoomId && !isDemoRoom(activeRoomId)) {
+        advanceRoomTurnAtomic(activeRoomId, event, nextIndex).catch((err) => {
+          console.warn("[advanceTurn] advanceRoomTurnAtomic fallback:", err);
         });
         if (isNewRound) {
           updatedPlayers
             .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
+            .filter(p => isCallerDM || !p.ownerId || p.ownerId === currentUid)
             .forEach(p => savePlayerInRoom(activeRoomId!, p));
         }
       }
     } else {
-      get().addLog(`⏳ Tiempo avanzado: 1 Turno consumido para toda la Party.`);
+      get().addLog(`[Turno] Tiempo avanzado: 1 Turno consumido para toda la Party.`);
       const updatedPlayers = players.map(p => ({
         ...p,
         modifiers: p.modifiers
@@ -2512,12 +2762,13 @@ export const useStore = create<StoreState>((set, get) => ({
         players: updatedPlayers
       });
 
-      if (activeRoomId) {
+      if (activeRoomId && !isDemoRoom(activeRoomId)) {
         updateRoomState(activeRoomId, {
           lastTurnEvent: event
         });
         updatedPlayers
           .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
+          .filter(p => isCallerDM || !p.ownerId || p.ownerId === currentUid)
           .forEach(p => savePlayerInRoom(activeRoomId!, p));
       }
     }

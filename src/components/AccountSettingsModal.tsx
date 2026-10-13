@@ -102,7 +102,7 @@ export default function AccountSettingsModal({
         await deleteCharacter(char.id);
         showAlert(`Personaje "${char.name}" eliminado con éxito de la cuenta y de la campaña.`, "Personaje Eliminado", "success");
       },
-      "🔥 Confirmar Eliminación de Personaje",
+      "Confirmar Eliminación de Personaje",
       "Sí, Eliminar Personaje",
       "Cancelar"
     );
@@ -273,7 +273,7 @@ export default function AccountSettingsModal({
                     Object.entries(charactersByCampaign).map(([roomIdKey, chars]) => (
                       <div key={roomIdKey} className="p-4 bg-parchment rounded-xl border border-ink/20 shadow-sm space-y-3">
                         <h4 className="font-bold font-cinzel text-sm text-magic-gold flex items-center justify-between border-b border-ink/10 pb-1.5">
-                          <span>🏰 Campaña: <strong className="text-ink">{getCampaignDisplayName(roomIdKey)}</strong></span>
+                          <span>Campaña: <strong className="text-ink">{getCampaignDisplayName(roomIdKey)}</strong></span>
                           <span className="text-xs font-mono text-ink-light">({chars.length} héroe{chars.length > 1 ? 's' : ''})</span>
                         </h4>
 
@@ -385,14 +385,14 @@ export default function AccountSettingsModal({
                   >
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-1.5">
-                        <span>🏰 {room.name}</span>
+                        <span>{room.name}</span>
                         {room.hasPassword && <Lock className="w-3.5 h-3.5 text-amber-600" />}
                       </div>
                       <span className="text-[10px] opacity-75 block font-mono">ID: {room.id} • DM: {room.dmName}</span>
                     </div>
                     {room.hasPassword && (
                       <span className="text-[10px] bg-amber-950/20 text-amber-800 px-1.5 py-0.5 rounded border border-amber-500/30">
-                        🔒 Clave
+                        Clave
                       </span>
                     )}
                   </label>

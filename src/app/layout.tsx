@@ -21,6 +21,14 @@ const ebGaramond = EB_Garamond({
 export const metadata: Metadata = {
   title: "D&D Companion - Grimoire",
   description: "Una hoja de personaje interactiva y panel de DM",
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/assets/icons/logo.svg", type: "image/svg+xml" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
+  manifest: "/site.webmanifest",
 };
 
 export default function RootLayout({

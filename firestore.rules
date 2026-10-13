@@ -10,6 +10,11 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // Regla global para collectionGroup("players") (Lectura en toda la base de datos para recuperación cruzada de personajes)
+    match /{path=**}/players/{playerId} {
+      allow read: if true;
+    }
+
     // Colección de Perfiles de Usuario
     match /users/{userId} {
       allow read: if isAuthenticated();
@@ -21,22 +26,30 @@ service cloud.firestore {
       // Cualquier persona puede leer información de salas públicas
       allow read: if true;
       
-      // Solo usuarios autenticados pueden crear campañas
-      allow create: if isAuthenticated();
+      // Solo usuarios autenticados que sean el DM pueden crear campañas
+      allow create: if isAuthenticated() && request.resource.data.dmId == request.auth.uid;
       
-      // Permitir actualización a usuarios autenticados (necesario para avanzar turnos, actualizar estado de combate, etc.)
-      allow update: if isAuthenticated();
+      // Solo el DM puede actualizar la campaña, excepto para eventos de turno donde jugadores autenticados solo pueden cambiar currentTurnIndex o lastTurnEvent
+      allow update: if isAuthenticated() && (
+        resource.data.dmId == request.auth.uid || 
+        (request.resource.data.dmId == resource.data.dmId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentTurnIndex', 'lastTurnEvent']))
+      );
 
       // Solo el DM creador de la sala puede borrar la campaña
-      allow delete: if isAuthenticated() && (
-        resource.data.dmId == request.auth.uid || 
-        request.auth.uid == request.resource.data.dmId
-      );
+      allow delete: if isAuthenticated() && resource.data.dmId == request.auth.uid;
 
       // Subcolección de Personajes en la Sala
       match /players/{playerId} {
         allow read: if true;
-        allow create, update: if isAuthenticated();
+        allow create: if isAuthenticated() && (
+          request.resource.data.ownerId == request.auth.uid || 
+          get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
+        );
+        allow update: if isAuthenticated() && (
+          get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid || 
+          (resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId) || 
+          (!('ownerId' in resource.data) || resource.data.ownerId == null || resource.data.ownerId == '')
+        );
         allow delete: if isAuthenticated() && (
           resource == null ||
           !('ownerId' in resource.data) ||
@@ -44,6 +57,27 @@ service cloud.firestore {
           resource.data.ownerId == '' ||
           resource.data.ownerId == request.auth.uid || 
           resource.data.userId == request.auth.uid || 
+          get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
+        );
+      }
+
+      // Subcolección de Mensajes Privados / Whispers al DM y Respuestas
+      match /whispers/{whisperId} {
+        allow read: if isAuthenticated() && (
+          resource.data.senderUid == request.auth.uid || 
+          resource.data.playerUid == request.auth.uid || 
+          resource.data.senderId == request.auth.uid || 
+          get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
+        );
+        allow create: if isAuthenticated() && (
+          request.resource.data.senderUid == request.auth.uid || 
+          request.resource.data.playerUid == request.auth.uid || 
+          get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
+        );
+        allow update, delete: if isAuthenticated() && (
+          resource.data.senderUid == request.auth.uid || 
+          resource.data.playerUid == request.auth.uid || 
+          resource.data.senderId == request.auth.uid || 
           get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
         );
       }

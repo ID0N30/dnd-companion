@@ -94,20 +94,20 @@ export default function TutorialModal({ open, onClose }: { open: boolean; onClos
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">🎲 Lanza Dados Animados</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Dices className="w-4 h-4 text-magic-gold" /> Lanza Dados Animados</span>
                     <p className="text-ink-light text-xs">Haz clic en cualquier puntuación de atributo (Fuerza, Destreza, etc.) o habilidad para lanzar un dado d20 interactivo con sonido y ver el resultado total instantáneo.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">❤️ Gestión de Puntos de Vida (HP) y CA</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Heart className="w-4 h-4 text-magic-red" /> Gestión de Puntos de Golpe y CA</span>
                     <p className="text-ink-light text-xs">Usa los botones <strong>+/- HP</strong> para ajustar tu vida actual al recibir daño o curación. Tu Clase de Armadura (CA) incluye bonificadores de escudos y armaduras equipadas.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">⭐ Inspiración D&D 5e</span>
-                    <p className="text-ink-light text-xs">El botón ⭐ <strong>Inspiración</strong> en la cabecera te permite alternar si tienes ventaja de inspiración otorgada por el DM.</p>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-magic-gold" /> Inspiración D&D 5e</span>
+                    <p className="text-ink-light text-xs">El botón de Inspiración en la cabecera te permite alternar si tienes ventaja de inspiración otorgada por el DM.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">📌 Fijar Habilidades y Notas Privadas</span>
-                    <p className="text-ink-light text-xs">Marca con la chincheta (📌) tus habilidades más usadas para acceso rápido y usa la pestaña <strong>Notas</strong> para guardar diarios secretos 100% privados.</p>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-magic-gold" /> Fijar Habilidades y Notas Privadas</span>
+                    <p className="text-ink-light text-xs">Marca tus habilidades más usadas para acceso rápido y usa la pestaña <strong>Notas</strong> para guardar diarios secretos 100% privados.</p>
                   </div>
                 </div>
               </div>
@@ -127,19 +127,19 @@ export default function TutorialModal({ open, onClose }: { open: boolean; onClos
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">⚔️ Equipar Armas y Armaduras</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Swords className="w-4 h-4 text-magic-gold" /> Equipar Armas y Armaduras</span>
                     <p className="text-ink-light text-xs">Al equipar una armadura o escudo en la pestaña <strong>Equipo</strong>, tu Clase de Armadura (CA) se actualizará automáticamente en vivo.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">🧪 Consumir Pociones y Objetos</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Package className="w-4 h-4 text-magic-gold" /> Consumir Pociones y Objetos</span>
                     <p className="text-ink-light text-xs">Haz clic en <strong>Consumir</strong> en las pociones de curación u objetos consumibles para gastar unidades con registro automático en el diario de la campaña.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">✨ Ranuras de Conjuro (Spell Slots)</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-magic-gold" /> Ranuras de Conjuro (Spell Slots)</span>
                     <p className="text-ink-light text-xs">En la pestaña <strong>Hechizos</strong>, gasta tus espacios de conjuro al lanzar magia. Un <strong>Descanso Largo</strong> restaurará toda tu vida y tus ranuras.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">📜 Añadir Hechizos Personalizados</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><ScrollText className="w-4 h-4 text-magic-gold" /> Añadir Hechizos Personalizados</span>
                     <p className="text-ink-light text-xs">Añade nuevos hechizos a tu grimorio indicando el nivel, escuela de magia y descripción corta.</p>
                   </div>
                 </div>
@@ -160,19 +160,19 @@ export default function TutorialModal({ open, onClose }: { open: boolean; onClos
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">⚔️ Inicio de Combate</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Swords className="w-4 h-4 text-magic-gold" /> Inicio de Combate</span>
                     <p className="text-ink-light text-xs">Cuando el DM inicia el combate, se lanza automáticamente la tirada de iniciativa (d20 + Modificador de Destreza) para todos los combatientes seleccionados.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">⏱️ Rueda de Turnos Automática</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Clock className="w-4 h-4 text-magic-gold" /> Rueda de Turnos Automática</span>
                     <p className="text-ink-light text-xs">La pantalla indicará en dorado de quién es el turno actual. En tu turno, realiza tu acción y presiona <strong>¡Terminar mi Turno!</strong>.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">🩸 Estado Moribundo y Salvaciones</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Heart className="w-4 h-4 text-magic-red" /> Estado Moribundo y Salvaciones</span>
                     <p className="text-ink-light text-xs">Si tu HP cae a 0, entrarás en estado moribundo. Deberás lanzar salvaciones contra la muerte en tu turno (acumula 3 éxitos para estabilizarte o 3 fallos para morir).</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">⏳ Efectos Temporales</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Clock className="w-4 h-4 text-magic-gold" /> Efectos Temporales</span>
                     <p className="text-ink-light text-xs">Los efectos temporales (como pociones o modificadores por turnos) se reducen automáticamente conforme avanza el tiempo de combate.</p>
                   </div>
                 </div>
@@ -193,19 +193,19 @@ export default function TutorialModal({ open, onClose }: { open: boolean; onClos
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">👁️ Inspeccionar y Editar Personajes</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Users className="w-4 h-4 text-magic-gold" /> Inspeccionar y Editar Personajes</span>
                     <p className="text-ink-light text-xs">Haz clic en <strong>Inspeccionar</strong> en la tarjeta de cualquier jugador para ver sus atributos, modificar su vida en vivo, editar puntuaciones base o gestionar sus hechizos.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">🎁 Otorgar Tesoros y Magia</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Package className="w-4 h-4 text-magic-gold" /> Otorgar Tesoros y Magia</span>
                     <p className="text-ink-light text-xs">El DM puede otorgar directamente objetos al inventario o conjuros al grimorio de los jugadores durante la partida.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">⭐ Otorgar Inspiración</span>
-                    <p className="text-ink-light text-xs">Premia el buen juego de rol concediendo <strong>⭐ Inspiración</strong> a cualquier jugador con un solo clic desde su tarjeta.</p>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-magic-gold" /> Otorgar Inspiración</span>
+                    <p className="text-ink-light text-xs">Premia el buen juego de rol concediendo <strong>Inspiración</strong> a cualquier jugador con un solo clic desde su tarjeta.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">🎖️ Subir de Nivel a la Party</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Award className="w-4 h-4 text-magic-gold" /> Subir de Nivel a la Party</span>
                     <p className="text-ink-light text-xs">Premia los logros de la campaña subiendo de nivel a un jugador o a toda la party simultáneamente con recálculo automático de HP y ranuras.</p>
                   </div>
                 </div>
@@ -226,19 +226,19 @@ export default function TutorialModal({ open, onClose }: { open: boolean; onClos
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">🔑 Iniciar Sesión o Jugar como Invitado</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Users className="w-4 h-4 text-magic-gold" /> Iniciar Sesión o Jugar como Invitado</span>
                     <p className="text-ink-light text-xs">Puedes unirte a partidas de inmediato como invitado sin registrarte. Para crear tus propias salas y actuar como DM, inicia sesión con Google.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">🏰 Crear Salas Públicas o Privadas</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Shield className="w-4 h-4 text-magic-gold" /> Crear Salas Públicas o Privadas</span>
                     <p className="text-ink-light text-xs">Crea campañas protegidas por contraseña o de acceso libre. Configura el nombre de la sala y los permisos de entrada.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">⚡ Sincronización Realtime Ultra-Eficiente</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Zap className="w-4 h-4 text-magic-gold" /> Sincronización Realtime Ultra-Eficiente</span>
                     <p className="text-ink-light text-xs">Tus tiradas, inventario y cambios de estado se transmiten en vivo entre todos los miembros de la party en tiempo real.</p>
                   </div>
                   <div className="p-3 bg-parchment rounded border border-ink/10 space-y-1">
-                    <span className="font-bold text-magic-gold flex items-center gap-1">🔒 Seguridad y Notas Privadas</span>
+                    <span className="font-bold text-magic-gold flex items-center gap-1.5"><Shield className="w-4 h-4 text-magic-gold" /> Seguridad y Notas Privadas</span>
                     <p className="text-ink-light text-xs">Las contraseñas de sala nunca se transmiten en claro y las notas personales se mantienen 100% privadas en tu navegador.</p>
                   </div>
                 </div>

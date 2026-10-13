@@ -76,7 +76,7 @@ export default function TermsPage() {
           </p>
 
           <h2 className="text-lg font-bold font-cinzel text-magic-gold flex items-center gap-2 pt-4 border-t border-ink/10">
-            📬 5. Contacto Legal y Soporte
+            5. Contacto Legal y Soporte
           </h2>
           <p>
             Para consultas relacionadas con estos términos, comuníquese formalmente a través de:{" "}

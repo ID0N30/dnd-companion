@@ -1,16 +1,46 @@
 import { db, auth } from "./firebase";
 import { 
-  collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, 
-  query, where, orderBy, limit, onSnapshot, serverTimestamp 
+  collection, collectionGroup, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, 
+  query, where, orderBy, limit, onSnapshot, serverTimestamp,
+  runTransaction, writeBatch 
 } from "firebase/firestore";
-import { useStore, CharacterState, LogEntry, syncAllLocalPlayersToStorage } from "@/store/useStore";
+import { useStore, CharacterState, LogEntry, syncAllLocalPlayersToStorage, CombatMonster } from "@/store/useStore";
 import { logError, saveOfflineCharacterBackup } from "./errorLogger";
+import { withRetry } from "./firestoreResilience";
+import { 
+  DEMO_ROOM_ID, 
+  DEMO_ROOM_NAME, 
+  DEMO_DM_NAME, 
+  DEMO_INITIAL_MESSAGES, 
+  DEMO_INITIAL_LOGS, 
+  getFactoryDemoParty 
+} from "./demoData";
+
+export const isDemoRoom = (roomId?: string | null): boolean => {
+  if (!roomId) return false;
+  return roomId === DEMO_ROOM_ID || roomId.startsWith('demo_');
+};
+
+export const isDemoCharacterId = (playerId?: string | null): boolean => {
+  if (!playerId) return false;
+  return playerId === 'drizzt_dourden_demo' || playerId.startsWith('demo_');
+};
+
+export const isDemoCharacter = (character?: CharacterState | null): boolean => {
+  if (!character || !character.id) return false;
+  return isDemoCharacterId(character.id) || isDemoRoom(character.roomId);
+};
 
 export type DirectMessage = {
   id: string;
   senderId: string;
+  senderUid?: string;
+  playerUid?: string; // UID del jugador participante en la conversación (para filtrado unificado Jugador <-> DM)
   senderName: string;
   characterName: string;
+  recipientCharacterId?: string;
+  recipientCharacterName?: string;
+  isFromDM?: boolean;
   content: string;
   timestamp: number;
   read?: boolean;
@@ -19,6 +49,7 @@ export type DirectMessage = {
 export type Room = {
   id: string;
   name: string;
+  nameLower?: string;
   dmId: string;
   dmName: string;
   isPublic: boolean;
@@ -28,6 +59,7 @@ export type Room = {
   isCombatMode: boolean;
   initiativeOrder: string[];
   currentTurnIndex: number;
+  combatMonsters?: CombatMonster[];
   lastTurnEvent?: { id: string; timestamp: number } | null;
   lastLevelUpEvent?: any;
   lastItemReceivedEvent?: any;
@@ -67,16 +99,18 @@ export const subscribePublicRooms = (callback: (rooms: Room[]) => void) => {
     );
     
     return onSnapshot(q, (snapshot) => {
-      const rooms = snapshot.docs.map(doc => {
-        const data = doc.data() as Room;
-        // SECURITY FIX: Strip plaintext password from public room streams so client browsers never receive it!
-        const { password, id: _dataId, ...safeRoom } = data;
-        return {
-          id: doc.id,
-          ...safeRoom,
-          hasPassword: Boolean(data.hasPassword || data.password)
-        } as Room;
-      });
+      const rooms = snapshot.docs
+        .filter(doc => !isDemoRoom(doc.id))
+        .map(doc => {
+          const data = doc.data() as Room;
+          // SECURITY FIX: Strip plaintext password from public room streams so client browsers never receive it!
+          const { password, id: _dataId, ...safeRoom } = data;
+          return {
+            id: doc.id,
+            ...safeRoom,
+            hasPassword: Boolean(data.hasPassword || data.password)
+          } as Room;
+        });
       callback(rooms);
     }, (error) => {
       logError(error, 'subscribePublicRooms', 'WARNING');
@@ -91,10 +125,12 @@ export const subscribePublicRooms = (callback: (rooms: Room[]) => void) => {
 
 // 1.5 Verify Room Password Securely
 export const verifyRoomPassword = async (roomId: string, inputPassword: string): Promise<boolean> => {
-  if (!db || !roomId) return false;
+  if (!roomId) return false;
+  if (isDemoRoom(roomId)) return true;
+  if (!db) return false;
   try {
     const roomRef = doc(db, "rooms", roomId);
-    const snap = await getDoc(roomRef);
+    const snap = await withRetry(() => getDoc(roomRef), { context: 'verifyRoomPassword' });
     if (!snap.exists()) return false;
     const data = snap.data() as Room;
     if (!data.hasPassword && !data.password) return true;
@@ -126,12 +162,25 @@ export const createRoom = async (data: {
   }
   
   try {
-    // Check for duplicate campaign names (case-insensitive) across existing rooms
-    const existingRoomsSnap = await getDocs(collection(db, "rooms"));
-    const isDuplicate = existingRoomsSnap.docs.some(d => {
-      const roomData = d.data() as Room;
-      return (roomData.name || "").trim().toLowerCase() === trimmedName.toLowerCase();
-    });
+    // Check for duplicate campaign names (case-insensitive) using indexed query with limit(1)
+    const nameLower = trimmedName.toLowerCase();
+    const dupQuery = query(
+      collection(db, "rooms"),
+      where("nameLower", "==", nameLower),
+      limit(1)
+    );
+    const dupSnap = await withRetry(() => getDocs(dupQuery), { context: 'createRoom_checkDupLower' });
+    let isDuplicate = !dupSnap.empty;
+
+    if (!isDuplicate) {
+      const exactQuery = query(
+        collection(db, "rooms"),
+        where("name", "==", trimmedName),
+        limit(1)
+      );
+      const exactSnap = await withRetry(() => getDocs(exactQuery), { context: 'createRoom_checkDupExact' });
+      isDuplicate = !exactSnap.empty;
+    }
 
     if (isDuplicate) {
       throw new Error(`Ya existe una campaña llamada "${trimmedName}". Por favor elige un nombre único para evitar confusiones.`);
@@ -141,6 +190,7 @@ export const createRoom = async (data: {
     const newRoom: Room = {
       id: roomRef.id,
       name: trimmedName,
+      nameLower: trimmedName.toLowerCase(),
       dmId: data.dmId,
       dmName: data.dmName,
       isPublic: data.isPublic,
@@ -153,8 +203,8 @@ export const createRoom = async (data: {
       createdAt: serverTimestamp()
     };
 
-    await setDoc(roomRef, cleanFirebaseData(newRoom));
-    await addRoomLog(roomRef.id, `🏰 Campaña creada por el DM ${data.dmName}.`);
+    await withRetry(() => setDoc(roomRef, cleanFirebaseData(newRoom)), { context: 'createRoom_setDoc' });
+    await addRoomLog(roomRef.id, `Campaña creada por el DM ${data.dmName}.`);
     return roomRef.id;
   } catch (err: any) {
     logError(err, 'createRoom', 'CRITICAL');
@@ -164,7 +214,24 @@ export const createRoom = async (data: {
 
 // 3. Subscribe to Single Room Realtime State
 export const subscribeRoom = (roomId: string, callback: (room: Room | null) => void) => {
-  if (!db || !roomId) return () => {};
+  if (!roomId) return () => {};
+  if (isDemoRoom(roomId)) {
+    callback({
+      id: roomId,
+      name: DEMO_ROOM_NAME,
+      dmId: "dm_demo",
+      dmName: DEMO_DM_NAME,
+      isPublic: false,
+      hasPassword: false,
+      allowGuests: true,
+      isCombatMode: false,
+      initiativeOrder: [],
+      currentTurnIndex: 0,
+      directMessages: DEMO_INITIAL_MESSAGES
+    });
+    return () => {};
+  }
+  if (!db) return () => {};
   try {
     const roomRef = doc(db, "rooms", roomId);
     return onSnapshot(roomRef, (snapshot) => {
@@ -185,7 +252,12 @@ export const subscribeRoom = (roomId: string, callback: (room: Room | null) => v
 
 // 4. Subscribe to Room Players (Characters)
 export const subscribeRoomPlayers = (roomId: string, callback: (players: CharacterState[]) => void) => {
-  if (!db || !roomId) return () => {};
+  if (!roomId) return () => {};
+  if (isDemoRoom(roomId)) {
+    callback(getFactoryDemoParty());
+    return () => {};
+  }
+  if (!db) return () => {};
   try {
     const playersRef = collection(db, "rooms", roomId, "players");
     return onSnapshot(playersRef, (snapshot) => {
@@ -231,7 +303,17 @@ export const getLogCategory = (message: string): { type: LogCategory; icon: stri
 
 // 5. Subscribe to Room Logs (Real-time Action Log Tracker with limit protection)
 export const subscribeRoomLogs = (roomId: string, callback: (logs: LogEntry[]) => void) => {
-  if (!db || !roomId) return () => {};
+  if (!roomId) return () => {};
+  if (isDemoRoom(roomId)) {
+    const initialLogs: LogEntry[] = DEMO_INITIAL_LOGS.map((msg, idx) => ({
+      id: `demo_log_${idx}`,
+      message: msg,
+      timestamp: Date.now() - (DEMO_INITIAL_LOGS.length - idx) * 1000
+    }));
+    callback(initialLogs);
+    return () => {};
+  }
+  if (!db) return () => {};
   try {
     const logsRef = collection(db, "rooms", roomId, "logs");
     const q = query(logsRef, orderBy("timestamp", "desc"), limit(35));
@@ -265,10 +347,12 @@ const lastSavedDataMap = new Map<string, string>();
 const pendingWriteTimers = new Map<string, NodeJS.Timeout>();
 
 export const savePlayerInRoom = async (roomId: string, character: CharacterState, forceWrite: boolean = false) => {
-  if (!db || !roomId || !character || !character.id) return;
+  if (!roomId || !character || !character.id) return;
   
-  // GUARD 1: Never write demo character to Firestore
-  if (character.id === 'drizzt_dourden_demo') return;
+  // GUARD 1: Never write demo character or demo room characters to Firestore
+  if (isDemoRoom(roomId) || isDemoCharacter(character)) return;
+
+  if (!db) return;
 
   // GUARD 2: Strict Campaign Isolation!
   // If character has a roomId and it doesn't match target roomId, abort to prevent cross-contamination
@@ -323,7 +407,10 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
 
   try {
     const playerRef = doc(db, "rooms", roomId, "players", character.id);
-    await setDoc(playerRef, cleanFirebaseData(characterToSave), { merge: true });
+    await withRetry(
+      () => setDoc(playerRef, cleanFirebaseData(characterToSave), { merge: true }),
+      { context: 'savePlayerInRoom' }
+    );
     saveOfflineCharacterBackup(characterToSave);
     syncAllLocalPlayersToStorage([characterToSave]);
   } catch (err: any) {
@@ -337,7 +424,7 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
 const lastPresenceMap = new Map<string, { isOnline: boolean; timestamp: number }>();
 
 export const updatePlayerPresence = async (roomId: string, playerId: string, isOnline: boolean) => {
-  if (!db || !roomId || !playerId || playerId === 'drizzt_dourden_demo') return;
+  if (!roomId || !playerId || isDemoRoom(roomId) || isDemoCharacterId(playerId) || !db) return;
   
   const key = `${roomId}_${playerId}`;
   const now = Date.now();
@@ -357,74 +444,124 @@ export const updatePlayerPresence = async (roomId: string, playerId: string, isO
 
   try {
     const playerRef = doc(db, "rooms", roomId, "players", playerId);
-    await updateDoc(playerRef, { isOnline, lastSeen: now });
+    await withRetry(
+      () => updateDoc(playerRef, { isOnline, lastSeen: now }),
+      { context: 'updatePlayerPresence', maxRetries: 1 }
+    );
   } catch (err) {
     // Non-critical, ignore presence write failures
   }
 };
 
-// 6.5 Delete Player Character from Campaign Room (Permanent Firestore deletion with auto token refresh)
+// 6.5 Delete Player Character from Campaign Room (Permanent Firestore deletion with withRetry)
 export const deletePlayerFromRoom = async (roomId: string, playerId: string) => {
-  if (!db || !roomId || !playerId) return;
+  if (!roomId || !playerId || isDemoRoom(roomId) || isDemoCharacterId(playerId) || !db) return;
   const playerRef = doc(db, "rooms", roomId, "players", playerId);
 
   try {
-    await deleteDoc(playerRef);
+    await withRetry(
+      () => deleteDoc(playerRef),
+      { context: 'deletePlayerFromRoom' }
+    );
   } catch (err: any) {
-    // If permission was denied due to a stale token, attempt a fresh token retrieval and retry once
-    if (err?.code === 'permission-denied' && auth?.currentUser) {
-      try {
-        await auth.currentUser.getIdToken(true); // Force token refresh
-        await deleteDoc(playerRef);
-        return; // Succeeded on retry!
-      } catch (retryErr: any) {
-        logError(retryErr, 'deletePlayerFromRoom', 'WARNING');
-        return;
-      }
-    }
     logError(err, 'deletePlayerFromRoom', 'WARNING');
   }
 };
 
 // 6.6 Fetch all characters owned by a user across active campaign rooms (Cloud recovery)
-export const fetchUserCharactersAcrossRooms = async (userId: string, roomIds: string[]): Promise<CharacterState[]> => {
-  if (!db || !userId || !roomIds.length) return [];
-  const foundCharacters: CharacterState[] = [];
+export const fetchUserCharactersAcrossRooms = async (userId: string, roomIds: string[] = []): Promise<CharacterState[]> => {
+  if (!db || !userId) return [];
+  const seenMap = new Map<string, CharacterState>();
+
   try {
-    for (const rid of roomIds) {
-      if (!rid) continue;
-      const q = query(
-        collection(db, "rooms", rid, "players"),
-        where("ownerId", "==", userId)
-      );
-      const snap = await getDocs(q);
-      snap.forEach(docSnap => {
-        const data = docSnap.data() as CharacterState;
-        if (data && !(data as any).kicked && docSnap.id !== 'drizzt_dourden_demo') {
-          foundCharacters.push({
-            ...data,
-            id: docSnap.id,
-            roomId: data.roomId || rid
-          });
-        }
-      });
+    const cgQuery = query(
+      collectionGroup(db, "players"),
+      where("ownerId", "==", userId)
+    );
+    const snap = await withRetry(
+      () => getDocs(cgQuery),
+      { context: 'fetchUserCharactersAcrossRooms_collectionGroup', maxRetries: 1 }
+    );
+
+    snap.forEach(docSnap => {
+      const data = docSnap.data() as CharacterState;
+      const parentRoomId = data?.roomId || docSnap.ref.parent.parent?.id || "";
+      if (!parentRoomId || isDemoRoom(parentRoomId) || isDemoCharacterId(docSnap.id) || (data as any)?.kicked) {
+        return;
+      }
+      const dedupeKey = `${parentRoomId}_${docSnap.id}`;
+      if (!seenMap.has(dedupeKey)) {
+        seenMap.set(dedupeKey, {
+          ...data,
+          id: docSnap.id,
+          roomId: parentRoomId
+        });
+      }
+    });
+
+    return Array.from(seenMap.values());
+  } catch (cgErr: any) {
+    logError(cgErr, 'fetchUserCharactersAcrossRooms_collectionGroup_fallback', 'WARNING');
+
+    // Fallback resiliente en paralelo si collectionGroup falla (por ejemplo índice aún desplegándose)
+    if (roomIds && roomIds.length > 0) {
+      const validRoomIds = roomIds.filter(rid => rid && !isDemoRoom(rid));
+      try {
+        const results = await Promise.all(
+          validRoomIds.map(async (rid) => {
+            try {
+              const q = query(
+                collection(db!, "rooms", rid, "players"),
+                where("ownerId", "==", userId)
+              );
+              const snap = await withRetry(
+                () => getDocs(q),
+                { context: `fetchUserCharactersAcrossRooms_fallback_${rid}`, maxRetries: 1 }
+              );
+              const chars: CharacterState[] = [];
+              snap.forEach(docSnap => {
+                const data = docSnap.data() as CharacterState;
+                if (data && !(data as any).kicked && !isDemoCharacterId(docSnap.id)) {
+                  chars.push({
+                    ...data,
+                    id: docSnap.id,
+                    roomId: data.roomId || rid
+                  });
+                }
+              });
+              return chars;
+            } catch (err) {
+              logError(err, `fetchUserCharactersAcrossRooms_fallback_${rid}`, 'WARNING');
+              return [];
+            }
+          })
+        );
+        return results.flat();
+      } catch (err) {
+        logError(err, 'fetchUserCharactersAcrossRooms_parallel_fallback', 'WARNING');
+      }
     }
-  } catch (e) {
-    logError(e, 'fetchUserCharactersAcrossRooms', 'WARNING');
+
+    return [];
   }
-  return foundCharacters;
 };
 
 // 7. Kick Player from Campaign (DM Only)
 export const kickPlayerFromRoom = async (roomId: string, playerId: string, playerName: string) => {
-  if (!db || !roomId || !playerId) return;
+  if (!roomId || !playerId || isDemoRoom(roomId) || isDemoCharacterId(playerId) || !db) return;
   try {
     const playerRef = doc(db, "rooms", roomId, "players", playerId);
-    await setDoc(playerRef, { kicked: true, isOnline: false }, { merge: true });
-    await addRoomLog(roomId, `⚡ El DM ha retirado a ${playerName} de la campaña.`);
+    await withRetry(
+      () => setDoc(playerRef, { kicked: true, isOnline: false }, { merge: true }),
+      { context: 'kickPlayerFromRoom_setDoc' }
+    );
+    await addRoomLog(roomId, `El DM ha retirado a ${playerName} de la campaña.`);
     setTimeout(async () => {
       try {
-        await deleteDoc(playerRef);
+        await withRetry(
+          () => deleteDoc(playerRef),
+          { context: 'kickPlayerFromRoom_deleteDoc' }
+        );
       } catch (e) {}
     }, 2500);
   } catch (err: any) {
@@ -434,11 +571,17 @@ export const kickPlayerFromRoom = async (roomId: string, playerId: string, playe
 
 // 8. Update Room/Campaign Settings (DM Only)
 export const updateCampaignDetails = async (roomId: string, updates: Partial<Room>) => {
-  if (!db || !roomId) return;
+  if (!roomId || isDemoRoom(roomId) || !db) return;
   try {
+    if (updates.name) {
+      updates.nameLower = updates.name.trim().toLowerCase();
+    }
     const roomRef = doc(db, "rooms", roomId);
-    await updateDoc(roomRef, cleanFirebaseData(updates));
-    await addRoomLog(roomId, `⚙️ El DM actualizó los ajustes de la campaña.`);
+    await withRetry(
+      () => updateDoc(roomRef, cleanFirebaseData(updates)),
+      { context: 'updateCampaignDetails' }
+    );
+    await addRoomLog(roomId, `El DM actualizó los ajustes de la campaña.`);
   } catch (err: any) {
     logError(err, 'updateCampaignDetails', 'WARNING');
   }
@@ -446,120 +589,432 @@ export const updateCampaignDetails = async (roomId: string, updates: Partial<Roo
 
 // 9. Update Room State (DM / Turn advance / Combat Mode)
 export const updateRoomState = async (roomId: string, updates: Partial<Room>) => {
-  if (!db || !roomId) return;
+  if (!roomId || isDemoRoom(roomId) || !db) return;
   try {
     const roomRef = doc(db, "rooms", roomId);
-    await updateDoc(roomRef, cleanFirebaseData(updates));
+    await withRetry(
+      () => updateDoc(roomRef, cleanFirebaseData(updates)),
+      { context: 'updateRoomState' }
+    );
   } catch (err: any) {
     logError(err, 'updateRoomState', 'WARNING');
   }
 };
 
-// 10. Add Action Log to Room
-export const addRoomLog = async (roomId: string, message: string) => {
-  if (!db || !roomId) return;
-  try {
-    const logsRef = collection(db, "rooms", roomId, "logs");
-    await addDoc(logsRef, {
-      id: Date.now().toString() + Math.random(),
-      message,
-      timestamp: Date.now()
+// 9.5 Atomic Turn Advance (Race Condition Shield via runTransaction)
+export const advanceRoomTurnAtomic = async (
+  roomId: string,
+  event: { id: string; timestamp: number },
+  fallbackNextIndex?: number
+): Promise<number> => {
+  if (!roomId || isDemoRoom(roomId) || !db) {
+    return fallbackNextIndex ?? 0;
+  }
+
+  return await withRetry(async () => {
+    return await runTransaction(db!, async (tx) => {
+      const roomRef = doc(db!, "rooms", roomId);
+      const roomSnap = await tx.get(roomRef);
+      if (!roomSnap.exists()) {
+        throw new Error(`La sala ${roomId} no existe.`);
+      }
+      const data = roomSnap.data() as Room;
+      const order = data.initiativeOrder || [];
+      const nextIdx = order.length > 0 ? ((data.currentTurnIndex || 0) + 1) % order.length : 0;
+
+      tx.update(roomRef, {
+        currentTurnIndex: nextIdx,
+        lastTurnEvent: cleanFirebaseData(event)
+      });
+
+      return nextIdx;
     });
+  }, { context: 'advanceRoomTurnAtomic' });
+};
+
+// 10. Add Action Log to Room (Rate-limited & Deduplicated to prevent burst spam)
+const lastLogTimeMap = new Map<string, { message: string; timestamp: number }>();
+const MIN_LOG_INTERVAL_MS = 600;
+
+export const addRoomLog = async (roomId: string, message: string) => {
+  if (!roomId || isDemoRoom(roomId) || !db) return;
+
+  const now = Date.now();
+  const lastLog = lastLogTimeMap.get(roomId);
+  if (lastLog) {
+    if (lastLog.message === message && (now - lastLog.timestamp < 1000)) {
+      return;
+    }
+    if (now - lastLog.timestamp < MIN_LOG_INTERVAL_MS) {
+      return;
+    }
+  }
+  lastLogTimeMap.set(roomId, { message, timestamp: now });
+
+  try {
+    await withRetry(async () => {
+      const logsRef = collection(db!, "rooms", roomId, "logs");
+      await addDoc(logsRef, {
+        id: Date.now().toString() + Math.random(),
+        message,
+        timestamp: Date.now()
+      });
+    }, { context: 'addRoomLog' });
   } catch (err: any) {
     logError(err, 'addRoomLog', 'INFO');
   }
 };
 
-// 11. Direct Messages to DM
-export const sendDirectMessageToDM = async (roomId: string, message: Omit<DirectMessage, 'id' | 'timestamp'>) => {
-  if (!db || !roomId) return;
+// 10.5 Subscribe to Room Whispers (Direct Messages Subcollection with Bidirectional Support)
+export const subscribeRoomWhispers = (
+  roomId: string,
+  options: { isDM?: boolean; senderUid?: string; characterId?: string },
+  callback: (messages: DirectMessage[]) => void
+) => {
+  if (!roomId) {
+    callback([]);
+    return () => {};
+  }
+
+  if (isDemoRoom(roomId)) {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('dnd_demo_direct_messages');
+      if (stored) {
+        try {
+          let msgs: DirectMessage[] = JSON.parse(stored);
+          if (!options.isDM && options.characterId) {
+            msgs = msgs.filter(m => 
+              m.senderId === options.characterId || 
+              m.recipientCharacterId === options.characterId ||
+              (m.isFromDM && (m.characterName === options.characterId || m.recipientCharacterId === options.characterId))
+            );
+          }
+          msgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+          callback(msgs);
+          return () => {};
+        } catch (e) {}
+      }
+    }
+    callback(DEMO_INITIAL_MESSAGES);
+    return () => {};
+  }
+
+  if (!db) {
+    callback([]);
+    return () => {};
+  }
+
   try {
-    const roomRef = doc(db, "rooms", roomId);
-    const roomSnap = await getDoc(roomRef);
-    if (!roomSnap.exists()) return;
-    const data = roomSnap.data() as Room;
-    const currentMsgs = data.directMessages || [];
-    
+    const whispersRef = collection(db, "rooms", roomId, "whispers");
+
+    if (options.isDM) {
+      return onSnapshot(whispersRef, (snapshot) => {
+        const msgs = snapshot.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        })) as DirectMessage[];
+        msgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        callback(msgs);
+      }, (err) => {
+        logError(err, 'subscribeRoomWhispers (DM)', 'WARNING');
+        callback([]);
+      });
+    } else {
+      const uid = options.senderUid || auth?.currentUser?.uid;
+      if (!uid) {
+        callback([]);
+        return () => {};
+      }
+
+      // Bidirectional subscription: messages sent by the player (senderUid == uid)
+      // and messages addressed to the player by the DM (playerUid == uid)
+      const msgsMap = new Map<string, DirectMessage>();
+
+      const emitCombined = () => {
+        let allMsgs = Array.from(msgsMap.values());
+        if (options.characterId) {
+          allMsgs = allMsgs.filter(m => 
+            m.senderId === options.characterId || 
+            m.recipientCharacterId === options.characterId ||
+            (m.isFromDM && (m.characterName === options.characterId || m.recipientCharacterId === options.characterId))
+          );
+        }
+        allMsgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        callback(allMsgs);
+      };
+
+      const qSender = query(whispersRef, where("senderUid", "==", uid));
+      const qPlayer = query(whispersRef, where("playerUid", "==", uid));
+
+      const unsubSender = onSnapshot(qSender, (snapshot) => {
+        snapshot.docs.forEach(d => {
+          msgsMap.set(d.id, { id: d.id, ...d.data() } as DirectMessage);
+        });
+        const currentIds = new Set(snapshot.docs.map(d => d.id));
+        for (const [id, msg] of msgsMap.entries()) {
+          if (msg.senderUid === uid && !currentIds.has(id)) {
+            msgsMap.delete(id);
+          }
+        }
+        emitCombined();
+      }, (err) => {
+        logError(err, 'subscribeRoomWhispers (qSender)', 'WARNING');
+      });
+
+      const unsubPlayer = onSnapshot(qPlayer, (snapshot) => {
+        snapshot.docs.forEach(d => {
+          msgsMap.set(d.id, { id: d.id, ...d.data() } as DirectMessage);
+        });
+        const currentIds = new Set(snapshot.docs.map(d => d.id));
+        for (const [id, msg] of msgsMap.entries()) {
+          if (msg.playerUid === uid && !currentIds.has(id)) {
+            msgsMap.delete(id);
+          }
+        }
+        emitCombined();
+      }, (err) => {
+        logError(err, 'subscribeRoomWhispers (qPlayer)', 'WARNING');
+      });
+
+      return () => {
+        unsubSender();
+        unsubPlayer();
+      };
+    }
+  } catch (err) {
+    logError(err, 'subscribeRoomWhispers', 'WARNING');
+    callback([]);
+    return () => {};
+  }
+};
+
+// 11. Direct Messages to DM (Atomic WriteBatch Prune + withRetry)
+export const sendDirectMessageToDM = async (roomId: string, message: Omit<DirectMessage, 'id' | 'timestamp'>) => {
+  if (!roomId) return;
+
+  if (isDemoRoom(roomId)) {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('dnd_demo_direct_messages');
+      const currentMsgs: DirectMessage[] = stored ? JSON.parse(stored) : [...DEMO_INITIAL_MESSAGES];
+      const newMsg: DirectMessage = {
+        ...message,
+        id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        isFromDM: false,
+        timestamp: Date.now(),
+        read: false
+      };
+      const userMsgs = currentMsgs.filter(m => m.senderId === message.senderId);
+      let filteredCurrentMsgs = currentMsgs;
+
+      if (userMsgs.length >= 5) {
+        const sortedUserMsgs = [...userMsgs].sort((a, b) => a.timestamp - b.timestamp);
+        const excessCount = userMsgs.length - 4;
+        const msgsToRemove = sortedUserMsgs.slice(0, excessCount);
+        const removeIds = new Set(msgsToRemove.map(m => m.id));
+        filteredCurrentMsgs = currentMsgs.filter(m => !removeIds.has(m.id));
+      }
+
+      const updated = [...filteredCurrentMsgs, newMsg];
+      localStorage.setItem('dnd_demo_direct_messages', JSON.stringify(updated));
+    }
+    return;
+  }
+
+  if (!db) return;
+
+  try {
+    const senderUid = auth?.currentUser?.uid || message.senderUid || message.senderId;
+    const playerUid = auth?.currentUser?.uid || message.playerUid || message.senderUid || message.senderId;
+    const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+
     const newMsg: DirectMessage = {
       ...message,
-      id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      id: msgId,
+      senderUid,
+      playerUid,
+      isFromDM: false,
       timestamp: Date.now(),
       read: false
     };
 
-    // FIFO Sliding Window: Retain at most 4 previous messages from this sender so that with the new one, total is at most 5
-    const userMsgs = currentMsgs.filter(m => m.senderId === message.senderId);
-    let filteredCurrentMsgs = currentMsgs;
+    await withRetry(async () => {
+      const whispersRef = collection(db!, "rooms", roomId, "whispers");
+      const q = query(whispersRef, where("senderUid", "==", senderUid));
+      const snap = await getDocs(q);
+      const existingMsgs = snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as DirectMessage))
+        .filter(m => m.senderId === message.senderId || (m.characterName && m.characterName === message.characterName));
 
-    if (userMsgs.length >= 5) {
-      const sortedUserMsgs = [...userMsgs].sort((a, b) => a.timestamp - b.timestamp);
-      const excessCount = userMsgs.length - 4;
-      const msgsToRemove = sortedUserMsgs.slice(0, excessCount);
-      const removeIds = new Set(msgsToRemove.map(m => m.id));
-      filteredCurrentMsgs = currentMsgs.filter(m => !removeIds.has(m.id));
-    }
+      const batch = writeBatch(db!);
+      const whisperRef = doc(db!, "rooms", roomId, "whispers", msgId);
+      batch.set(whisperRef, cleanFirebaseData(newMsg));
 
-    const updated = [...filteredCurrentMsgs, newMsg];
-    await updateDoc(roomRef, { directMessages: cleanFirebaseData(updated) });
-    await addRoomLog(roomId, `✉️ ${message.characterName} ha enviado un mensaje privado / trasfondo al DM.`);
+      if (existingMsgs.length >= 5) {
+        const sortedExisting = [...existingMsgs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        const excessCount = existingMsgs.length - 4;
+        const toDelete = sortedExisting.slice(0, excessCount);
+        for (const oldMsg of toDelete) {
+          batch.delete(doc(db!, "rooms", roomId, "whispers", oldMsg.id));
+        }
+      }
+
+      await batch.commit();
+    }, { context: 'sendDirectMessageToDM' });
+
+    await addRoomLog(roomId, `El personaje ${message.characterName} ha enviado un mensaje privado / trasfondo al DM.`);
   } catch (err: any) {
     logError(err, 'sendDirectMessageToDM', 'WARNING');
   }
 };
 
-export const deleteDirectMessage = async (roomId: string, messageId: string) => {
-  if (!db || !roomId) return;
+// 11.2 DM Whisper Reply to Player (Bidirectional Channel)
+export const sendWhisperFromDM = async (
+  roomId: string,
+  whisper: {
+    recipientCharacterId: string;
+    recipientCharacterName: string;
+    playerUid?: string;
+    content: string;
+  }
+) => {
+  if (!roomId) return;
+
+  const msgId = 'whisper_dm_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+  const newMsg: DirectMessage = {
+    id: msgId,
+    senderId: 'dm',
+    senderUid: auth?.currentUser?.uid || 'dm',
+    playerUid: whisper.playerUid || whisper.recipientCharacterId,
+    senderName: 'Dungeon Master',
+    characterName: whisper.recipientCharacterName,
+    recipientCharacterId: whisper.recipientCharacterId,
+    recipientCharacterName: whisper.recipientCharacterName,
+    content: whisper.content.trim(),
+    isFromDM: true,
+    timestamp: Date.now(),
+    read: false
+  };
+
+  if (isDemoRoom(roomId)) {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('dnd_demo_direct_messages');
+      const msgs: DirectMessage[] = stored ? JSON.parse(stored) : [...DEMO_INITIAL_MESSAGES];
+      msgs.push(newMsg);
+      localStorage.setItem('dnd_demo_direct_messages', JSON.stringify(msgs));
+    }
+    return;
+  }
+
+  if (!db) return;
+
   try {
-    const roomRef = doc(db, "rooms", roomId);
-    const roomSnap = await getDoc(roomRef);
-    if (!roomSnap.exists()) return;
-    const data = roomSnap.data() as Room;
-    const currentMsgs = data.directMessages || [];
-    const updated = currentMsgs.filter(m => m.id !== messageId);
-    await updateDoc(roomRef, { directMessages: cleanFirebaseData(updated) });
+    await withRetry(async () => {
+      const whisperRef = doc(db!, "rooms", roomId, "whispers", msgId);
+      await setDoc(whisperRef, cleanFirebaseData(newMsg));
+    }, { context: 'sendWhisperFromDM' });
+
+    await addRoomLog(roomId, `El DM ha enviado una respuesta o susurro secreto a ${whisper.recipientCharacterName}.`);
+  } catch (err: any) {
+    logError(err, 'sendWhisperFromDM', 'WARNING');
+  }
+};
+
+export const deleteDirectMessage = async (roomId: string, messageId: string) => {
+  if (!roomId || !messageId) return;
+
+  if (isDemoRoom(roomId)) {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('dnd_demo_direct_messages');
+      const msgs: DirectMessage[] = stored ? JSON.parse(stored) : [...DEMO_INITIAL_MESSAGES];
+      const updated = msgs.filter(m => m.id !== messageId);
+      localStorage.setItem('dnd_demo_direct_messages', JSON.stringify(updated));
+    }
+    return;
+  }
+
+  if (!db) return;
+
+  try {
+    const whisperRef = doc(db, "rooms", roomId, "whispers", messageId);
+    await withRetry(
+      () => deleteDoc(whisperRef),
+      { context: 'deleteDirectMessage' }
+    );
   } catch (err: any) {
     logError(err, 'deleteDirectMessage', 'WARNING');
   }
 };
 
 export const markDirectMessageAsRead = async (roomId: string, messageId: string) => {
-  if (!db || !roomId || !messageId) return;
-  try {
-    const roomRef = doc(db, "rooms", roomId);
-    const roomSnap = await getDoc(roomRef);
-    if (!roomSnap.exists()) return;
-    const data = roomSnap.data() as Room;
-    const currentMsgs = data.directMessages || [];
-    
-    const targetMsg = currentMsgs.find(m => m.id === messageId);
-    if (!targetMsg || targetMsg.read === true) return;
+  if (!roomId || !messageId) return;
 
-    const updated = currentMsgs.map(m => m.id === messageId ? { ...m, read: true } : m);
-    await updateDoc(roomRef, { directMessages: cleanFirebaseData(updated) });
+  if (isDemoRoom(roomId)) {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('dnd_demo_direct_messages');
+      const msgs: DirectMessage[] = stored ? JSON.parse(stored) : [...DEMO_INITIAL_MESSAGES];
+      const updated = msgs.map(m => m.id === messageId ? { ...m, read: true } : m);
+      localStorage.setItem('dnd_demo_direct_messages', JSON.stringify(updated));
+    }
+    return;
+  }
+
+  if (!db) return;
+
+  try {
+    const whisperRef = doc(db, "rooms", roomId, "whispers", messageId);
+    await withRetry(
+      () => updateDoc(whisperRef, { read: true }),
+      { context: 'markDirectMessageAsRead' }
+    );
   } catch (err: any) {
     logError(err, 'markDirectMessageAsRead', 'WARNING');
   }
 };
 
-export const markAllDirectMessagesAsRead = async (roomId: string, senderId?: string) => {
-  if (!db || !roomId) return;
-  try {
-    const roomRef = doc(db, "rooms", roomId);
-    const roomSnap = await getDoc(roomRef);
-    if (!roomSnap.exists()) return;
-    const data = roomSnap.data() as Room;
-    const currentMsgs = data.directMessages || [];
-    
-    const hasUnread = currentMsgs.some(m => (!senderId || m.senderId === senderId || (m.characterName || m.senderName) === senderId) && !m.read);
-    if (!hasUnread) return;
+export const markAllDirectMessagesAsRead = async (roomId: string, senderFilter?: string) => {
+  if (!roomId) return;
 
-    const updated = currentMsgs.map(m => {
-      if (!senderId || m.senderId === senderId || (m.characterName || m.senderName) === senderId) {
-        return { ...m, read: true };
+  if (isDemoRoom(roomId)) {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('dnd_demo_direct_messages');
+      const msgs: DirectMessage[] = stored ? JSON.parse(stored) : [...DEMO_INITIAL_MESSAGES];
+      const updated = msgs.map(m => {
+        if (!senderFilter || senderFilter === 'all' || m.senderId === senderFilter || (m.characterName || m.senderName) === senderFilter) {
+          return { ...m, read: true };
+        }
+        return m;
+      });
+      localStorage.setItem('dnd_demo_direct_messages', JSON.stringify(updated));
+    }
+    return;
+  }
+
+  if (!db) return;
+
+  try {
+    await withRetry(async () => {
+      const whispersRef = collection(db!, "rooms", roomId, "whispers");
+      const q = query(whispersRef, where("read", "==", false));
+      const snap = await getDocs(q);
+
+      if (snap.empty) return;
+
+      const batch = writeBatch(db!);
+      const isAll = !senderFilter || senderFilter === 'all';
+      let updateCount = 0;
+
+      for (const d of snap.docs) {
+        const data = d.data() as DirectMessage;
+        if (isAll || data.senderId === senderFilter || (data.characterName || data.senderName) === senderFilter) {
+          batch.update(doc(db!, "rooms", roomId, "whispers", d.id), { read: true });
+          updateCount++;
+        }
       }
-      return m;
-    });
-    await updateDoc(roomRef, { directMessages: cleanFirebaseData(updated) });
+
+      if (updateCount > 0) {
+        await batch.commit();
+      }
+    }, { context: 'markAllDirectMessagesAsRead' });
   } catch (err: any) {
     logError(err, 'markAllDirectMessagesAsRead', 'WARNING');
   }
@@ -567,10 +1022,13 @@ export const markAllDirectMessagesAsRead = async (roomId: string, senderId?: str
 
 // 12. Delete Entire Room / Campaign (DM Creator Action)
 export const deleteRoom = async (roomId: string) => {
-  if (!db || !roomId) return;
+  if (!roomId || isDemoRoom(roomId) || !db) return;
   try {
     const roomRef = doc(db, "rooms", roomId);
-    await deleteDoc(roomRef);
+    await withRetry(
+      () => deleteDoc(roomRef),
+      { context: 'deleteRoom' }
+    );
   } catch (err: any) {
     logError(err, 'deleteRoom', 'CRITICAL');
     throw err;

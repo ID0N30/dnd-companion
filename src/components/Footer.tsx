@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Shield, Sparkles, Mail, Code2, HelpCircle, FileText, Lock, Cookie, ArrowUpRight, Heart } from "lucide-react";
+import { ASSETS } from "@/lib/assets";
 
 export default function Footer() {
   return (
@@ -15,7 +16,7 @@ export default function Footer() {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-magic-gold/20 border border-magic-gold flex items-center justify-center text-magic-gold">
-                <Sparkles className="w-5 h-5 text-magic-gold" />
+                <img src={ASSETS.icons.d20} className="w-5 h-5 object-contain" alt="D20 Emblem" />
               </div>
               <span className="font-cinzel font-bold text-xl tracking-wide text-ink">
                 Idoneus Software

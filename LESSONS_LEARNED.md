@@ -109,4 +109,118 @@ Este documento registra los aprendizajes críticos, patrones de diseño probados
    - **Descanso Corto**: El jugador puede gastar dados de golpe individuales para curarse (`1d[die] + conMod` por dado gastado).
    - **Descanso Largo**: Se recupera toda la vida y se regenera la mitad del total de dados de golpe (`Math.max(1, Math.floor(max / 2))`).
 
+---
+
+## 7. Blindaje de Reglas de Seguridad (`firestore.rules`) y Subcolección `/whispers`
+
+### ⚠️ Restricción Granular en `/rooms/{roomId}` y Excepción Quirúrgica de Turnos
+- **El Problema**: Otorgar permisos globales `allow update: if isAuthenticated();` permitía que cualquier jugador en la sala modificara la contraseña, el nombre de la campaña o el estado de combate del DM.
+- **La Solución**:
+  - `/rooms/{roomId}` restringe el permiso general de actualización exclusivamente al DM (`resource.data.dmId == request.auth.uid`).
+  - Para permitir que un jugador avance el turno de combate cuando finaliza su acción, se implementó una excepción quirúrgica controlada por CEL:
+    ```javascript
+    allow update: if isAuthenticated() && (
+      resource.data.dmId == request.auth.uid || 
+      (request.resource.data.dmId == resource.data.dmId && 
+       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentTurnIndex', 'lastTurnEvent']))
+    );
+    ```
+  - Esta regla asegura que ningún cliente no privilegiado pueda modificar campos ajenos a la rotación de turnos.
+
+### ⚠️ Validación de Propiedad en `/players/{playerId}`
+- Al crear o actualizar un personaje, se valida estrictamente `ownerId == request.auth.uid` o que el solicitante sea el DM de la sala. Se prohíbe además la usurpación de personajes impidiendo modificar el `ownerId` original una vez creado (`request.resource.data.ownerId == resource.data.ownerId`).
+
+### ⚠️ Subcolección `/whispers` y la Regla "Rules Are Not Filters"
+- **El Principio de Firestore**: En Firestore, las reglas de seguridad son binarias y evaluadas antes de ejecutar la consulta; no actúan como filtros automáticos sobre los datos. Si un cliente solicita una colección completa mediante `collection()` pero una sola regla prohíbe un documento dentro de esa colección, Firestore rechaza la petición completa con `permission-denied`.
+- **El Problema con Susurros Bidireccionales**: En un canal privado donde el DM envía mensajes al jugador y el jugador envía mensajes al DM:
+  - Si el jugador se suscribe a toda la subcolección `/rooms/{roomId}/whispers`, Firestore evalúa si tiene permiso sobre los mensajes de *todos* los demás jugadores de la sala, fallando de inmediato.
+- **La Solución Arquitectónica**:
+  1. Cada documento de susurro almacena explícitamente `senderUid` (quien envía) y `playerUid` (el UID del jugador participante del hilo, tanto si es remitente como si es destinatario de una respuesta del DM).
+  2. La regla en `firestore.rules` autoriza la lectura si:
+     ```javascript
+     match /whispers/{whisperId} {
+       allow read: if isAuthenticated() && (
+         resource.data.senderUid == request.auth.uid || 
+         resource.data.playerUid == request.auth.uid || 
+         get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
+       );
+     }
+     ```
+  3. En el cliente (`subscribeRoomWhispers`), si el usuario es jugador (no DM), se ejecutan consultas filtradas que coinciden exactamente con la autorización:
+     - `query(whispersRef, where("senderUid", "==", uid))`
+     - `query(whispersRef, where("playerUid", "==", uid))`
+     Unificando reactivamente ambos resultados en un mapa en memoria para mostrar el historial completo de ida y vuelta sin arrojar violaciones de seguridad.
+
+---
+
+## 8. Escalabilidad de Consultas en Firestore (`limit(1)` y `collectionGroup`)
+
+### ⚠️ Prevención de Escaneos Masivos en Validación de Nombres
+- **El Problema**: Descargar toda la colección de salas públicas mediante `getDocs(collection(db, "rooms"))` para comprobar en memoria si un nombre estaba duplicado generaba $N$ lecturas innecesarias de Firestore que crecían con el número de campañas.
+- **La Solución**:
+  - Se almacena el campo indexado `nameLower` al crear cada sala.
+  - La comprobación ejecuta consultas puntuales ultra-rápidas con costo $O(1)$ de lectura:
+    ```typescript
+    const dupQuery = query(collection(db, "rooms"), where("nameLower", "==", nameLower), limit(1));
+    ```
+
+### ⚠️ Recuperación Cruzada de Personajes con `collectionGroup`
+- **El Problema Previo**: `fetchUserCharactersAcrossRooms` recorría en un bucle secuencial las $N$ salas visitadas por el usuario, consultando cada subcolección individualmente. Si un usuario participaba en 15 campañas, se disparaban 15 peticiones consecutivas con alta latencia y fallos si alguna sala no respondía.
+- **La Solución Óptima**:
+  - Uso de `collectionGroup(db, "players")` con filtro `where("ownerId", "==", userId)` para recuperar en un único disparo todas las fichas del usuario en toda la base de datos.
+  - Declaración del índice compuesto oficial en `firestore.indexes.json`:
+    ```json
+    {
+      "collectionGroup": "players",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "ownerId", "order": "ASCENDING" }]
+    }
+    ```
+  - **Estrategia Fallback Silenciosa**: Si el índice aún no se encuentra desplegado en Firebase Console o ocurre una excepción transitoria, el sistema conmuta inmediatamente a un barrido paralelo optimizado con `Promise.all` sobre las salas activas.
+
+---
+
+## 9. Resiliencia (`withRetry` / `withTimeout`), Transacciones Atómicas y Rate-Limiting
+
+### ⚠️ Módulo Central de Resiliencia (`src/lib/firestoreResilience.ts`)
+- Todas las operaciones de red críticas de Firestore se envuelven en `withRetry` y `withTimeout`:
+  1. **Timeout Determinado**: Límite de 8000 ms mediante `Promise.race` para evitar llamadas colgadas en redes móviles inestables, limpiando siempre el temporizador en el bloque `finally`.
+  2. **Backoff Exponencial con Jitter**: Reintento de hasta 3 veces ante errores transitorios (`unavailable`, `deadline-exceeded`, `resource-exhausted`, `network-request-failed`), espaciando los reintentos con variación aleatoria para prevenir el problema del rebaño atronador (*thundering herd*).
+  3. **Refresco Proactivo de Token**: Si el primer intento devuelve `permission-denied`, se invoca `auth.currentUser.getIdToken(true)` para renovar el token JWT de Firebase Auth y se reintenta la petición.
+
+### ⚠️ Avance Atómico de Turnos (`advanceRoomTurnAtomic`)
+- Para evitar que dos jugadores o el DM presionen el botón de avance de turno simultáneamente provocando saltos dobles de iniciativa o valores desincronizados:
+  - Se utiliza `runTransaction(db, async (tx) => { ... })`.
+  - La transacción lee la versión más reciente de `currentTurnIndex` e `initiativeOrder`, calcula de forma atómica el índice siguiente `(currentTurnIndex + 1) % initiativeOrder.length` y escribe la actualización. Si se detecta concurrencia, Firestore reintenta automáticamente la transacción.
+
+### ⚠️ Lotes en Operaciones Masivas (`writeBatch`) y Rate-Limiting en Logs
+- **Marcado de Lectura Masivo**: Al pulsar "Marcar todos como leídos", se utiliza `writeBatch(db)` para actualizar hasta 500 documentos de susurros en una única transacción atómica de red en lugar de llamadas `updateDoc` independientes.
+- **Deduplicación y Rate-Limiting en `addRoomLog`**:
+  - Un mapa en memoria `lastLogTimeMap` descarta logs idénticos enviados en menos de 1000 ms o ráfagas consecutivas menores a 600 ms, protegiendo las cuotas de Firestore contra spam involuntario.
+
+---
+
+## 10. Estándar Visual de Cero Emojis, Banners Full-Screen y Modularización (`React.memo`)
+
+### ⚠️ Cero Emojis en la Interfaz y Filosofía de Diseño Grimorio
+- Los emojis nativos del sistema operativo se renderizan de manera inconsistente (Apple vs Android vs Windows) y rompen la estética medieval y arcana de D&D.
+- **Estandarización**:
+  - Eliminación total de emojis en textos de interfaz, modales y banners.
+  - Uso exclusivo de activos vectoriales e ilustraciones personalizadas centralizadas en `src/lib/assets.ts` (`ASSETS.banners.*`, `ASSETS.icons.*`).
+  - Uso de iconografía SVG consistente mediante `lucide-react` (`Shield`, `Swords`, `Dice5`, `Sparkles`, `ScrollText`).
+
+### ⚠️ Separación de Responsabilidades: Landing Page (`/`) vs Salón de Campañas (`/campaigns`)
+- **`/` (Landing Page)**: Centrada en el valor del producto, captura de usuarios, accesibilidad semántica (`<h1>` oculto para SEO), presentación de características y acceso directo a la Mesa de Pruebas.
+- **`/campaigns` (Salón de Campañas)**: Centro operativo para búsqueda de partidas, creación de salas, gestión de contraseñas y reingreso a campañas recientes.
+- **`/demo` (Mesa de Pruebas)**: Laboratorio interactivo 100% aislado de Firebase para pruebas de mecánicas y demostración rápida.
+
+### ⚠️ Modularización de Vistas Complejas con `React.memo`
+- La hoja de personaje (`src/app/sheet/page.tsx`) presentaba alta carga de renderizado por re-evaluaciones completas ante cualquier cambio de estado.
+- Se extrajeron y desacoplaron subcomponentes aislados en `src/components/sheet/`:
+  1. **`CombatStatusBanners.tsx`**: Renderiza los banners inmersivos a pantalla completa para turno de combate, estado moribundo, estabilización y muerte con fondos gráficos optimizados.
+  2. **`DemoSandboxToolbar.tsx`**: Barra de herramientas flotante de simulación de daño, curación y reset de fábrica para modo demo.
+  3. **`WhisperConversationModal.tsx`**: Modal de chat privado con hilo de mensajes de ida y vuelta, renderizado memorizado y campo de respuesta en vivo.
+  Todos ellos envueltos en `React.memo` para evitar re-renderizados innecesarios cuando las propiedades no cambian.
+
+
 

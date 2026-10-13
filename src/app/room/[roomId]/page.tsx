@@ -16,7 +16,8 @@ import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import CelestialLevelUpModal from "@/components/CelestialLevelUpModal";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
 import { recordRecentRoom } from "@/lib/recentRooms";
-import { Swords, Shield, Heart, Users, ScrollText, Eye, ArrowLeft, LogOut, Sparkles, Plus, CheckCircle, Skull, UserCheck, Clock, User } from "lucide-react";
+import { Swords, Shield, Heart, Users, ScrollText, Eye, ArrowLeft, LogOut, Sparkles, Plus, CheckCircle, Skull, UserCheck, Clock, User, Sword } from "lucide-react";
+import { ASSETS } from "@/lib/assets";
 
 const RACES = ["Humano", "Elfo", "Enano", "Mediano", "Dracónido", "Tieflling", "Gnomo", "Semielfo", "Semiorco"];
 const CLASSES = ["Guerrero", "Mago", "Pícaro", "Clérigo", "Bardo", "Bárbaro", "Paladín", "Explorador", "Brujo", "Hechicero", "Monje"];
@@ -91,6 +92,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
           isCombatMode: data.isCombatMode,
           initiativeOrder: data.initiativeOrder || [],
           currentTurnIndex: data.currentTurnIndex || 0,
+          combatMonsters: data.combatMonsters || [],
           lastLevelUpEvent: (data.lastLevelUpEvent?.roomId === roomId || !data.lastLevelUpEvent?.roomId) ? data.lastLevelUpEvent : null,
           lastItemReceivedEvent: data.lastItemReceivedEvent?.roomId === roomId ? data.lastItemReceivedEvent : null,
           hpTerminology: data.hpTerminology || 'HP',
@@ -108,7 +110,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         const myRemoteChar = roomPlayers.find(p => p.id === currentActiveId);
         if (myRemoteChar && (myRemoteChar as any).kicked === true) {
           wasKickedRef.current = true;
-          useStore.getState().showAlert("⚡ El DM te ha retirado de la campaña.", "Expulsado de la Sala", "warning");
+          useStore.getState().showAlert("El DM te ha retirado de la campaña.", "Expulsado de la Sala", "warning");
           router.push('/');
           return;
         }
@@ -316,10 +318,18 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                 : 'bg-slate-900 text-amber-300 border-amber-400/60 shadow-[0_0_20px_rgba(0,0,0,0.8)]'}`}
           >
             <Clock className="w-5 h-5 animate-spin shrink-0 text-magic-gold" />
-            <span>
-              {initiativeOrder[currentTurnIndex] === activePlayerId 
-                ? '⚔️ ¡ES TU TURNO DE ACTUAR!' 
-                : `🗡️ Siguiente Turno: ${players.find(p => p.id === initiativeOrder[currentTurnIndex])?.name || 'Jugador'}`}
+            <span className="flex items-center gap-1.5">
+              {initiativeOrder[currentTurnIndex] === activePlayerId ? (
+                <>
+                  <Swords className="w-5 h-5 shrink-0" />
+                  <span>¡ES TU TURNO DE ACTUAR!</span>
+                </>
+              ) : (
+                <>
+                  <Sword className="w-4 h-4 shrink-0 text-amber-400" />
+                  <span>Siguiente Turno: {players.find(p => p.id === initiativeOrder[currentTurnIndex])?.name || 'Jugador'}</span>
+                </>
+              )}
             </span>
           </motion.div>
         )}
@@ -339,6 +349,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
           
           <div>
             <h1 className="font-cinzel font-bold text-base sm:text-lg text-magic-gold flex items-center gap-2">
+              <img src={ASSETS.icons.d20} className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow" alt="D20 Emblem" />
               {room.name}
             </h1>
             <p className="text-[10px] sm:text-xs text-ink-light">Creado por DM: <span className="text-ink font-bold">{room.dmName}</span></p>
@@ -425,8 +436,9 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
               <h2 className="text-3xl font-bold font-cinzel text-magic-gold flex items-center gap-3">
                 <Users className="w-8 h-8" /> Integrantes de {room.name}
               </h2>
-              <span className="text-xs font-bold text-ink-light bg-parchment px-3 py-1.5 rounded border border-ink/20">
-                🟢 {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo' && p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 65000)).length} en línea / {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').length} totales
+              <span className="text-xs font-bold text-ink-light bg-parchment px-3 py-1.5 rounded border border-ink/20 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                <span>{players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo' && p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 65000)).length} en línea / {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').length} totales</span>
               </span>
             </div>
 
@@ -440,24 +452,34 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                         <h3 className="text-2xl font-bold flex items-center gap-2 flex-wrap">
                           {p.name}
                           {online ? (
-                            <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded font-bold">🟢 En línea</span>
+                            <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded font-bold flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-300" />
+                              En línea
+                            </span>
                           ) : (
-                            <span className="text-[10px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded font-bold">🔴 Ausente</span>
+                            <span className="text-[10px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded font-bold flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                              Ausente
+                            </span>
                           )}
                         </h3>
                         <p className="text-xs text-ink-light">{p.race} {p.charClass} (Lvl {p.level})</p>
                         <span className="text-[10px] bg-ink/10 text-ink px-2 py-0.5 rounded font-bold inline-block mt-1">
-                          Jugador: {p.ownerName || (p.ownerId ? 'Registrado' : 'Sin asignar')} {p.ownerId === user?.uid ? '✦ (Tuyo)' : ''}
+                          Jugador: {p.ownerName || (p.ownerId ? 'Registrado' : 'Sin asignar')} {p.ownerId === user?.uid ? '(Tuyo)' : ''}
                         </span>
                       </div>
                       <div className="flex gap-1.5 flex-wrap items-center">
                         {p.inspiration && (
-                          <span className="text-[10px] bg-magic-gold text-black font-bold px-2 py-0.5 rounded shadow">
-                            ⭐ Inspiración
+                          <span className="text-[10px] bg-magic-gold text-black font-bold px-2 py-0.5 rounded shadow flex items-center gap-1">
+                            <Sparkles className="w-3 h-3 text-amber-950" />
+                            Inspiración
                           </span>
                         )}
                         {p.isDead ? (
-                          <span className="text-xs bg-magic-red text-white font-bold px-2.5 py-1 rounded">☠️ Fallecido</span>
+                          <span className="text-xs bg-magic-red text-white font-bold px-2.5 py-1 rounded flex items-center gap-1">
+                            <Skull className="w-3.5 h-3.5" />
+                            Fallecido
+                          </span>
                         ) : (
                           isCombatMode && p.initiative && (
                             <span className="text-xs bg-magic-gold/20 text-magic-gold font-bold px-2 py-1 rounded">
@@ -470,11 +492,11 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
                     <div className="flex justify-around bg-parchment p-3 rounded text-center border border-ink/10 text-ink">
                       <div>
-                        <Heart className="w-6 h-6 text-magic-red mx-auto mb-1" />
+                        <img src={ASSETS.icons.potion} className="w-6 h-6 mx-auto mb-1 object-contain" alt="HP" />
                         <span className="font-bold text-lg">{p.hp.current}/{p.hp.max}</span>
                       </div>
                       <div>
-                        <Shield className="w-6 h-6 text-ink mx-auto mb-1" />
+                        <img src={ASSETS.icons.shield} className="w-6 h-6 mx-auto mb-1 object-contain" alt="CA" />
                         <span className="font-bold text-lg">{p.ac}</span>
                       </div>
                     </div>
@@ -504,7 +526,12 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                   >
                     <div>
                       <h4 className="font-bold text-base text-ink flex items-center gap-2">
-                        {p.name} {p.isDead && <span className="text-xs text-magic-red font-bold">☠️ (Fallecido)</span>}
+                        {p.name} {p.isDead && (
+                          <span className="text-xs bg-magic-red/20 text-magic-red font-bold px-2 py-0.5 rounded border border-magic-red/30 flex items-center gap-1">
+                            <Skull className="w-3 h-3" />
+                            (Fallecido)
+                          </span>
+                        )}
                       </h4>
                       <p className="text-xs text-ink-light">{p.race} {p.charClass} (Nivel {p.level})</p>
                     </div>

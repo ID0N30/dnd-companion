@@ -19,8 +19,50 @@ const ebGaramond = EB_Garamond({
 });
 
 export const metadata: Metadata = {
-  title: "D&D Companion - Grimoire",
-  description: "Una hoja de personaje interactiva y panel de DM",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://dnd-companion-chi.vercel.app"),
+  title: {
+    default: "D&D Companion | Grimorio Digital, Hoja 5e y Panel de DM",
+    template: "%s | D&D Companion",
+  },
+  description:
+    "Grimorio digital en tiempo real para D&D 5e. Crea tu hoja de personaje automatizada, dirige combates en el panel de DM y explora campañas de rol gratis.",
+  keywords: [
+    "D&D Companion",
+    "grimorio digital",
+    "hoja de personaje 5e",
+    "panel de DM",
+    "Dungeons and Dragons 5e español",
+    "campañas de rol online",
+    "rastreador de iniciativa 5e",
+    "dados de rol d20",
+  ],
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "es_ES",
+    url: "https://dnd-companion-chi.vercel.app/",
+    siteName: "D&D Companion",
+    title: "D&D Companion | Grimorio Digital, Hoja 5e y Panel de DM",
+    description:
+      "Grimorio digital en tiempo real para D&D 5e. Crea tu hoja de personaje automatizada, dirige combates en el panel de DM y explora campañas de rol gratis.",
+    images: [
+      {
+        url: "/assets/banners/companion.jpg",
+        width: 1200,
+        height: 630,
+        alt: "D&D Companion — Grimorio Digital, Hoja 5e y Panel de DM",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "D&D Companion | Grimorio Digital, Hoja 5e y Panel de DM",
+    description:
+      "Grimorio digital en tiempo real para D&D 5e. Crea tu hoja de personaje automatizada, dirige combates en el panel de DM y explora campañas de rol gratis.",
+    images: ["/assets/banners/companion.jpg"],
+  },
   icons: {
     icon: [
       { url: "/favicon.ico" },

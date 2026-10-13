@@ -3,9 +3,25 @@
 import React from "react";
 import Link from "next/link";
 import { CharacterState, isDemoPlayer, Item } from "@/store/useStore";
-import { ASSETS } from "@/lib/assets";
 import { triggerDiceRoll } from "@/components/DiceRoller";
-import { Sparkles, RotateCcw, Users, User, Shield } from "lucide-react";
+import {
+  Sparkles,
+  RotateCcw,
+  Compass,
+  Home,
+  Users,
+  User,
+  Shield,
+  Swords,
+  Crosshair,
+  BookOpen,
+  Dice5,
+  HeartPulse,
+  Skull,
+  Moon,
+  Gift,
+  Award,
+} from "lucide-react";
 
 export interface DemoSandboxToolbarProps {
   character: CharacterState;
@@ -28,6 +44,34 @@ export interface DemoSandboxToolbarProps {
   ) => void;
 }
 
+interface HeroPresetConfig {
+  icon: React.ComponentType<{ className?: string }>;
+  role: string;
+  name: string;
+}
+
+const getHeroConfig = (player: CharacterState): HeroPresetConfig => {
+  const nameLower = player.name.toLowerCase();
+  const classLower = player.charClass.toLowerCase();
+
+  if (player.id === "drizzt_dourden_demo" || nameLower.includes("drizzt") || classLower.includes("guerrero")) {
+    return { icon: Swords, role: "Guerrero Drow", name: "Drizzt Do'Urden" };
+  }
+  if (player.id === "demo_player_lyra" || nameLower.includes("lyra") || classLower.includes("clérig")) {
+    return { icon: Sparkles, role: "Clériga", name: "Lyra Brillacero" };
+  }
+  if (player.id === "demo_player_varis" || nameLower.includes("varis") || classLower.includes("pícaro") || classLower.includes("picaro")) {
+    return { icon: Crosshair, role: "Pícaro", name: "Varis Sombraluna" };
+  }
+  if (player.id === "demo_player_elidoris" || nameLower.includes("elidoris") || classLower.includes("mago")) {
+    return { icon: BookOpen, role: "Mago", name: "Elidoris Vane" };
+  }
+  return { icon: User, role: player.charClass, name: player.name };
+};
+
+const simButtonClass =
+  "px-2.5 py-1 bg-parchment-dark/70 hover:bg-parchment-dark text-ink hover:text-magic-gold rounded-lg border border-ink/20 hover:border-magic-gold/40 text-xs font-medium transition-all shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0";
+
 export const DemoSandboxToolbar = React.memo(function DemoSandboxToolbar({
   character,
   players,
@@ -43,26 +87,29 @@ export const DemoSandboxToolbar = React.memo(function DemoSandboxToolbar({
   showConfirm,
 }: DemoSandboxToolbarProps) {
   return (
-    <div className="bg-gradient-to-r from-[#1c140e] via-[#241a12] to-[#120d09] border-2 border-magic-gold/60 rounded-2xl p-4 sm:p-5 shadow-2xl mb-6 relative overflow-hidden font-sans">
-      <div className="absolute top-0 right-0 bg-magic-gold text-black text-[9px] font-extrabold px-3 py-0.5 rounded-bl uppercase tracking-wider">
-        MESA DE PRUEBAS • SANDBOX AISLADO
+    <div className="bg-gradient-to-r from-[#17100b] via-[#20160f] to-[#140e09] border border-magic-gold/40 hover:border-magic-gold/60 transition-colors rounded-xl p-3 sm:p-4 shadow-xl mb-4 relative overflow-hidden font-sans">
+      {/* Insignia superior derecha */}
+      <div className="absolute top-0 right-0 bg-magic-gold/15 text-magic-gold border-b border-l border-magic-gold/30 text-[9px] sm:text-[10px] font-bold px-2.5 py-0.5 rounded-bl uppercase tracking-wider flex items-center gap-1.5 select-none pointer-events-none">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        Modo Local • 100% Desconectado
       </div>
 
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-ink/20 pb-4 mb-4">
-        <div>
+      {/* Cabecera Unificada */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 pt-2 sm:pt-0.5 pb-2.5 mb-2.5 border-b border-ink/15">
+        <div className="pr-2 sm:pr-0">
           <div className="flex items-center gap-2">
-            <h2 className="text-xl sm:text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-              Mesa de Pruebas & Explorador de Funciones
+            <h2 className="text-base sm:text-lg font-bold font-cinzel text-magic-gold tracking-wide leading-tight">
+              Mesa de Pruebas Interactiva
             </h2>
           </div>
-          <p className="text-xs text-ink-light mt-1 max-w-3xl leading-relaxed">
-            Carta de presentación interactiva de <strong>D&D Companion</strong>: sin registro ni base de datos.
-            Todas las modificaciones ocurren en local. Experimenta libremente con la party y restaura los valores iniciales cuando quieras.
+          <p className="text-[11px] sm:text-xs text-ink-light/85 mt-0.5 max-w-2xl leading-normal">
+            Experimenta libremente en local: prueba hojas 5e, tiradas y el panel del DM sin registro ni base de datos.
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap shrink-0">
           <button
+            type="button"
             onClick={() => {
               showConfirm(
                 "¿Deseas restablecer todos los héroes, puntos de vida, ranuras de hechizo y estado a los valores originales de fábrica?",
@@ -75,130 +122,187 @@ export const DemoSandboxToolbar = React.memo(function DemoSandboxToolbar({
                 "Cancelar"
               );
             }}
-            className="px-3 py-1.5 bg-ink/20 hover:bg-ink/30 text-ink hover:text-magic-gold border border-ink/30 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+            className="px-2.5 py-1.5 bg-ink/10 hover:bg-ink/20 text-ink-light hover:text-magic-gold border border-ink/20 hover:border-ink/40 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
             title="Restaura la party completa al estado original de demostración"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-magic-gold" /> Restaurar Fábrica
+            <RotateCcw className="w-3.5 h-3.5 text-magic-gold/80" />
+            <span>Restaurar Fábrica</span>
           </button>
 
           <Link
-            href="/campaigns"
-            className="px-3.5 py-1.5 bg-gradient-to-r from-magic-gold to-yellow-500 hover:from-yellow-400 hover:to-amber-500 text-black rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow cursor-pointer"
+            href="/"
+            className="px-2.5 py-1.5 bg-ink/10 hover:bg-ink/20 text-ink-light hover:text-magic-gold border border-ink/20 hover:border-ink/40 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Volver al Menú Principal / Inicio"
           >
-            <Sparkles className="w-3.5 h-3.5" /> Salón de Campañas →
+            <Home className="w-3.5 h-3.5 text-magic-gold/80" />
+            <span>Inicio</span>
+          </Link>
+
+          <Link
+            href="/campaigns"
+            className="px-3 py-1.5 bg-gradient-to-r from-magic-gold to-amber-500 hover:from-amber-400 hover:to-yellow-400 text-black font-bold rounded-lg text-xs transition flex items-center gap-1.5 shadow-md shadow-magic-gold/15 hover:shadow-magic-gold/30 cursor-pointer shrink-0"
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span>Salón de Campañas →</span>
           </Link>
         </div>
       </div>
 
-      {/* Sub-bar: Hero Selector & View Switcher */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-        {/* Hero Switcher */}
+      {/* Sub-bar: Selector de Party Aventurera & Conmutador de Perspectiva */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-2.5">
+        {/* Selector de Party Aventurera */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[11px] font-bold text-ink-light flex items-center gap-1 mr-1 uppercase tracking-wider">
-            <Users className="w-3.5 h-3.5 text-magic-gold" /> Personaje:
+          <span className="text-[11px] font-bold text-ink-light flex items-center gap-1 mr-1 uppercase tracking-wider shrink-0">
+            <Users className="w-3.5 h-3.5 text-magic-gold" /> Aventurero:
           </span>
-          {players.filter(p => isDemoPlayer(p.id)).map(p => (
-            <button
-              key={p.id}
-              onClick={() => {
-                setActivePlayerId(p.id);
-                if (viewMode !== "sheet") setViewMode("sheet");
-              }}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                character.id === p.id && viewMode === "sheet"
-                  ? "bg-magic-gold text-black shadow-md border border-white/40" 
-                  : "bg-parchment-dark text-ink hover:text-magic-gold border border-ink/20"
-              }`}
-            >
-              <span>{p.charClass === "Guerrero" ? "G" : p.charClass === "Clérigo" ? "C" : p.charClass === "Pícaro" ? "P" : "M"}</span>
-              <span>{p.name.split(" ")[0]}</span>
-              <span className="text-[10px] opacity-75">({p.charClass})</span>
-            </button>
-          ))}
+          {players.filter(p => isDemoPlayer(p.id)).map(p => {
+            const config = getHeroConfig(p);
+            const IconComp = config.icon;
+            const isActive = character.id === p.id && viewMode === "sheet";
+
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setActivePlayerId(p.id);
+                  if (viewMode !== "sheet") setViewMode("sheet");
+                }}
+                className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                  isActive
+                    ? "bg-magic-gold text-black border border-magic-gold shadow-[0_0_12px_rgba(245,208,97,0.3)] font-bold"
+                    : "bg-parchment-dark/80 hover:bg-parchment-dark text-ink hover:text-magic-gold border border-ink/20 hover:border-magic-gold/40"
+                }`}
+                title={`Seleccionar a ${config.name} (${config.role})`}
+              >
+                <IconComp className={`w-3.5 h-3.5 ${isActive ? "text-black" : "text-magic-gold"}`} />
+                <span>{config.name.split(" ")[0]}</span>
+                <span className={`text-[10px] hidden sm:inline ${isActive ? "text-black/85 font-medium" : "text-ink-light/75"}`}>
+                  ({config.role})
+                </span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* View Toggle */}
-        <div className="flex bg-parchment-dark p-1 rounded-lg border border-ink/20 text-xs font-bold shrink-0">
+        {/* Conmutador de Perspectiva Premium (Segmented Control) */}
+        <div
+          className="flex items-center bg-black/40 p-0.5 rounded-lg border border-ink/20 text-xs shrink-0"
+          title="Alterna entre la visión del jugador y el panel maestro del DM"
+        >
           <button
+            type="button"
             onClick={() => setViewMode("sheet")}
-            className={`px-3 py-1.5 rounded flex items-center gap-1.5 transition cursor-pointer ${viewMode === "sheet" ? "bg-magic-gold text-black shadow" : "text-ink hover:text-magic-gold"}`}
+            className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-md flex items-center gap-1.5 font-semibold transition-all cursor-pointer ${
+              viewMode === "sheet"
+                ? "bg-magic-gold text-black shadow-xs font-bold"
+                : "text-ink-light hover:text-ink hover:bg-white/5"
+            }`}
           >
-            <User className="w-3.5 h-3.5" /> Vista Héroe
+            <User className="w-3.5 h-3.5" />
+            <span>Perspectiva Jugador</span>
           </button>
           <button
+            type="button"
             onClick={() => setViewMode("dm")}
-            className={`px-3 py-1.5 rounded flex items-center gap-1.5 transition cursor-pointer ${viewMode === "dm" ? "bg-magic-gold text-black shadow" : "text-ink hover:text-magic-gold"}`}
+            className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-md flex items-center gap-1.5 font-semibold transition-all cursor-pointer ${
+              viewMode === "dm"
+                ? "bg-magic-gold text-black shadow-xs font-bold"
+                : "text-ink-light hover:text-ink hover:bg-white/5"
+            }`}
           >
-            <Shield className="w-3.5 h-3.5" /> Vista DM (Party Completa)
+            <Shield className="w-3.5 h-3.5" />
+            <span>Panel del DM</span>
           </button>
         </div>
       </div>
 
-      {/* Quick Event Simulation Toolbar */}
-      <div className="mt-3 pt-3 border-t border-ink/10 flex items-center gap-2 flex-wrap text-xs">
-        <span className="text-magic-gold font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider">
-          Pruebas Rápidas:
+      {/* Simulador Interactivo 5e */}
+      <div className="mt-2.5 pt-2.5 border-t border-ink/15 flex items-center gap-1.5 sm:gap-2 flex-wrap text-xs">
+        <span className="text-magic-gold/90 font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider shrink-0 mr-0.5">
+          <Sparkles className="w-3 h-3 text-magic-gold" /> Simulación 5e:
         </span>
+
         <button
+          type="button"
           onClick={() => triggerDiceRoll("d20", 3, `Prueba de Demostración (${character.name})`)}
-          className="px-2.5 py-1 bg-parchment/70 hover:bg-parchment text-ink rounded border border-ink/20 font-bold transition flex items-center gap-1 cursor-pointer"
+          className={simButtonClass}
           title="Lanza un d20 animado con modificadores automáticos 5e"
         >
-          <img src={ASSETS.icons.d20} className="w-3.5 h-3.5 object-contain inline-block shrink-0" alt="d20" /> Tirar d20 Animado
+          <Dice5 className="w-3.5 h-3.5 text-magic-gold" />
+          <span>Tirar d20 Animado</span>
         </button>
+
         <button
+          type="button"
           onClick={() => {
             modifyHPCurrent(-15);
             showAlert(`${character.name} recibió 15 de daño para comprobar la barra interactiva de vida.`, "Daño Simulado", "warning");
           }}
-          className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded border border-red-500/30 font-bold transition flex items-center gap-1 cursor-pointer"
+          className={simButtonClass}
           title="Aplica 15 de daño al personaje activo"
         >
-          Recibir -15 HP
+          <HeartPulse className="w-3.5 h-3.5 text-magic-gold" />
+          <span>Simular Daño (-15 HP)</span>
         </button>
+
         <button
+          type="button"
           onClick={() => {
             modifyHPCurrent(-character.hp.current);
             showAlert(`${character.name} ha caído a 0 HP. Ahora puedes probar el sistema de Salvaciones contra la Muerte 5e (éxitos y fallos).`, "Estado Agonizante", "danger");
           }}
-          className="px-2.5 py-1 bg-red-950/40 hover:bg-red-900/40 text-red-300 rounded border border-red-500/40 font-bold transition flex items-center gap-1 cursor-pointer"
+          className={simButtonClass}
           title="Pone los HP a 0 para probar la pantalla y salvaciones de muerte"
         >
-          Caer a 0 HP (Agonizante)
+          <Skull className="w-3.5 h-3.5 text-magic-gold" />
+          <span>Caer a 0 HP (Death Saves)</span>
         </button>
+
         <button
+          type="button"
           onClick={() => {
             longRest();
             showAlert(`${character.name} ha completado un Descanso Largo: vida máxima restaurada y ranuras de conjuro recuperadas.`, "Descanso Largo", "success");
           }}
-          className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30 font-bold transition flex items-center gap-1 cursor-pointer"
+          className={simButtonClass}
           title="Restaura toda la vida y ranuras mágicas"
         >
-          Descanso Largo
+          <Moon className="w-3.5 h-3.5 text-magic-gold" />
+          <span>Descanso Largo</span>
         </button>
+
         <button
+          type="button"
           onClick={() => {
-            addItem({
-              id: "legendary_ring_" + Date.now(),
-              name: "Anillo de Resistencia Ígnea",
-              type: "general",
-              description: "Anillo forjado en las fraguas enanas. Otorga resistencia al daño de fuego.",
-              quantity: 1,
-              equipped: false,
-            }, false);
+            addItem(
+              {
+                id: "legendary_ring_" + Date.now(),
+                name: "Anillo de Resistencia Ígnea",
+                type: "general",
+                description: "Anillo forjado en las fraguas enanas. Otorga resistencia al daño de fuego.",
+                quantity: 1,
+                equipped: false,
+              },
+              false
+            );
             showAlert(`¡Has recibido el "Anillo de Resistencia Ígnea"! Revisa tu pestaña de Equipamiento.`, "Botín del DM", "success");
           }}
-          className="px-2.5 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 rounded border border-purple-500/30 font-bold transition flex items-center gap-1 cursor-pointer"
+          className={simButtonClass}
           title="Simula recibir un objeto legendario otorgado por el DM"
         >
-          Simular Botín DM
+          <Gift className="w-3.5 h-3.5 text-magic-gold" />
+          <span>Botín del DM</span>
         </button>
+
         <button
+          type="button"
           onClick={() => toggleInspiration(character.id)}
-          className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 rounded border border-amber-500/30 font-bold transition flex items-center gap-1 cursor-pointer"
+          className={simButtonClass}
           title="Concede o gasta Inspiración 5e"
         >
-          {character.inspiration ? "Gastar Inspiración" : "Conceder Inspiración"}
+          <Award className="w-3.5 h-3.5 text-magic-gold" />
+          <span>{character.inspiration ? "Gastar Inspiración" : "Inspiración 5e"}</span>
         </button>
       </div>
     </div>

@@ -609,11 +609,11 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
         <div className="flex justify-between items-center mb-4 flex-wrap gap-2 font-sans border-b border-ink/10 pb-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Link
-              href={isDemoMode ? "/campaigns" : "/"}
+              href="/"
               className="flex items-center gap-1.5 px-3 py-1.5 bg-parchment-dark text-ink hover:text-magic-gold rounded-lg border border-ink/20 text-xs font-bold transition shadow-sm"
-              title={isDemoMode ? "Ir al Salón de Campañas" : "Volver a la página principal"}
+              title="Volver a la página principal"
             >
-              <Home className="w-3.5 h-3.5 text-magic-gold" /> {isDemoMode ? "Campañas" : "Inicio"}
+              <Home className="w-3.5 h-3.5 text-magic-gold" /> Inicio
             </Link>
 
             {!isDemoMode && (

@@ -25,7 +25,7 @@ export default function Footer() {
             <p className="text-xs text-ink-light leading-relaxed">
               Soluciones digitales para la gestión de equipos y sistemas de juego. Potenciando tus aventuras y campañas en tiempo real.
             </p>
-            <div className="pt-1 text-[11px] text-ink/70 font-semibold flex items-center gap-1.5">
+            <div className="pt-1 text-[11px] text-ink-light font-semibold flex items-center gap-1.5">
               <span>Desarrollado con</span>
               <Heart className="w-3.5 h-3.5 text-magic-red fill-magic-red" />
               <span>para la comunidad D&D.</span>
@@ -124,7 +124,7 @@ export default function Footer() {
             <p className="font-bold font-cinzel text-ink">
               © 2026 Idoneus Software. Todos los derechos reservados.
             </p>
-            <p className="text-[10px] text-ink/60 mt-0.5">
+            <p className="text-[10px] text-ink-light mt-0.5">
               Responsable Legal: Julian Andrés Osorio Marín • Colombia
             </p>
           </div>

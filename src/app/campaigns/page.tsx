@@ -333,7 +333,7 @@ export default function CampaignsPage() {
             <p className="text-sm font-bold text-ink-light">
               {searchQuery ? `No se encontraron campañas que coincidan con "${searchQuery}".` : 'No hay campañas públicas activas en este momento.'}
             </p>
-            <p className="text-xs text-ink-light/80">
+            <p className="text-xs text-ink-light">
               ¡Crea una nueva campaña arriba como DM o experimenta con la <Link href="/demo" className="text-magic-gold underline font-bold">Mesa de Pruebas</Link>!
             </p>
           </div>

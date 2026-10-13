@@ -874,7 +874,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
                     ? 'bg-red-950 text-red-500 border border-red-800 cursor-not-allowed opacity-60' 
                     : (isMyTurn 
                         ? 'bg-magic-gold text-black hover:bg-yellow-500 shadow-[0_0_15px_rgba(245,208,97,0.8)]' 
-                        : 'bg-ink/20 text-ink-light/50 border border-ink/10 cursor-not-allowed')}`}
+                        : 'bg-ink/20 text-ink-light border border-ink/10 cursor-not-allowed')}`}
                 title={character.isDead ? "Tu personaje está muerto." : (!isMyTurn ? `Es el turno de ${currentTurnPlayer?.name}.` : "Terminar tu turno y avanzar.")}
               >
                 <Clock className="w-4 h-4 shrink-0" /> 

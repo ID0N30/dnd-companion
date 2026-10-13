@@ -502,7 +502,7 @@ export default function DMInboxFloatingButton({
                         setPlayerFilter('all');
                         setSearchText('');
                       }}
-                      className="px-3 py-1.5 bg-red-950/20 text-red-600 border border-red-500/40 rounded font-bold hover:bg-magic-red hover:text-white transition cursor-pointer whitespace-nowrap"
+                      className="px-3 py-1.5 bg-red-950/20 text-red-300 border border-red-500/40 rounded font-bold hover:bg-magic-red hover:text-white transition cursor-pointer whitespace-nowrap"
                     >
                       Restablecer
                     </button>
@@ -516,7 +516,7 @@ export default function DMInboxFloatingButton({
                   <div className="flex flex-col items-center justify-center h-48 text-center space-y-2">
                     <Mail className="w-12 h-12 text-ink/20" />
                     <p className="text-sm font-bold text-ink-light">No hay mensajes en el buzón que coincidan con el filtro.</p>
-                    <p className="text-xs text-ink/50">Los mensajes directos de aventureros o tus respuestas de DM aparecerán aquí.</p>
+                    <p className="text-xs text-ink-light">Los mensajes directos de aventureros o tus respuestas de DM aparecerán aquí.</p>
                   </div>
                 ) : (
                   filteredMessages.map(msg => {
@@ -560,8 +560,8 @@ export default function DMInboxFloatingButton({
                                 </span>
 
                                 {!msg.read ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-magic-red/20 text-magic-red border border-magic-red/30 text-[10px] font-bold animate-pulse">
-                                    <AlertCircle className="w-3 h-3 text-magic-red" /> No leído
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-950/60 text-red-300 border border-red-400/40 text-[10px] font-bold animate-pulse">
+                                    <AlertCircle className="w-3 h-3 text-red-300" /> No leído
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
@@ -572,9 +572,9 @@ export default function DMInboxFloatingButton({
                             )}
                           </div>
 
-                          <div className="flex items-center gap-2 text-xs text-ink/60 font-mono flex-wrap">
+                          <div className="flex items-center gap-2 text-xs text-ink-light font-mono flex-wrap">
                             <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-ink/60 shrink-0" /> {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              <Clock className="w-3 h-3 text-ink-light shrink-0" /> {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
 
                             {!isDMWhisper && (
@@ -599,7 +599,7 @@ export default function DMInboxFloatingButton({
 
                             <button
                               onClick={() => handleDeleteMessage(msg.id)}
-                              className="px-2 py-1 bg-red-950/20 text-red-600 rounded border border-red-500/30 hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1 font-sans text-xs font-bold"
+                              className="px-2 py-1 bg-red-950/20 text-red-300 rounded border border-red-500/30 hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1 font-sans text-xs font-bold"
                               title="Eliminar este mensaje"
                             >
                               <Trash2 className="w-3.5 h-3.5" /> Eliminar

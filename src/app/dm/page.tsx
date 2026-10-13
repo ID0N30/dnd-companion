@@ -505,7 +505,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
 
                 <div className="overflow-y-auto pr-1 space-y-2 font-sans text-xs h-[175px] min-h-[175px] shrink-0 block">
                   {filteredLogs.length === 0 ? (
-                    <p className="text-ink/50 italic text-center py-4">No hay acciones registradas con los filtros actuales.</p>
+                    <p className="text-ink-light italic text-center py-4">No hay acciones registradas con los filtros actuales.</p>
                   ) : (
                     filteredLogs.map(log => {
                       const categoryInfo = getLogCategory(log.message);
@@ -515,7 +515,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${categoryInfo.badgeClass}`}>
                               {categoryInfo.label}
                             </span>
-                            <span className="text-[10px] text-ink/50 font-mono">
+                            <span className="text-[10px] text-ink-light font-mono">
                               {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                             </span>
                           </div>
@@ -553,7 +553,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
               {effectivePlayers.some(p => !isPlayerOnline(p)) && (
                 <button
                   onClick={handleCleanAbsentPlayers}
-                  className="px-3 py-1.5 bg-red-950/20 text-red-600 border border-red-500/40 rounded hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1"
+                  className="px-3 py-1.5 bg-red-950/20 text-red-300 border border-red-500/40 rounded hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1"
                   title="Eliminar personajes ausentes/desconectados de la campaña"
                 >
                   Limpiar Ausentes ({effectivePlayers.filter(p => !isPlayerOnline(p)).length})
@@ -971,7 +971,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                           toggleInspiration(p.id);
                           syncPlayer(p.id);
                         }}
-                        className={`flex items-center gap-1 text-xs font-bold font-sans px-2 py-1.5 rounded transition cursor-pointer shrink-0 ${p.inspiration ? 'bg-magic-gold text-black shadow-[0_0_10px_rgba(245,208,97,0.8)]' : 'bg-parchment text-ink/70 border border-ink/20 hover:border-magic-gold'}`}
+                        className={`flex items-center gap-1 text-xs font-bold font-sans px-2 py-1.5 rounded transition cursor-pointer shrink-0 ${p.inspiration ? 'bg-magic-gold text-black shadow-[0_0_10px_rgba(245,208,97,0.8)]' : 'bg-parchment text-ink-light border border-ink/20 hover:border-magic-gold'}`}
                         title={p.inspiration ? "Revocar Inspiración D&D 5e" : "Otorgar Inspiración D&D 5e"}
                       >
                         <Sparkles className="w-3.5 h-3.5" /> {p.inspiration ? 'Inspirado' : 'Inspirar'}
@@ -1145,7 +1145,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                       <span className="text-[10px] bg-ink text-parchment-dark px-2 py-0.5 rounded-full font-bold">{p.modifiers.length}</span>
                     </h4>
                     {p.modifiers.length === 0 ? (
-                      <p className="text-xs font-sans italic text-ink/50">Sin efectos temporales activos.</p>
+                      <p className="text-xs font-sans italic text-ink-light">Sin efectos temporales activos.</p>
                     ) : (
                       <div className="flex flex-col gap-1.5">
                         {p.modifiers.map(mod => (
@@ -1559,7 +1559,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         <Package className="w-3.5 h-3.5" /> Inventario de {inspectedPlayer.name}
                       </h4>
                       {inspectedPlayer.inventory.length === 0 ? (
-                        <p className="text-xs italic text-ink/50">El inventario está vacío.</p>
+                        <p className="text-xs italic text-ink-light">El inventario está vacío.</p>
                       ) : (
                         inspectedPlayer.inventory.map(item => (
                           <div key={item.id} className={`p-2.5 rounded border transition flex justify-between items-center gap-2 ${
@@ -1781,7 +1781,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         <BookOpen className="w-3.5 h-3.5" /> Grimorio y Conjuros Preparados
                       </h4>
                       {inspectedPlayer.spells.length === 0 ? (
-                        <p className="text-xs italic text-ink/50">No tiene conjuros registrados.</p>
+                        <p className="text-xs italic text-ink-light">No tiene conjuros registrados.</p>
                       ) : (
                         inspectedPlayer.spells.map(spell => (
                           <div key={spell.id} className="p-2.5 bg-parchment rounded border border-ink/10 flex justify-between items-center gap-2">
@@ -2185,7 +2185,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                           </span>
                           <span className="font-bold text-sm text-ink leading-relaxed break-words">{log.message}</span>
                         </div>
-                        <span className="text-xs text-ink/60 font-mono shrink-0">
+                        <span className="text-xs text-ink-light font-mono shrink-0">
                           {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </span>
                       </div>

@@ -202,7 +202,7 @@ export const WhisperConversationModal = React.memo(function WhisperConversationM
                             </span>
                           )}
 
-                          <span className="text-ink/60">
+                          <span className="text-ink-light">
                             {new Date(msg.timestamp).toLocaleDateString()} {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
                         </div>

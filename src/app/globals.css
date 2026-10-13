@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-parchment: rgba(44, 30, 24, 0.85); /* Dark leather/burnt parchment, semi-transparent */
-  --color-parchment-dark: rgba(25, 15, 12, 0.9); /* Even darker for contrast */
-  --color-ink: #e8d5b5; /* Light glowing parchment color for text */
-  --color-ink-light: #a88d6c; /* Dimmer gold/brown for secondary text */
+  --color-parchment: rgba(38, 25, 20, 0.92); /* Dark leather/burnt parchment with higher opacity for WCAG AA contrast */
+  --color-parchment-dark: rgba(20, 12, 9, 0.95); /* Deep obsidian parchment for maximum legibility */
+  --color-ink: #efe0c6; /* High-luminance glowing parchment text (CR > 12:1) */
+  --color-ink-light: #c8b090; /* Warm sand/gold secondary text (CR > 5.75:1 on all dark/warm surfaces, WCAG AA/AAA) */
   --color-magic-red: #d93829; /* Burning ember red */
   --color-magic-gold: #f5d061; /* Glowing magical gold */
   
@@ -19,7 +19,7 @@
 
   :root {
     --background: #000000;
-    --foreground: #e8d5b5;
+    --foreground: #efe0c6;
   }
 
   body {

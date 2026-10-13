@@ -344,7 +344,7 @@ export default function HomePage() {
         <p className="font-cinzel text-magic-gold/80 font-bold">
           D&D Companion — Grimorio Digital de Rol
         </p>
-        <p className="text-[11px] text-ink/60">
+        <p className="text-[11px] text-ink-light">
           Compatible con las reglas del SRD de Dungeons & Dragons 5ª Edición. Herramienta independiente sin fines de lucro para la comunidad de rol.
         </p>
       </footer>

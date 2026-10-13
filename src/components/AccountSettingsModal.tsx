@@ -267,7 +267,7 @@ export default function AccountSettingsModal({
                     <div className="text-center py-8 space-y-2">
                       <AlertCircle className="w-10 h-10 text-ink/30 mx-auto" />
                       <p className="text-sm font-bold text-ink-light">No tienes personajes registrados actualmente.</p>
-                      <p className="text-xs text-ink/50">Crea un personaje al unirte a cualquier campaña para comenzar tu aventura.</p>
+                      <p className="text-xs text-ink-light">Crea un personaje al unirte a cualquier campaña para comenzar tu aventura.</p>
                     </div>
                   ) : (
                     Object.entries(charactersByCampaign).map(([roomIdKey, chars]) => (
@@ -307,7 +307,7 @@ export default function AccountSettingsModal({
                                 </button>
                                 <button
                                   onClick={() => handleDeleteChar(char)}
-                                  className="px-3 py-1.5 bg-red-950/20 text-red-600 rounded-lg border border-red-500/30 hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-sm"
+                                  className="px-3 py-1.5 bg-red-950/20 text-red-300 rounded-lg border border-red-500/30 hover:bg-magic-red hover:text-white transition cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-sm"
                                   title="Eliminar este personaje permanentemente"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />

@@ -49,7 +49,7 @@ export const metadata: Metadata = {
       "Grimorio digital en tiempo real para D&D 5e. Crea tu hoja de personaje automatizada, dirige combates en el panel de DM y explora campañas de rol gratis.",
     images: [
       {
-        url: "/assets/banners/companion.jpg",
+        url: "/assets/banners/banner-companion.webp",
         width: 1200,
         height: 630,
         alt: "D&D Companion — Grimorio Digital, Hoja 5e y Panel de DM",
@@ -61,7 +61,7 @@ export const metadata: Metadata = {
     title: "D&D Companion | Grimorio Digital, Hoja 5e y Panel de DM",
     description:
       "Grimorio digital en tiempo real para D&D 5e. Crea tu hoja de personaje automatizada, dirige combates en el panel de DM y explora campañas de rol gratis.",
-    images: ["/assets/banners/companion.jpg"],
+    images: ["/assets/banners/banner-companion.webp"],
   },
   icons: {
     icon: [
@@ -84,7 +84,7 @@ export default function RootLayout({
       className={`${cinzel.variable} ${ebGaramond.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col font-serif text-ink bg-black bg-[url('/bg.jpg')] bg-cover bg-center bg-fixed bg-no-repeat" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col font-serif text-ink bg-black bg-[url('/bg.webp')] bg-cover bg-center bg-fixed bg-no-repeat" suppressHydrationWarning>
         <AuthProvider>
           <MagicParticles />
           <ErrorToast />

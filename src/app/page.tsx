@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import AuthModal from "@/components/AuthModal";
@@ -172,10 +173,13 @@ export default function HomePage() {
           {/* Official Banner Image */}
           <div className="relative mb-8 group max-w-2xl w-full">
             <div className="absolute -inset-1 bg-gradient-to-r from-magic-gold/40 via-yellow-600/30 to-magic-gold/40 rounded-2xl blur-lg opacity-75 group-hover:opacity-100 transition duration-500" />
-            <img 
+            <Image 
               src={ASSETS.banners.companion} 
-              className="relative w-full rounded-2xl border-2 border-magic-gold/50 shadow-2xl object-cover" 
-              alt="D&D Companion — Grimorio Digital de Rol" 
+              alt="D&D Companion — Grimorio Digital de Rol"
+              width={1200}
+              height={630}
+              priority
+              className="relative w-full rounded-2xl border-2 border-magic-gold/50 shadow-2xl object-cover h-auto"
             />
           </div>
 

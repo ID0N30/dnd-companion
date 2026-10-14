@@ -407,16 +407,51 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
 
   try {
     const playerRef = doc(db, "rooms", roomId, "players", character.id);
+    useStore.getState().setSyncState?.('saving');
     await withRetry(
       () => setDoc(playerRef, cleanFirebaseData(characterToSave), { merge: true }),
       { context: 'savePlayerInRoom' }
     );
+    useStore.getState().setSyncState?.('synced');
     saveOfflineCharacterBackup(characterToSave);
     syncAllLocalPlayersToStorage([characterToSave]);
   } catch (err: any) {
+    useStore.getState().setSyncState?.('offline');
     logError(err, 'savePlayerInRoom', 'CRITICAL');
     saveOfflineCharacterBackup(characterToSave);
     syncAllLocalPlayersToStorage([characterToSave]);
+  }
+};
+
+// 6.1 Update specific character fields in room (Granular field updates)
+export const updatePlayerFieldsInRoom = async (
+  roomId: string,
+  playerId: string,
+  fields: Partial<CharacterState>
+): Promise<void> => {
+  if (!roomId || !playerId || isDemoRoom(roomId) || isDemoCharacterId(playerId) || !db) return;
+
+  const currentUser = auth?.currentUser;
+  const playerRef = doc(db, "rooms", roomId, "players", playerId);
+
+  // Limpiar campos para evitar undefined en Firestore
+  const cleanedFields = cleanFirebaseData({
+    ...fields,
+    lastSeen: Date.now()
+  });
+
+  // Notificar estado al store
+  useStore.getState().setSyncState?.('saving');
+
+  try {
+    await withRetry(
+      () => updateDoc(playerRef, cleanedFields),
+      { context: 'updatePlayerFieldsInRoom', maxRetries: 2 }
+    );
+    useStore.getState().setSyncState?.('synced');
+  } catch (err: any) {
+    logError(err, 'updatePlayerFieldsInRoom', 'WARNING');
+    useStore.getState().setSyncState?.('offline');
   }
 };
 

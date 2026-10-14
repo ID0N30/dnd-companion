@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStore, CharacterState, ItemType, Item, Spell, Currency, SKILLS_5E, syncAllLocalPlayersToStorage, isDemoPlayer } from "@/store/useStore";
-import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, subscribeRoom, Room, getLogCategory, LogCategory, DirectMessage, deleteRoom } from "@/lib/rooms";
+import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, updatePlayerFieldsInRoom, subscribeRoom, Room, getLogCategory, LogCategory, DirectMessage, deleteRoom } from "@/lib/rooms";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import TutorialModal from "@/components/TutorialModal";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
+import SyncStatusBadge from "@/components/SyncStatusBadge";
 import { 
   Swords, Shield, Heart, Clock, Users, ScrollText, Eye, X, Zap, Package, BookOpen, Sparkles, ChevronDown, ChevronUp, UserX, Settings, Lock, Award, Plus, Trash2, CheckCircle2, Circle, ShieldAlert, FlaskConical, Scroll, Briefcase, Sword, HelpCircle, Mail, Search, Maximize2, Filter, Coins, Pin, Skull
 } from "lucide-react";
@@ -103,7 +104,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     );
   };
 
-  const syncPlayer = (playerId: string) => {
+  const syncPlayer = (playerId: string, fields?: Partial<CharacterState> | 'hp' | 'inspiration' | 'death') => {
     if (isDemo || !roomId) return;
     let effectiveRoomId = roomId;
     if (!effectiveRoomId && typeof window !== 'undefined') {
@@ -117,7 +118,23 @@ export default function DMPage({ roomId }: { roomId?: string }) {
     setTimeout(() => {
       const targetPlayer = useStore.getState().players.find(p => p.id === playerId);
       if (targetPlayer && !isDemoPlayer(targetPlayer.id)) {
-        savePlayerInRoom(effectiveRoomId!, targetPlayer, true);
+        if (fields === 'hp') {
+          updatePlayerFieldsInRoom(effectiveRoomId!, playerId, { hp: targetPlayer.hp });
+        } else if (fields === 'inspiration') {
+          updatePlayerFieldsInRoom(effectiveRoomId!, playerId, { inspiration: targetPlayer.inspiration });
+        } else if (fields === 'death') {
+          updatePlayerFieldsInRoom(effectiveRoomId!, playerId, {
+            hp: targetPlayer.hp,
+            isDying: targetPlayer.isDying,
+            isDead: targetPlayer.isDead,
+            isStable: targetPlayer.isStable,
+            deathSaves: targetPlayer.deathSaves,
+          });
+        } else if (typeof fields === 'object' && fields !== null) {
+          updatePlayerFieldsInRoom(effectiveRoomId!, playerId, fields);
+        } else {
+          savePlayerInRoom(effectiveRoomId!, targetPlayer, true);
+        }
         syncAllLocalPlayersToStorage([targetPlayer]);
       }
     }, 50);
@@ -383,6 +400,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                 <Swords className="w-6 h-6 sm:w-8 sm:h-8" /> Panel Maestro
               </h2>
               <div className="flex items-center gap-2">
+                <SyncStatusBadge />
                 <button
                   onClick={() => setTutorialOpen(true)}
                   className="flex items-center gap-1 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-2.5 py-1.5 rounded font-bold text-xs shadow hover:scale-105 transition cursor-pointer"
@@ -969,7 +987,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                       <button
                         onClick={() => {
                           toggleInspiration(p.id);
-                          syncPlayer(p.id);
+                          syncPlayer(p.id, 'inspiration');
                         }}
                         className={`flex items-center gap-1 text-xs font-bold font-sans px-2 py-1.5 rounded transition cursor-pointer shrink-0 ${p.inspiration ? 'bg-magic-gold text-black shadow-[0_0_10px_rgba(245,208,97,0.8)]' : 'bg-parchment text-ink-light border border-ink/20 hover:border-magic-gold'}`}
                         title={p.inspiration ? "Revocar Inspiración D&D 5e" : "Otorgar Inspiración D&D 5e"}
@@ -999,7 +1017,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                           <button
                             onClick={() => {
                               togglePlayerDeathState(p.id, 'dying');
-                              syncPlayer(p.id);
+                              syncPlayer(p.id, 'death');
                             }}
                             className="flex items-center gap-1 text-xs font-bold font-sans bg-magic-red/80 text-white px-2 py-1.5 rounded hover:bg-magic-red transition cursor-pointer shrink-0 shadow-sm"
                             title="Marcar como Moribundo (0 HP)"
@@ -1012,7 +1030,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                           <button
                             onClick={() => {
                               togglePlayerDeathState(p.id, 'stable');
-                              syncPlayer(p.id);
+                              syncPlayer(p.id, 'death');
                             }}
                             className="flex items-center gap-1 text-xs font-bold font-sans bg-magic-gold text-black px-2 py-1.5 rounded hover:bg-yellow-500 transition cursor-pointer shrink-0 shadow-sm"
                             title="Estabilizar a 0 HP"
@@ -1025,7 +1043,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                           <button
                             onClick={() => {
                               togglePlayerDeathState(p.id, 'revive');
-                              syncPlayer(p.id);
+                              syncPlayer(p.id, 'death');
                             }}
                             className="flex items-center gap-1 text-xs font-bold font-sans bg-emerald-600 text-white px-2 py-1.5 rounded hover:bg-emerald-700 transition cursor-pointer shrink-0 shadow-sm"
                             title="Revivir Personaje"
@@ -1041,7 +1059,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                                 `¿Estás seguro de que deseas marcar como FALLECIDO a ${p.name}?`,
                                 () => {
                                   togglePlayerDeathState(p.id, 'dead');
-                                  syncPlayer(p.id);
+                                  syncPlayer(p.id, 'death');
                                 },
                                 "Declarar Fallecido",
                                 "Sí, Fallecido",
@@ -1085,7 +1103,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         <button
                           onClick={() => {
                             rollDeathSave(p.id);
-                            syncPlayer(p.id);
+                            syncPlayer(p.id, 'death');
                           }}
                           className="px-2.5 py-1 bg-magic-gold text-black font-bold rounded hover:bg-yellow-500 text-[11px] cursor-pointer inline-flex items-center gap-1.5 shadow-sm"
                         >
@@ -1094,7 +1112,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         <button
                           onClick={() => {
                             stabilizePlayer(p.id, 1);
-                            syncPlayer(p.id);
+                            syncPlayer(p.id, 'death');
                           }}
                           className="px-2.5 py-1 bg-emerald-600 text-white font-bold rounded hover:bg-emerald-700 text-[11px] cursor-pointer inline-flex items-center gap-1"
                           title="Un compañero otorga auxilio o curación"
@@ -1104,7 +1122,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         <button
                           onClick={() => {
                             stabilizePlayer(p.id, 0);
-                            syncPlayer(p.id);
+                            syncPlayer(p.id, 'death');
                           }}
                           className="px-2.5 py-1 bg-ink/50 text-white font-bold rounded hover:bg-ink text-[11px] cursor-pointer inline-flex items-center gap-1"
                           title="Estabilizar a 0 HP"
@@ -1343,7 +1361,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                       <button
                         onClick={() => {
                           updatePlayerStatsByDM(inspectedPlayer.id, dmStatsEdit);
-                          syncPlayer(inspectedPlayer.id);
+                          syncPlayer(inspectedPlayer.id, { stats: { ...inspectedPlayer.stats, ...dmStatsEdit } });
                           showAlert(`Puntuaciones base de ${inspectedPlayer.name} actualizadas por el DM.`, "Atributos Guardados", "success");
                         }}
                         className="mt-2 px-3 py-1.5 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer"
@@ -1387,7 +1405,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                       <button
                         onClick={() => {
                           updatePlayerHPByDM(inspectedPlayer.id, dmHPEdit);
-                          syncPlayer(inspectedPlayer.id);
+                          syncPlayer(inspectedPlayer.id, 'hp');
                           showAlert(`Puntos de Vida de ${inspectedPlayer.name} actualizados.`, "HP Actualizado", "success");
                         }}
                         className="mt-2 px-3 py-1.5 bg-magic-red text-white font-bold text-xs rounded hover:bg-red-700 transition cursor-pointer"
@@ -1532,7 +1550,7 @@ export default function DMPage({ roomId }: { roomId?: string }) {
                         <button
                           onClick={() => {
                             updateCurrency(inspectedPlayer.id, dmCurrencyEdit);
-                            syncPlayer(inspectedPlayer.id);
+                            syncPlayer(inspectedPlayer.id, { currency: dmCurrencyEdit });
                             showAlert(`Monedas de ${inspectedPlayer.name} guardadas correctamente.`, "Monedas Guardadas", "success");
                           }}
                           className="px-3 py-1.5 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer flex items-center gap-1 shadow"

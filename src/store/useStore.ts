@@ -436,6 +436,9 @@ export interface StoreState {
   showConfirm: (message: string, onConfirm: () => void, title?: string, confirmText?: string, cancelText?: string) => void;
   closeNotification: () => void;
 
+  syncState: 'synced' | 'saving' | 'offline';
+  setSyncState: (status: 'synced' | 'saving' | 'offline') => void;
+
   isCombatMode: boolean;
   initiativeOrder: string[];
   currentTurnIndex: number;
@@ -546,6 +549,9 @@ export const useStore = create<StoreState>((set, get) => ({
     });
   },
   closeNotification: () => set({ activeNotification: null }),
+
+  syncState: 'synced',
+  setSyncState: (status) => set({ syncState: status }),
 
   hpTerminology: 'HP',
   setHPTerminology: (hpTerminology) => set({ hpTerminology }),

@@ -3,23 +3,29 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { useStore, ItemType, Item, Spell, getCharacterHitDice, SKILLS_5E, isDemoPlayer } from "@/store/useStore";
-import { getClassFeaturesForLevel, ClassFeature } from "@/lib/dndClassFeatures";
-import DiceRoller, { triggerDiceRoll } from "@/components/DiceRoller";
+import { useStore, ItemType, Item, Spell, getCharacterHitDice } from "@/store/useStore";
+import { getClassFeaturesForLevel } from "@/lib/dndClassFeatures";
+import DiceRoller from "@/components/DiceRoller";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import TutorialModal from "@/components/TutorialModal";
 import DMPage from "@/app/dm/page";
-import { sendDirectMessageToDM, subscribeRoom, subscribeRoomWhispers, Room, DirectMessage, markDirectMessageAsRead } from "@/lib/rooms";
+import { subscribeRoom, subscribeRoomWhispers, Room, DirectMessage, markDirectMessageAsRead } from "@/lib/rooms";
 import { useAuth } from "@/context/AuthContext";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
 import { 
-  PenTool, Shield, Heart, Zap, Sparkles, BookOpen, Package, Clock, 
-  Plus, Trash2, Pin, ChevronDown, ChevronUp, Sun, Sword, ShieldAlert, FlaskConical, Scroll, Briefcase, CheckCircle2, Circle, HelpCircle, User, Home, Search, Maximize2, X, Settings, Dice5, CheckCheck, RotateCcw, Users, MessageSquare, Reply
+  PenTool, Shield, Zap, Sparkles, BookOpen, Clock, Scroll, HelpCircle, User, Home, MessageSquare
 } from "lucide-react";
 import { ASSETS } from "@/lib/assets";
 import { CombatStatusBanners } from "@/components/sheet/CombatStatusBanners";
 import { DemoSandboxToolbar } from "@/components/sheet/DemoSandboxToolbar";
 import { WhisperConversationModal } from "@/components/sheet/WhisperConversationModal";
+import { CombatHeader } from "@/components/sheet/CombatHeader";
+import { StatsAndSkillsTab } from "@/components/sheet/tabs/StatsAndSkillsTab";
+import { ClassFeaturesTab } from "@/components/sheet/tabs/ClassFeaturesTab";
+import { EquipmentInventoryTab } from "@/components/sheet/tabs/EquipmentInventoryTab";
+import { SpellcastingTab } from "@/components/sheet/tabs/SpellcastingTab";
+import { PrivateNotesTab } from "@/components/sheet/tabs/PrivateNotesTab";
+import SyncStatusBadge from "@/components/SyncStatusBadge";
 
 export default function CharacterSheetPage({ isDM = false, isDemoOverride = false }: { isDM?: boolean; isDemoOverride?: boolean } = {}) {
   const { 
@@ -42,10 +48,6 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
   const [room, setRoom] = useState<Room | null>(null);
 
   // New Feature & Interaction States
-  const [restMenuOpen, setRestMenuOpen] = useState(false);
-  const [featureFilter, setFeatureFilter] = useState<'all' | 'active' | 'passive' | 'short' | 'long'>('all');
-  const [featureSearch, setFeatureSearch] = useState('');
-  const [focusFeaturesModalOpen, setFocusFeaturesModalOpen] = useState(false);
   const [dmMessageModal, setDmMessageModal] = useState<{ open: boolean; content: string; tab: 'compose' | 'history' }>({ open: false, content: '', tab: 'compose' });
   const [mySentMessages, setMySentMessages] = useState<DirectMessage[]>([]);
   const [itemToast, setItemToast] = useState<{ open: boolean; itemName: string; quantity: number } | null>(null);
@@ -86,7 +88,6 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
 
   const [activeTab, setActiveTab] = useState<"stats" | "class_features" | "equipment" | "spells" | "notes">("stats");
   const [isEditing, setIsEditing] = useState(false);
-  const [showAllSkills, setShowAllSkills] = useState(false);
   const [turnToast, setTurnToast] = useState(false);
 
   useEffect(() => {
@@ -359,17 +360,10 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
   const [statEdit, setStatEdit] = useState<{ stat: string | null; value: number; turns: string }>({ stat: null, value: 0, turns: "" });
   const [statEditMode, setStatEditMode] = useState<"base" | "temp">("base");
   
-  // Custom Feature Form (Lore / DM freedom)
-  const [newFeature, setNewFeature] = useState({ name: "", type: "active" as "active" | "passive", usage: "", desc: "" });
+  // Feature Edit Modal State (Pluma Mágica)
   const [featureEditModal, setFeatureEditModal] = useState<{ open: boolean; oldName: string; name: string; type: 'active' | 'passive'; usage: string; desc: string }>({
     open: false, oldName: "", name: "", type: "active", usage: "", desc: ""
   });
-
-  // Item Form
-  const [newItem, setNewItem] = useState<{ name: string; type: ItemType; desc: string; qty: number; damage: string; acBonus: number; equipped: boolean; turns: string }>({
-    name: "", type: "general", desc: "", qty: 1, damage: "", acBonus: 0, equipped: false, turns: ""
-  });
-  const [inventoryFilter, setInventoryFilter] = useState<ItemType | 'all'>('all');
 
   // Item & Spell Edit Modal State (Pluma Mágica)
   const [itemEditModal, setItemEditModal] = useState<{ open: boolean; item: Item | null }>({ open: false, item: null });
@@ -389,11 +383,6 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
     setSpellEditModal({ open: false, spell: null });
   };
 
-  // Spell Form & Slots
-  const [newSpell, setNewSpell] = useState({ name: "", level: 1, school: "Evocación", desc: "", castingTime: "1 Acción", turns: "" });
-  const [newSlotLevel, setNewSlotLevel] = useState(1);
-  const [newSlotMax, setNewSlotMax] = useState(2);
-
   const handleStatSave = () => {
     if (!statEdit.stat) return;
     if (statEdit.stat === 'ac') {
@@ -412,19 +401,6 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
     setStatEdit({ stat: null, value: 0, turns: "" });
   };
 
-  const handleAddCustomFeature = () => {
-    if (!newFeature.name || !newFeature.desc) return;
-    addCustomClassFeature({
-      name: newFeature.name,
-      type: newFeature.type,
-      unlockedAtLevel: character.level,
-      description: newFeature.desc,
-      usage: newFeature.usage || undefined
-    });
-    showAlert(`Libertad de Campaña / Lore DM: Se ha otorgado el rasgo "${newFeature.name}" a ${character.name}.`, "Rasgo Otorgado", "success");
-    setNewFeature({ name: "", type: "active", usage: "", desc: "" });
-  };
-
   const handleHPSave = () => {
     if (hpModal.amount === 0) return;
     if (hpModal.type === 'current') {
@@ -435,48 +411,6 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
       modifyHPMax(hpModal.amount, isPerm, duration);
     }
     setHPModal({ open: false, type: 'current', amount: 0, turns: "" });
-  };
-
-  const handleAddItem = () => {
-    if (!newItem.name) return;
-    const isPerm = newItem.turns === "";
-    const duration = isPerm ? undefined : parseInt(newItem.turns);
-    addItem({
-      id: Date.now().toString(),
-      name: newItem.name,
-      type: newItem.type,
-      description: newItem.desc,
-      quantity: newItem.qty,
-      damage: newItem.type === 'weapon' ? newItem.damage : undefined,
-      acBonus: newItem.type === 'armor' ? newItem.acBonus : undefined,
-      equipped: newItem.equipped
-    }, !isPerm, duration);
-    setNewItem({ name: "", type: "general", desc: "", qty: 1, damage: "", acBonus: 0, equipped: false, turns: "" });
-  };
-
-  const handleAddSpell = () => {
-    if (!newSpell.name) return;
-    const isPerm = newSpell.turns === "";
-    const duration = isPerm ? undefined : parseInt(newSpell.turns);
-    addSpell({
-      id: Date.now().toString(),
-      name: newSpell.name,
-      level: newSpell.level,
-      school: newSpell.school,
-      description: newSpell.desc,
-      castingTime: newSpell.castingTime
-    }, !isPerm, duration);
-    setNewSpell({ name: "", level: 1, school: "Evocación", desc: "", castingTime: "1 Acción", turns: "" });
-  };
-
-  const getItemTypeIcon = (type: ItemType) => {
-    switch (type) {
-      case 'weapon': return <Sword className="w-4 h-4 text-magic-red" />;
-      case 'armor': return <ShieldAlert className="w-4 h-4 text-magic-gold" />;
-      case 'consumable': return <FlaskConical className="w-4 h-4 text-emerald-400" />;
-      case 'quest': return <Scroll className="w-4 h-4 text-purple-400" />;
-      default: return <Briefcase className="w-4 h-4 text-ink-light" />;
-    }
   };
 
   const effectiveMaxHP = getEffectiveStat('hp_max');
@@ -637,6 +571,7 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            <SyncStatusBadge />
             <button
               onClick={() => setDmMessageModal({ 
                 open: true, 
@@ -667,222 +602,24 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
         {viewMode === "sheet" && (
           <div key="sheet-view">
             {/* Header */}
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 sm:border-b-4 border-ink pb-4 mb-6 sm:mb-8 gap-4">
-              <div className="w-full md:w-auto">
-                <div className="flex justify-between items-center md:justify-start gap-3 flex-wrap">
-                  <h1 className="text-3xl sm:text-5xl font-bold text-ink drop-shadow-sm font-cinzel">{character.name || "Sin Nombre"}</h1>
-                  
-                  {/* Rests & Inspiration Dropdown Menu */}
-                  <div className="relative">
-                    <button
-                      onClick={() => setRestMenuOpen(!restMenuOpen)}
-                      className={`px-3 py-1.5 rounded-lg border-2 font-sans font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${character.inspiration ? 'bg-magic-gold text-black border-white shadow-[0_0_15px_rgba(245,208,97,0.8)]' : 'bg-parchment text-ink border-ink/20 hover:border-magic-gold'}`}
-                    >
-                      <Sparkles className={`w-4 h-4 ${character.inspiration ? 'fill-black text-black' : 'text-magic-gold'}`} />
-                      <span>Descansos e Inspiración</span>
-                      <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
-                    </button>
-
-                    <AnimatePresence>
-                      {restMenuOpen && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 5, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 5, scale: 0.95 }}
-                          className="absolute left-0 mt-2 w-56 bg-parchment-dark border-2 border-magic-gold rounded-xl shadow-2xl p-2 z-40 font-sans space-y-1"
-                        >
-                          <button
-                            onClick={() => {
-                              toggleInspiration(character.id);
-                              setRestMenuOpen(false);
-                            }}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between transition cursor-pointer ${character.inspiration ? 'bg-magic-gold text-black' : 'hover:bg-ink/10 text-ink'}`}
-                          >
-                            <span className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-magic-gold" /> Inspiración D&D 5e</span>
-                            <span className="text-[10px]">{character.inspiration ? 'ACTIVO' : 'Inactivo'}</span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              shortRest(character.id);
-                              setRestMenuOpen(false);
-                            }}
-                            className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between hover:bg-ink/10 text-ink transition cursor-pointer border-t border-ink/10"
-                          >
-                            <span className="flex items-center gap-2">Descanso Corto (1 hora)</span>
-                            <span className="text-[10px] text-ink-light font-normal">Recarga Habilidades</span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              spendHitDie(character.id);
-                              setRestMenuOpen(false);
-                            }}
-                            disabled={characterHitDice.current <= 0 || character.hp.current >= effectiveMaxHP}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between transition cursor-pointer ${
-                              characterHitDice.current <= 0 || character.hp.current >= effectiveMaxHP
-                                ? 'opacity-50 cursor-not-allowed text-ink-light'
-                                : 'hover:bg-ink/10 text-magic-gold'
-                            }`}
-                          >
-                            <span className="flex items-center gap-2"><img src={ASSETS.icons.d20} className="w-3.5 h-3.5 object-contain inline-block shrink-0" alt="d20" /> Gastar Dado de Golpe</span>
-                            <span className="text-[10px] font-mono font-bold">{characterHitDice.current}/{characterHitDice.max} d{characterHitDice.die}</span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              longRest(character.id);
-                              setRestMenuOpen(false);
-                            }}
-                            className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between hover:bg-ink/10 text-ink transition cursor-pointer border-t border-ink/10"
-                          >
-                            <span className="flex items-center gap-2">Descanso Largo (8 horas)</span>
-                            <span className="text-[10px] text-ink-light font-normal">Restaura Todo + Dados</span>
-                          </button>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
-                {!isCombatMode && (
-                  <p className="text-sm sm:text-xl text-ink-light font-sans mt-1">
-                    Nivel {character.level} • {character.race} {character.charClass} • {character.background}
-                  </p>
-                )}
-              </div>
-          
-          <div className="flex gap-4 sm:gap-6 items-center justify-between w-full md:w-auto pt-2 md:pt-0 border-t md:border-0 border-ink/10">
-            {/* Armor Class (CA) */}
-            <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-parchment-dark rounded-xl border-2 border-magic-gold/60 shadow-md min-w-[85px] sm:min-w-[100px] relative">
-              <div className="flex items-center gap-1 mb-0.5">
-                <img src={ASSETS.icons.shield} className="w-4 h-4 sm:w-5 sm:h-5 object-contain inline-block shrink-0" alt="CA" />
-                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider font-cinzel text-ink">CA</span>
-              </div>
-              
-              <span className={`font-bold text-2xl sm:text-3xl font-sans font-mono leading-none my-0.5 ${effectiveAC !== character.ac ? 'text-magic-gold' : 'text-ink'}`}>
-                {effectiveAC}
-              </span>
-
-              <span className="text-[9px] text-ink-light font-sans font-semibold">Armadura</span>
-
-              {isEditing && (
-                <button
-                  onClick={() => setStatEdit({ stat: 'ac', value: 0, turns: "" })}
-                  className="absolute -top-2 -right-2 p-1 bg-magic-gold rounded-full text-black hover:scale-110 transition cursor-pointer shadow"
-                  title="Modificar Clase de Armadura"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-            
-            {/* Puntos de Vida (HP / PG) */}
-            <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-parchment-dark rounded-xl border-2 border-magic-red/60 shadow-md min-w-[130px] sm:min-w-[150px] relative">
-              <div className="flex items-center gap-1.5 mb-1 flex-wrap justify-center">
-                <img src={ASSETS.icons.potion} className={`w-4 h-4 sm:w-5 sm:h-5 object-contain inline-block shrink-0 ${character.hp.current <= 0 ? 'animate-pulse' : ''}`} alt="HP" />
-                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider font-cinzel text-ink">
-                  {hpTerminology || 'HP'}
-                </span>
-                {character.hp.temp > 0 && (
-                  <span className="text-[9px] font-bold bg-amber-500/20 text-amber-600 border border-amber-500/40 px-1.5 py-0.2 rounded">
-                    +{character.hp.temp} Temp
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-baseline gap-1 my-0.5">
-                <span className={`font-bold text-2xl sm:text-3xl font-sans font-mono leading-none ${character.hp.current <= 0 ? 'text-magic-red animate-pulse' : 'text-ink'}`}>
-                  {character.hp.current}
-                </span>
-                <span className="text-sm sm:text-base font-bold text-ink-light">/</span>
-                <span className={`font-bold text-lg sm:text-xl font-sans font-mono ${effectiveMaxHP !== character.hp.max ? 'text-magic-gold' : 'text-ink-light'}`}>
-                  {effectiveMaxHP}
-                </span>
-              </div>
-
-              <div className="flex gap-1 justify-center mt-1.5 w-full">
-                <button 
-                  onClick={() => setHPModal({ open: true, type: 'current', amount: 0, turns: "" })}
-                  className="text-[10px] bg-magic-red text-white px-2 py-0.5 sm:py-1 rounded font-sans font-bold hover:bg-red-700 transition cursor-pointer shadow-sm flex-1 text-center"
-                  title="Ajustar HP Actual / Daño / Curación"
-                >
-                  +/- HP
-                </button>
-                {isEditing && (
-                  <button 
-                    onClick={() => setHPModal({ open: true, type: 'max', amount: 0, turns: "" })}
-                    className="text-[10px] bg-parchment text-ink border border-ink/30 px-2 py-0.5 sm:py-1 rounded font-sans font-bold hover:bg-ink/10 transition cursor-pointer shadow-sm flex-1 text-center"
-                    title="Modificar HP Máximo"
-                  >
-                    +Máx
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Dados de Golpe (Hit Dice - D&D 5e) */}
-            <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-parchment-dark rounded-xl border-2 border-magic-gold/60 shadow-md min-w-[110px] sm:min-w-[125px] relative">
-              <div className="flex items-center gap-1.5 mb-1 flex-wrap justify-center">
-                <img src={ASSETS.icons.d20} className="w-4 h-4 sm:w-5 sm:h-5 object-contain inline-block shrink-0" alt="Dados" />
-                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider font-cinzel text-ink">
-                  Dados Golpe
-                </span>
-              </div>
-
-              <div className="flex items-baseline gap-1 my-0.5">
-                <span className={`font-bold text-2xl sm:text-3xl font-sans font-mono leading-none ${characterHitDice.current <= 0 ? 'text-magic-red' : 'text-magic-gold'}`}>
-                  {characterHitDice.current}
-                </span>
-                <span className="text-sm sm:text-base font-bold text-ink-light">/</span>
-                <span className="font-bold text-lg sm:text-xl font-sans font-mono text-ink-light">
-                  {characterHitDice.max}
-                </span>
-                <span className="text-[10px] font-bold text-ink-light font-mono ml-0.5">
-                  (d{characterHitDice.die})
-                </span>
-              </div>
-
-              <div className="flex gap-1 justify-center mt-1.5 w-full">
-                <button 
-                  onClick={() => spendHitDie(character.id)}
-                  disabled={characterHitDice.current <= 0 || character.hp.current >= effectiveMaxHP}
-                  className={`text-[10px] px-2 py-0.5 sm:py-1 rounded font-sans font-bold transition cursor-pointer shadow-sm flex-1 text-center ${
-                    characterHitDice.current <= 0 || character.hp.current >= effectiveMaxHP
-                      ? 'bg-ink/10 text-ink-light cursor-not-allowed opacity-60'
-                      : 'bg-magic-gold text-black hover:bg-yellow-500'
-                  }`}
-                  title={
-                    characterHitDice.current <= 0
-                      ? 'Sin dados de golpe disponibles'
-                      : character.hp.current >= effectiveMaxHP
-                      ? 'Puntos de vida ya al máximo'
-                      : `Gastar 1d${characterHitDice.die} + ${Math.floor((character.stats.con - 10) / 2)} Mod CON para curarte en descanso corto`
-                  }
-                >
-                  Gastar Dado
-                </button>
-              </div>
-            </div>
-
-            {/* Advance Turn Button (Only available in combat mode) */}
-            {isCombatMode && (
-              <button 
-                onClick={() => advanceTurn()}
-                disabled={character.isDead || !isMyTurn}
-                className={`flex items-center gap-1 text-xs sm:text-sm font-bold px-3 sm:px-4 py-2.5 rounded shadow transition cursor-pointer font-sans min-h-[44px]
-                  ${character.isDead 
-                    ? 'bg-red-950 text-red-500 border border-red-800 cursor-not-allowed opacity-60' 
-                    : (isMyTurn 
-                        ? 'bg-magic-gold text-black hover:bg-yellow-500 shadow-[0_0_15px_rgba(245,208,97,0.8)]' 
-                        : 'bg-ink/20 text-ink-light border border-ink/10 cursor-not-allowed')}`}
-                title={character.isDead ? "Tu personaje está muerto." : (!isMyTurn ? `Es el turno de ${currentTurnPlayer?.name}.` : "Terminar tu turno y avanzar.")}
-              >
-                <Clock className="w-4 h-4 shrink-0" /> 
-                <span>{character.isDead ? "Fallecido" : (isMyTurn ? "¡Terminar Turno!" : "Esperando...")}</span>
-              </button>
-            )}
-          </div>
-        </header>
+            <CombatHeader
+              character={character}
+              effectiveAC={effectiveAC}
+              effectiveMaxHP={effectiveMaxHP}
+              characterHitDice={characterHitDice}
+              hpTerminology={hpTerminology}
+              isEditing={isEditing}
+              isCombatMode={isCombatMode}
+              onOpenHPModal={(type) => setHPModal({ open: true, type, amount: 0, turns: "" })}
+              onOpenStatEdit={(stat) => setStatEdit({ stat, value: 0, turns: "" })}
+              toggleInspiration={toggleInspiration}
+              shortRest={shortRest}
+              longRest={longRest}
+              spendHitDie={spendHitDie}
+              advanceTurn={advanceTurn}
+              isMyTurn={isMyTurn}
+              currentTurnPlayerName={currentTurnPlayer?.name}
+            />
 
         {/* Tab Navigation */}
         <nav className="flex flex-wrap items-center justify-between gap-2 sm:gap-4 mb-6 border-b border-ink/20 pb-4 font-sans">
@@ -1162,1081 +899,79 @@ export default function CharacterSheetPage({ isDM = false, isDemoOverride = fals
           {/* TAB 1: STATS & OFFICIAL SAVING THROWS */}
           <AnimatePresence mode="wait">
             {activeTab === "stats" && (
-              <motion.div key="stats" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
-                
-                {/* 6 Core Stats & Saving Throws */}
-                <div className="col-span-1 space-y-4">
-                  <h3 className="text-xl sm:text-2xl font-bold border-b border-ink/20 pb-2 flex justify-between items-center font-cinzel">
-                    <span>Atributos</span>
-                    <span className="text-xs text-ink-light font-sans font-normal">Competencia: +{character.proficiencyBonus}</span>
-                  </h3>
-                  
-                  <div className="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-1 gap-2.5 sm:gap-3">
-                    {(['str', 'dex', 'con', 'int', 'wis', 'cha'] as const).map((stat) => {
-                      const baseVal = character.stats[stat] || 10;
-                      const effective = getEffectiveStat(stat);
-                      const mod = getAbilityMod(effective);
-                      const isProficientSave = officialSavingThrows.includes(stat);
-                      const saveBonus = mod + (isProficientSave ? character.proficiencyBonus : 0);
-
-                      return (
-                        <div key={stat} className="bg-parchment p-2.5 sm:p-3 border border-ink/10 rounded relative group">
-                          {isEditing && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); setStatEdit({ stat, value: 0, turns: "" }); }} 
-                              className="absolute -top-1 -right-1 p-1 bg-magic-gold rounded-full text-black hover:scale-110 transition cursor-pointer shadow z-10"
-                              title={`Editar atributo ${stat.toUpperCase()}`}
-                            >
-                              <Plus className="w-3.5 h-3.5"/>
-                            </button>
-                          )}
-                          <div 
-                            onClick={() => triggerDiceRoll('d20', mod, `Prueba de ${stat.toUpperCase()} (${character.name})`)}
-                            className="flex flex-col lg:flex-row justify-between items-center cursor-pointer hover:bg-ink/5 p-1 rounded transition"
-                            title={`Hacer clic para lanzar d20 + ${mod}`}
-                          >
-                            <div>
-                              <span className="font-bold uppercase tracking-wider text-xs sm:text-sm block flex items-center gap-1.5">
-                                <img src={ASSETS.icons.d20} className="w-3.5 h-3.5 object-contain inline-block shrink-0" alt="d20" />
-                                {stat}
-                              </span>
-                              <span className="text-[10px] text-ink-light font-sans block">Mod: {mod >= 0 ? `+${mod}` : mod}</span>
-                            </div>
-                            <div className="flex items-center gap-1 sm:gap-2 mt-1 lg:mt-0">
-                              {effective !== baseVal && (
-                                <span className="text-[10px] font-sans font-bold text-magic-red">({effective > baseVal ? '+'+(effective-baseVal) : (effective-baseVal)})</span>
-                              )}
-                              <span className={`text-xl sm:text-2xl font-serif font-bold ${effective !== baseVal ? 'text-magic-gold drop-shadow-md' : ''}`}>{effective}</span>
-                            </div>
-                          </div>
-
-                          {/* Official 2 Class Saving Throws Display (Clickable) */}
-                          <div 
-                            onClick={() => triggerDiceRoll('d20', saveBonus, `Salvaguardia: ${stat.toUpperCase()} (${character.name})`)}
-                            className="mt-2 pt-1.5 border-t border-ink/10 flex justify-between items-center text-[10px] font-sans cursor-pointer hover:bg-ink/5 p-1 rounded transition"
-                            title={`Tirada de Salvación ${stat.toUpperCase()}: d20 + ${saveBonus}`}
-                          >
-                            <span className="text-ink-light">Salvación ({stat.toUpperCase()}):</span>
-                            <span className={`font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${isProficientSave ? 'bg-magic-gold text-black' : 'bg-ink/10 text-ink'}`}>
-                              <span>{saveBonus >= 0 ? `+${saveBonus}` : saveBonus}</span>
-                              {isProficientSave && <CheckCircle2 className="w-2.5 h-2.5" />}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Skills & Modifiers Section */}
-                <div className="col-span-1 lg:col-span-2 space-y-6">
-                  <div>
-                    <h3 className="text-xl sm:text-2xl font-bold border-b border-ink/20 pb-2 mb-4 flex justify-between items-center font-cinzel">
-                      <span>Habilidades Destacadas</span>
-                      <button 
-                        onClick={() => setShowAllSkills(!showAllSkills)}
-                        className="text-xs sm:text-sm text-magic-gold flex items-center gap-1 hover:underline font-sans font-normal cursor-pointer"
-                      >
-                        {showAllSkills ? 'Ocultar Lista' : 'Ver las 18 Habilidades'} 
-                        {showAllSkills ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
-                      </button>
-                    </h3>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 font-sans mb-4">
-                      {character.pinnedSkills.map(skillName => {
-                        const skillDef = SKILLS_5E.find(s => s.name === skillName) || { stat: 'str' };
-                        const { baseMod, skillMods, totalMod } = getEffectiveSkillMod(skillName, skillDef.stat);
-                        return (
-                          <div 
-                            key={skillName} 
-                            onClick={() => triggerDiceRoll('d20', totalMod, `Prueba de ${skillName} (${character.name})`)}
-                            className="p-2.5 bg-parchment border-l-4 border-magic-gold rounded flex justify-between items-center shadow-sm cursor-pointer hover:bg-ink/5 transition relative group"
-                            title={`Lanzar d20 + ${totalMod} para ${skillName}`}
-                          >
-                            <div className="truncate">
-                              <span className="font-bold text-xs sm:text-sm block truncate flex items-center gap-1.5">
-                                <img src={ASSETS.icons.d20} className="w-3.5 h-3.5 object-contain inline-block shrink-0" alt="d20" />
-                                {skillName}
-                              </span>
-                              <span className="text-[10px] text-ink-light uppercase">({skillDef.stat})</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {skillMods !== 0 && (
-                                <span className={`text-[10px] font-bold ${skillMods > 0 ? 'text-magic-gold' : 'text-magic-red'}`}>
-                                  ({skillMods > 0 ? '+'+skillMods : skillMods})
-                                </span>
-                              )}
-                              <span className="font-bold text-base sm:text-lg text-magic-gold">
-                                {totalMod >= 0 ? `+${totalMod}` : totalMod}
-                              </span>
-                              {isEditing && (
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); setSkillEditModal({ open: true, skillName: skillName, value: 0, turns: "" }); }}
-                                  className="p-1 bg-magic-gold rounded-full text-black hover:scale-110 transition cursor-pointer shadow z-10"
-                                  title={`Modificar habilidad ${skillName}`}
-                                >
-                                  <Plus className="w-3.5 h-3.5"/>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <AnimatePresence>
-                      {showAllSkills && (
-                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden bg-parchment-dark p-3 sm:p-4 rounded border border-ink/20">
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-sans text-xs">
-                            {SKILLS_5E.map(skill => {
-                              const isPinned = character.pinnedSkills.includes(skill.name);
-                              const { baseMod, skillMods, totalMod } = getEffectiveSkillMod(skill.name, skill.stat);
-                              return (
-                                <div key={skill.name} className="flex justify-between items-center p-2 bg-parchment rounded border border-ink/10 hover:bg-ink/5 transition">
-                                  <div 
-                                    onClick={() => triggerDiceRoll('d20', totalMod, `Prueba de ${skill.name} (${character.name})`)}
-                                    className="flex-1 truncate cursor-pointer flex items-center gap-1"
-                                    title={`Lanzar d20 + ${totalMod} para ${skill.name}`}
-                                  >
-                                    <span className="truncate flex items-center gap-1.5">
-                                      <img src={ASSETS.icons.d20} className="w-3 h-3 object-contain inline-block shrink-0" alt="d20" />
-                                      {skill.name} <span className="text-ink-light text-[10px]">({skill.stat})</span>
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-1 shrink-0 ml-1">
-                                    {skillMods !== 0 && (
-                                      <span className={`text-[10px] font-bold ${skillMods > 0 ? 'text-magic-gold' : 'text-magic-red'}`}>
-                                        ({skillMods > 0 ? '+'+skillMods : skillMods})
-                                      </span>
-                                    )}
-                                    <span 
-                                      onClick={() => triggerDiceRoll('d20', totalMod, `Prueba de ${skill.name} (${character.name})`)}
-                                      className="font-bold cursor-pointer hover:text-magic-gold"
-                                    >
-                                      {totalMod >= 0 ? `+${totalMod}` : totalMod}
-                                    </span>
-                                    {isEditing && (
-                                      <button 
-                                        onClick={(e) => { e.stopPropagation(); setSkillEditModal({ open: true, skillName: skill.name, value: 0, turns: "" }); }}
-                                        className="p-0.5 bg-magic-gold rounded-full text-black hover:scale-110 transition cursor-pointer shadow"
-                                        title={`Modificar habilidad ${skill.name}`}
-                                      >
-                                        <Plus className="w-3 h-3"/>
-                                      </button>
-                                    )}
-                                    <button 
-                                      onClick={(e) => { e.stopPropagation(); togglePinSkill(skill.name); }} 
-                                      className={`p-1 rounded cursor-pointer ${isPinned ? 'text-magic-gold' : 'text-ink-light opacity-50 hover:opacity-100'}`}
-                                      title={isPinned ? "Desfijar habilidad" : "Fijar habilidad"}
-                                    >
-                                      <Pin className="w-3.5 h-3.5"/>
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
-              </motion.div>
+              <StatsAndSkillsTab
+                character={character}
+                officialSavingThrows={officialSavingThrows}
+                isEditing={isEditing}
+                getEffectiveStat={getEffectiveStat}
+                getAbilityMod={getAbilityMod}
+                getEffectiveSkillMod={getEffectiveSkillMod}
+                togglePinSkill={togglePinSkill}
+                onOpenStatEdit={(stat) => setStatEdit({ stat, value: 0, turns: "" })}
+                onOpenSkillEdit={(skillName) => setSkillEditModal({ open: true, skillName, value: 0, turns: "" })}
+              />
             )}
 
-            {/* TAB 2: ACCIONES DE CLASE (D&D 5e) & LORE DM */}
-            {activeTab === "class_features" && (() => {
-              const matchFeatureName = (a: string, b: string) => {
-                const cleanA = a.toLowerCase().split('(')[0].trim();
-                const cleanB = b.toLowerCase().split('(')[0].trim();
-                return cleanA === cleanB || a.toLowerCase() === b.toLowerCase();
-              };
+            {activeTab === "class_features" && (
+              <ClassFeaturesTab
+                character={character}
+                classFeatures={classFeatures}
+                isEditing={isEditing}
+                useClassFeature={useClassFeature}
+                addCustomClassFeature={addCustomClassFeature}
+                removeCustomClassFeature={removeCustomClassFeature}
+                onOpenFeatureEdit={(feat) => setFeatureEditModal({ open: true, oldName: feat.name, ...feat })}
+                showAlert={showAlert}
+              />
+            )}
 
-              const officialMapped = classFeatures.map(f => {
-                const tracked = (character.customClassFeatures || []).find(c => matchFeatureName(c.name, f.name));
-                if (tracked) {
-                  return { ...f, ...tracked, isCustom: false };
-                }
-                return { ...f, isCustom: false };
-              });
-
-              const purelyCustom = (character.customClassFeatures || []).filter(c =>
-                !classFeatures.some(f => matchFeatureName(f.name, c.name))
-              ).map(f => ({ ...f, isCustom: true }));
-
-              const allFeatures: (ClassFeature & { isCustom?: boolean })[] = [
-                ...officialMapped,
-                ...purelyCustom
-              ];
-
-              const filteredFeatures = allFeatures.filter(f => {
-                const matchesSearch = !featureSearch || f.name.toLowerCase().includes(featureSearch.toLowerCase()) || f.description.toLowerCase().includes(featureSearch.toLowerCase());
-                if (!matchesSearch) return false;
-                if (featureFilter === 'all') return true;
-                if (featureFilter === 'active') return f.type === 'active';
-                if (featureFilter === 'passive') return f.type === 'passive';
-                if (featureFilter === 'short') return f.resetOn === 'short' || (f.usage && f.usage.toLowerCase().includes('corto'));
-                if (featureFilter === 'long') return f.resetOn === 'long' || (f.usage && f.usage.toLowerCase().includes('largo'));
-                return true;
-              });
-
-              return (
-                <motion.div key="class_features" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-                  <div className="border-b border-ink/20 pb-3 flex justify-between items-center flex-wrap gap-2">
-                    <div>
-                      <h3 className="text-2xl font-bold font-cinzel text-magic-gold">Acciones y Rasgos de Clase ({character.charClass})</h3>
-                      <p className="text-xs text-ink-light">Habilidades oficiales de Nivel {character.level} y rasgos otorgados por Lore/DM.</p>
-                    </div>
-                  </div>
-
-                  {/* Filter & Search Bar + Focus Mode Launcher */}
-                  <div className="bg-parchment p-3 rounded-xl border border-ink/20 flex flex-wrap justify-between items-center gap-3 font-sans shadow-sm">
-                    <div className="flex items-center gap-1.5 flex-wrap text-xs">
-                      <button
-                        onClick={() => setFeatureFilter('all')}
-                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'all' ? 'bg-magic-gold text-black' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
-                      >
-                        Todas ({allFeatures.length})
-                      </button>
-                      <button
-                        onClick={() => setFeatureFilter('active')}
-                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'active' ? 'bg-magic-red text-white' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
-                      >
-                        Activas
-                      </button>
-                      <button
-                        onClick={() => setFeatureFilter('passive')}
-                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'passive' ? 'bg-ink text-parchment-dark' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
-                      >
-                        Pasivas
-                      </button>
-                      <button
-                        onClick={() => setFeatureFilter('short')}
-                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'short' ? 'bg-amber-600 text-white' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
-                      >
-                        Descanso Corto
-                      </button>
-                      <button
-                        onClick={() => setFeatureFilter('long')}
-                        className={`px-3 py-1.5 rounded font-bold transition cursor-pointer ${featureFilter === 'long' ? 'bg-indigo-600 text-white' : 'bg-parchment-dark text-ink hover:bg-ink/10'}`}
-                      >
-                        Descanso Largo
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <div className="relative w-full sm:w-48">
-                        <input
-                          type="text"
-                          value={featureSearch}
-                          onChange={e => setFeatureSearch(e.target.value)}
-                          placeholder="Buscar rasgo..."
-                          className="p-1.5 pl-7 text-xs bg-parchment-dark border border-ink/30 rounded text-ink font-bold w-full focus:outline-none focus:border-magic-gold"
-                        />
-                        <Search className="w-3.5 h-3.5 text-ink-light absolute left-2 top-2" />
-                      </div>
-                      <button
-                        onClick={() => setFocusFeaturesModalOpen(true)}
-                        className="px-3 py-1.5 bg-magic-gold text-black text-xs font-bold rounded hover:bg-yellow-500 transition cursor-pointer shadow shrink-0 flex items-center gap-1"
-                        title="Ampliar vista de acciones a pantalla completa"
-                      >
-                        <Maximize2 className="w-3.5 h-3.5" /> Modo Enfoque
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Custom Class Feature Form (Pluma Mágica / Lore DM) */}
-                  {isEditing && (
-                    <div className="p-4 bg-parchment border-2 border-magic-gold rounded-xl space-y-3 font-sans shadow-lg">
-                      <div className="flex justify-between items-center border-b border-ink/10 pb-2">
-                        <h4 className="font-bold text-base sm:text-lg text-magic-gold font-cinzel flex items-center gap-2">
-                          <Sparkles className="w-5 h-5"/> Otorgar Rasgo por Lore / DM (Libertad de Campaña)
-                        </h4>
-                      </div>
-                      <p className="text-xs text-ink-light italic">
-                        Nota: Esta herramienta permite al DM conceder bendiciones, títulos, artefactos o habilidades por historia sin restricción de nivel.
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <label className="block font-bold mb-1">Nombre del Rasgo</label>
-                          <input
-                            type="text"
-                            value={newFeature.name}
-                            onChange={e => setNewFeature({ ...newFeature, name: e.target.value })}
-                            placeholder="Ej. Bendición del Viento, Don Arcabuce..."
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-bold mb-1">Tipo de Habilidad</label>
-                          <select
-                            value={newFeature.type}
-                            onChange={e => setNewFeature({ ...newFeature, type: e.target.value as 'active' | 'passive' })}
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold cursor-pointer"
-                          >
-                            <option value="active">Activa</option>
-                            <option value="passive">Pasiva</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block font-bold mb-1">Uso / Recarga (Opcional)</label>
-                          <input
-                            type="text"
-                            value={newFeature.usage}
-                            onChange={e => setNewFeature({ ...newFeature, usage: e.target.value })}
-                            placeholder="Ej. 1 por Descanso Largo, Reacción..."
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
-                          />
-                        </div>
-                        <div className="col-span-full">
-                          <label className="block font-bold mb-1">Descripción del Rasgo</label>
-                          <input
-                            type="text"
-                            value={newFeature.desc}
-                            onChange={e => setNewFeature({ ...newFeature, desc: e.target.value })}
-                            placeholder="Explicación del efecto o bono otorgado..."
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex justify-end">
-                        <button
-                          onClick={handleAddCustomFeature}
-                          className="px-4 py-2 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer flex items-center gap-1 shadow"
-                        >
-                          <Plus className="w-4 h-4"/> Otorgar Rasgo
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Features Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-sans">
-                    {filteredFeatures.map((feat, idx) => {
-                      const curUses = feat.currentUses ?? feat.maxUses;
-                      return (
-                        <div 
-                          key={idx} 
-                          className={`p-4 rounded-xl border-2 space-y-2.5 relative shadow-md ${feat.isCustom ? 'bg-parchment-dark border-magic-gold' : 'bg-parchment border-magic-gold/30'}`}
-                        >
-                          <div className="flex justify-between items-start gap-2">
-                            <div>
-                              <h4 className="font-bold text-lg text-magic-gold font-cinzel flex items-center gap-2">
-                                {feat.isCustom && (
-                                  <span className="text-[10px] bg-magic-gold/20 text-magic-gold px-1.5 py-0.5 rounded font-cinzel">Lore</span>
-                                )}
-                                {feat.name}
-                              </h4>
-                              {feat.isCustom && (
-                                <span className="text-[10px] bg-magic-gold/20 text-magic-gold font-bold px-2 py-0.5 rounded uppercase block mt-0.5">
-                                  Otorgado por Lore / DM
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
-                                {feat.type === 'active' ? 'Activa' : 'Pasiva'}
-                              </span>
-                              {isEditing && (
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => setFeatureEditModal({ open: true, oldName: feat.name, name: feat.name, type: feat.type, usage: feat.usage || '', desc: feat.description })}
-                                    className="text-ink-light hover:text-magic-gold p-1 cursor-pointer"
-                                    title="Editar Rasgo (Pluma Mágica)"
-                                  >
-                                    <PenTool className="w-4 h-4" />
-                                  </button>
-                                  {feat.isCustom && (
-                                    <button
-                                      onClick={() => removeCustomClassFeature(feat.name)}
-                                      className="text-ink-light hover:text-magic-red p-1 cursor-pointer"
-                                      title="Retirar Rasgo"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <p className="text-xs sm:text-sm text-ink/90 leading-relaxed">{feat.description}</p>
-
-                          {(feat.usage || feat.type === 'active') && (
-                            <div className="pt-2 border-t border-ink/10 flex items-center justify-between text-xs font-bold gap-2">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                {feat.usage && <span className="text-ink-light">Uso:</span>}
-                                {feat.usage && <span className="bg-magic-gold/20 text-magic-gold px-2 py-0.5 rounded">{feat.usage}</span>}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {feat.maxUses !== undefined && (
-                                  <span className="bg-ink/10 text-ink font-mono px-2 py-0.5 rounded">
-                                    {curUses} / {feat.maxUses}
-                                  </span>
-                                )}
-                                {feat.type === 'active' && (
-                                  <button
-                                    onClick={() => useClassFeature(feat.name, character.id)}
-                                    disabled={curUses !== undefined && curUses <= 0}
-                                    className={`px-2.5 py-1 rounded text-[11px] font-bold text-white transition cursor-pointer ${curUses !== undefined && curUses <= 0 ? 'bg-gray-500 opacity-50 cursor-not-allowed' : 'bg-magic-red hover:bg-red-700 shadow-sm'}`}
-                                  >
-                                    Usar
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Focus Mode Fullscreen Modal */}
-                  <AnimatePresence>
-                    {focusFeaturesModalOpen && (
-                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4">
-                        <div className="bg-parchment-dark border-4 border-magic-gold p-6 rounded-2xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col font-sans">
-                          <div className="flex justify-between items-center border-b border-ink/20 pb-3 mb-4">
-                            <div>
-                              <h3 className="text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                                Modo Enfoque — Acciones de Clase ({character.charClass})
-                              </h3>
-                              <p className="text-xs text-ink-light">Consulta detallada de todas las habilidades de tu héroe.</p>
-                            </div>
-                            <button onClick={() => setFocusFeaturesModalOpen(false)} className="p-2 text-ink-light hover:text-ink cursor-pointer">
-                              <X className="w-6 h-6" />
-                            </button>
-                          </div>
-
-                          <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {filteredFeatures.map((feat, idx) => {
-                              const curUses = feat.currentUses ?? feat.maxUses;
-                              return (
-                                <div key={idx} className="p-5 bg-parchment rounded-xl border-2 border-magic-gold/40 shadow-lg flex flex-col justify-between space-y-3">
-                                  <div>
-                                    <div className="flex justify-between items-start gap-2 mb-2">
-                                      <h4 className="font-bold text-xl text-magic-gold font-cinzel">{feat.name}</h4>
-                                      <span className={`px-2.5 py-0.5 rounded text-xs uppercase font-bold ${feat.type === 'active' ? 'bg-magic-red text-white shadow' : 'bg-ink/10 text-ink'}`}>
-                                        {feat.type === 'active' ? 'Activa' : 'Pasiva'}
-                                      </span>
-                                    </div>
-                                    <p className="text-sm text-ink/90 leading-relaxed">{feat.description}</p>
-                                  </div>
-
-                                  {(feat.usage || feat.type === 'active') && (
-                                    <div className="pt-2 border-t border-ink/10 flex items-center justify-between text-xs font-bold gap-2">
-                                      {feat.usage ? (
-                                        <span className="bg-magic-gold/20 text-magic-gold px-2.5 py-1 rounded">Uso: {feat.usage}</span>
-                                      ) : <div />}
-                                      <div className="flex items-center gap-2">
-                                        {feat.maxUses !== undefined && (
-                                          <span className="font-mono text-sm bg-ink/10 px-2 py-0.5 rounded">{curUses} / {feat.maxUses}</span>
-                                        )}
-                                        {feat.type === 'active' && (
-                                          <button
-                                            onClick={() => useClassFeature(feat.name, character.id)}
-                                            disabled={curUses !== undefined && curUses <= 0}
-                                            className={`px-3 py-1 rounded font-bold text-white transition cursor-pointer ${curUses !== undefined && curUses <= 0 ? 'bg-gray-500 opacity-50 cursor-not-allowed' : 'bg-magic-red hover:bg-red-700'}`}
-                                          >
-                                            Usar Carga
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              );
-            })()}
-
-            {/* TAB 3: EQUIPAMIENTO CON BONOS DE CA AUTOMÁTICOS */}
             {activeTab === "equipment" && (
-              <motion.div key="equipment" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-                
-                <div className="border-b border-ink/20 pb-3 flex justify-between items-center flex-wrap gap-2">
-                  <div>
-                    <h3 className="text-2xl font-bold font-cinzel text-magic-gold">Equipamiento e Inventario</h3>
-                    <p className="text-xs text-ink-light">Haz clic en "Equipar" para activar automáticamente sus bonos a la CA o ataques.</p>
-                  </div>
-                  <div className="flex gap-2 text-xs">
-                    {(['all', 'weapon', 'armor', 'consumable', 'quest', 'general'] as const).map(type => (
-                      <button
-                        key={type}
-                        onClick={() => setInventoryFilter(type)}
-                        className={`px-3 py-1.5 rounded capitalize font-bold cursor-pointer transition ${inventoryFilter === type ? 'bg-magic-gold text-black' : 'bg-parchment text-ink hover:bg-ink/10'}`}
-                      >
-                        {type === 'all' ? 'Todos' : type === 'weapon' ? 'Armas' : type === 'armor' ? 'Armaduras' : type === 'consumable' ? 'Consumibles' : type === 'quest' ? 'Misión' : 'General'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* SISTEMA DE MONEDAS D&D 5E */}
-                {(() => {
+              <EquipmentInventoryTab
+                character={character}
+                currencyMode={room?.currencyMode}
+                isEditing={isEditing}
+                toggleEquipItem={toggleEquipItem}
+                consumeItem={consumeItem}
+                removeItem={removeItem}
+                addItem={addItem}
+                onOpenItemEdit={(item) => setItemEditModal({ open: true, item })}
+                onOpenSpendModal={() => {
+                  setSpendInput({ cp: 0, sp: 0, ep: 0, gp: 0, pp: 0, reason: "" });
+                  setSpendModalOpen(true);
+                }}
+                onOpenEditCurrencyModal={() => {
                   const cur = character.currency || { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
-                  const isStandard = room?.currencyMode === 'standard';
-                  const totalGPValue = (cur.pp * 10) + cur.gp + (cur.ep * 0.5) + (cur.sp * 0.1) + (cur.cp * 0.01);
-                  return (
-                    <div className="bg-parchment-dark p-4 sm:p-5 rounded-xl border-2 border-magic-gold/50 shadow-xl font-sans space-y-4">
-                      <div className="flex justify-between items-center flex-wrap gap-2 border-b border-ink/10 pb-3">
-                        <div>
-                          <h4 className="font-bold text-lg sm:text-xl font-cinzel text-magic-gold flex items-center gap-2">
-                            Bolsa de Monedas ({isStandard ? 'Estándar CP/SP/GP' : 'D&D 5ª Edición'})
-                          </h4>
-                          <p className="text-xs text-ink-light">Monedas acumuladas en tu monedero y equivalencia en Piezas de Oro (PO / GP).</p>
-                        </div>
-                        
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-bold bg-magic-gold/20 text-magic-gold border border-magic-gold/40 px-3 py-1.5 rounded-lg shadow-sm">
-                            Equivalente Total: <strong className="text-sm font-cinzel">{totalGPValue.toFixed(2)} PO</strong>
-                          </span>
-                          <button
-                            onClick={() => {
-                              setSpendInput({ cp: 0, sp: 0, ep: 0, gp: 0, pp: 0, reason: "" });
-                              setSpendModalOpen(true);
-                            }}
-                            className="flex items-center gap-1.5 bg-magic-red text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-700 transition shadow cursor-pointer"
-                          >
-                            Gastar / Consumir Dinero
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditCurrencyInput({ cp: cur.cp, sp: cur.sp, ep: cur.ep, gp: cur.gp, pp: cur.pp });
-                              setEditCurrencyModalOpen(true);
-                            }}
-                            className="flex items-center gap-1.5 bg-magic-gold text-black text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-yellow-500 transition shadow cursor-pointer"
-                          >
-                            <PenTool className="w-3.5 h-3.5" /> Editar Monedas
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Grid de Monedas */}
-                      <div className={`grid gap-3 text-center ${isStandard ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-5'}`}>
-                        {/* CP */}
-                        <div className="bg-amber-950/20 border border-amber-700/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm">
-                          <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Cobre (CP)</span>
-                          <span className="text-2xl font-bold text-amber-500 font-cinzel my-1">{cur.cp}</span>
-                          <span className="text-[9px] text-ink-light">100 CP = 1 GP</span>
-                        </div>
-
-                        {/* SP */}
-                        <div className="bg-slate-800/20 border border-slate-400/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm">
-                          <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Plata (SP)</span>
-                          <span className="text-2xl font-bold text-slate-200 font-cinzel my-1">{cur.sp}</span>
-                          <span className="text-[9px] text-ink-light">10 SP = 1 GP</span>
-                        </div>
-
-                        {/* EP */}
-                        {!isStandard && (
-                          <div className="bg-cyan-950/20 border border-cyan-500/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm">
-                            <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">Electrum (EP)</span>
-                            <span className="text-2xl font-bold text-cyan-300 font-cinzel my-1">{cur.ep}</span>
-                            <span className="text-[9px] text-ink-light">2 EP = 1 GP</span>
-                          </div>
-                        )}
-
-                        {/* GP */}
-                        <div className="bg-yellow-950/30 border-2 border-magic-gold/70 p-3 rounded-lg flex flex-col items-center justify-between shadow-md">
-                          <span className="text-[10px] font-bold text-magic-gold uppercase tracking-wider">Oro (GP / PO)</span>
-                          <span className="text-2xl font-bold text-magic-gold font-cinzel my-1">{cur.gp}</span>
-                          <span className="text-[9px] text-magic-gold/80 font-bold">Moneda Estándar</span>
-                        </div>
-
-                        {/* PP */}
-                        {!isStandard && (
-                          <div className="bg-indigo-950/20 border border-indigo-400/50 p-3 rounded-lg flex flex-col items-center justify-between shadow-sm col-span-2 sm:col-span-1">
-                            <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Platino (PP)</span>
-                            <span className="text-2xl font-bold text-indigo-200 font-cinzel my-1">{cur.pp}</span>
-                            <span className="text-[9px] text-ink-light">1 PP = 10 GP</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Form to add item when isEditing is true (Pluma Mágica) */}
-                {isEditing && (
-                  <div className="p-4 bg-parchment border-2 border-magic-gold rounded-xl space-y-3 font-sans shadow-lg">
-                    <h4 className="font-bold text-base sm:text-lg text-magic-gold font-cinzel flex items-center gap-2">
-                      <Plus className="w-5 h-5"/> Añadir Objeto al Inventario (Pluma Mágica)
-                    </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs font-bold mb-1">Nombre del Objeto</label>
-                        <input
-                          type="text"
-                          value={newItem.name}
-                          onChange={e => setNewItem({ ...newItem, name: e.target.value })}
-                          placeholder="Ej. Espada Flameante"
-                          className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-xs font-bold text-ink"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold mb-1">Tipo</label>
-                        <select
-                          value={newItem.type}
-                          onChange={e => setNewItem({ ...newItem, type: e.target.value as ItemType })}
-                          className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-xs font-bold text-ink cursor-pointer"
-                        >
-                          <option value="weapon">Arma</option>
-                          <option value="armor">Armadura</option>
-                          <option value="consumable">Consumible</option>
-                          <option value="quest">Objeto de Misión</option>
-                          <option value="general">General</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold mb-1">Cantidad</label>
-                        <input
-                          type="number"
-                          value={newItem.qty}
-                          onChange={e => setNewItem({ ...newItem, qty: parseInt(e.target.value) || 1 })}
-                          className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-xs text-ink font-bold"
-                        />
-                      </div>
-                      {newItem.type === 'weapon' && (
-                        <div>
-                          <label className="block text-xs font-bold mb-1">Daño (Ej. 1d8+2)</label>
-                          <input
-                            type="text"
-                            value={newItem.damage}
-                            onChange={e => setNewItem({ ...newItem, damage: e.target.value })}
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-xs text-ink font-bold"
-                          />
-                        </div>
-                      )}
-                      {newItem.type === 'armor' && (
-                        <div>
-                          <label className="block text-xs font-bold mb-1">Bono a CA (Ej. 2)</label>
-                          <input
-                            type="number"
-                            value={newItem.acBonus}
-                            onChange={e => setNewItem({ ...newItem, acBonus: parseInt(e.target.value) || 0 })}
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-xs text-ink font-bold"
-                          />
-                        </div>
-                      )}
-                      <div>
-                        <label className="block text-xs font-bold mb-1">Duración en Turnos (vacío = Perm)</label>
-                        <input
-                          type="number"
-                          placeholder="Ej. 5 (vacío = permanente)"
-                          value={newItem.turns}
-                          onChange={e => setNewItem({ ...newItem, turns: e.target.value })}
-                          className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-xs text-ink font-bold"
-                        />
-                      </div>
-                      <div className="col-span-full">
-                        <label className="block text-xs font-bold mb-1">Descripción</label>
-                        <input
-                          type="text"
-                          value={newItem.desc}
-                          onChange={e => setNewItem({ ...newItem, desc: e.target.value })}
-                          placeholder="Descripción u efectos del objeto..."
-                          className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-xs text-ink"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex justify-end">
-                      <button
-                        onClick={handleAddItem}
-                        className="px-4 py-2 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer flex items-center gap-1 shadow"
-                      >
-                        <Plus className="w-4 h-4"/> Añadir Objeto
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Items Grid with Equip Toggle */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-sans">
-                  {character.inventory
-                    .filter(item => inventoryFilter === 'all' || item.type === inventoryFilter)
-                    .map(item => (
-                      <div key={item.id} className={`p-4 rounded border-2 transition-all flex justify-between items-start relative ${item.isConsumed ? 'bg-red-950/20 border-magic-red/50 opacity-80' : item.equipped ? 'bg-parchment border-magic-gold shadow-[0_0_15px_rgba(245,208,97,0.2)]' : 'bg-parchment-dark border-ink/20'}`}>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {getItemTypeIcon(item.type)}
-                            <h4 className={`font-bold text-base sm:text-lg ${item.isConsumed ? 'line-through text-magic-red' : ''}`}>{item.name}</h4>
-                            <span className="text-[10px] bg-ink/10 px-2 py-0.5 rounded capitalize">{item.type}</span>
-                            {item.isTemporary && (
-                              <span className="text-[10px] bg-purple-900/30 text-purple-400 font-bold px-2 py-0.5 rounded border border-purple-500/30">
-                                Temporal ({item.duration ? `${item.duration} turnos` : 'Perm'})
-                              </span>
-                            )}
-                            {item.isConsumed && (
-                              <span className="text-[10px] bg-red-900/40 text-red-300 font-bold px-2 py-0.5 rounded border border-red-500/40">
-                                CONSUMIDO (Se eliminará el próximo turno)
-                              </span>
-                            )}
-                          </div>
-                          {item.damage && <p className="text-xs text-magic-red font-bold">Daño: {item.damage}</p>}
-                          {item.acBonus ? <p className="text-xs text-magic-gold font-bold">Bono CA: +{item.acBonus} (Aplicado si equipado)</p> : null}
-                          <p className="text-xs sm:text-sm text-ink-light">{item.description}</p>
-                        </div>
-                        
-                        <div className="flex flex-col items-end gap-2 shrink-0">
-                          {item.isConsumed ? (
-                            <span className="text-[10px] text-red-400 font-bold italic">Agotado</span>
-                          ) : item.type === 'consumable' ? (
-                            <button
-                              onClick={() => consumeItem(item.id)}
-                              className="flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded transition cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700 shadow"
-                              title="Consumir objeto del inventario"
-                            >
-                              <FlaskConical className="w-3.5 h-3.5"/> Consumir (x{item.quantity})
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => toggleEquipItem(item.id)}
-                              className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded transition cursor-pointer ${item.equipped ? 'bg-magic-gold text-black shadow' : 'bg-ink/20 text-ink-light hover:text-ink'}`}
-                            >
-                              {item.equipped ? <CheckCircle2 className="w-3.5 h-3.5"/> : <Circle className="w-3.5 h-3.5"/>}
-                              {item.equipped ? 'EQUIPADO' : 'Equipar'}
-                            </button>
-                          )}
-                          {isEditing && (
-                            <div className="flex items-center gap-1">
-                              <button 
-                                onClick={() => setItemEditModal({ open: true, item: { ...item } })} 
-                                className="text-ink-light hover:text-magic-gold p-1 cursor-pointer" 
-                                title="Editar Objeto (Pluma Mágica)"
-                              >
-                                <PenTool className="w-4 h-4"/>
-                              </button>
-                              <button onClick={() => removeItem(item.id)} className="text-ink-light hover:text-magic-red p-1 cursor-pointer" title="Eliminar Objeto">
-                                <Trash2 className="w-4 h-4"/>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </motion.div>
+                  setEditCurrencyInput({ cp: cur.cp, sp: cur.sp, ep: cur.ep, gp: cur.gp, pp: cur.pp });
+                  setEditCurrencyModalOpen(true);
+                }}
+              />
             )}
 
-            {/* TAB 4: SPELLS */}
             {activeTab === "spells" && (
-              <motion.div key="spells" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6 sm:space-y-8 font-sans">
-                
-                {/* Form to add spell & set spell slots when isEditing is true */}
-                {isEditing && (
-                  <div className="space-y-4">
-                    <div className="p-4 bg-parchment border-2 border-magic-gold rounded-xl space-y-3 font-sans shadow-lg">
-                      <h4 className="font-bold text-base sm:text-lg text-magic-gold font-cinzel flex items-center gap-2">
-                        <Plus className="w-5 h-5"/> Añadir Conjuro (Pluma Mágica)
-                      </h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-                        <div>
-                          <label className="block font-bold mb-1">Nombre del Conjuro</label>
-                          <input
-                            type="text"
-                            value={newSpell.name}
-                            onChange={e => setNewSpell({ ...newSpell, name: e.target.value })}
-                            placeholder="Ej. Bola de Fuego"
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-bold mb-1">Nivel (0 = Truco)</label>
-                          <input
-                            type="number"
-                            value={newSpell.level}
-                            onChange={e => setNewSpell({ ...newSpell, level: parseInt(e.target.value) || 0 })}
-                            min={0}
-                            max={9}
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink font-bold"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-bold mb-1">Escuela de Magia</label>
-                          <input
-                            type="text"
-                            value={newSpell.school}
-                            onChange={e => setNewSpell({ ...newSpell, school: e.target.value })}
-                            placeholder="Evocación, Transmutación..."
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-bold mb-1">Tiempo de Lanzamiento</label>
-                          <input
-                            type="text"
-                            value={newSpell.castingTime}
-                            onChange={e => setNewSpell({ ...newSpell, castingTime: e.target.value })}
-                            placeholder="1 Acción, Reacción..."
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-bold mb-1">Duración en Turnos (vacío = Perm)</label>
-                          <input
-                            type="number"
-                            placeholder="Ej. 3 (vacío = permanente)"
-                            value={newSpell.turns}
-                            onChange={e => setNewSpell({ ...newSpell, turns: e.target.value })}
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
-                          />
-                        </div>
-                        <div className="col-span-full">
-                          <label className="block font-bold mb-1">Descripción del Hechizo</label>
-                          <input
-                            type="text"
-                            value={newSpell.desc}
-                            onChange={e => setNewSpell({ ...newSpell, desc: e.target.value })}
-                            placeholder="Efecto, daño o salvación requerida..."
-                            className="w-full p-2 bg-parchment-dark border border-ink/30 rounded text-ink"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex justify-end">
-                        <button
-                          onClick={handleAddSpell}
-                          className="px-4 py-2 bg-magic-gold text-black font-bold text-xs rounded hover:bg-yellow-500 transition cursor-pointer flex items-center gap-1 shadow"
-                        >
-                          <Plus className="w-4 h-4"/> Añadir Hechizo
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-parchment border-2 border-ink/20 rounded-xl space-y-3 font-sans">
-                      <h4 className="font-bold text-base text-ink font-cinzel">Ajustar Límite de Espacios de Conjuro</h4>
-                      <div className="flex items-center gap-3 text-xs flex-wrap">
-                        <div>
-                          <label className="block font-bold mb-1">Nivel del Espacio</label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={9}
-                            value={newSlotLevel}
-                            onChange={e => setNewSlotLevel(parseInt(e.target.value) || 1)}
-                            className="p-1.5 bg-parchment-dark border border-ink/30 rounded w-20 text-center font-bold text-ink"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-bold mb-1">Espacios Máximos</label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={10}
-                            value={newSlotMax}
-                            onChange={e => setNewSlotMax(parseInt(e.target.value) || 1)}
-                            className="p-1.5 bg-parchment-dark border border-ink/30 rounded w-20 text-center font-bold text-ink"
-                          />
-                        </div>
-                        <button
-                          onClick={() => setSpellSlotMax(newSlotLevel, newSlotMax)}
-                          className="mt-5 px-3 py-1.5 bg-ink text-parchment-dark font-bold text-xs rounded hover:bg-magic-gold hover:text-black transition cursor-pointer"
-                        >
-                          Configurar Espacios
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="bg-parchment p-4 sm:p-6 rounded border border-magic-gold/40 space-y-4">
-                  <div className="border-b border-ink/20 pb-3 flex justify-between items-center flex-wrap gap-2">
-                    <div>
-                      <h3 className="text-xl sm:text-2xl font-bold font-cinzel text-magic-gold">Espacios de Hechizo (Spell Slots)</h3>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 font-sans">
-                    {Object.entries(character.spellSlots).map(([levelStr, slot]) => {
-                      const level = parseInt(levelStr);
-                      return (
-                        <div key={level} className="p-3 bg-parchment-dark border border-ink/20 rounded space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="font-bold text-xs sm:text-sm text-ink">Nivel {level}</span>
-                            <div className="flex items-center gap-2">
-                              {isEditing && (
-                                <div className="flex items-center gap-1 bg-ink/10 p-0.5 rounded border border-ink/20">
-                                  <button 
-                                    onClick={() => setSpellSlotMax(level, Math.max(0, slot.max - 1))}
-                                    className="w-5 h-5 flex items-center justify-center bg-magic-red/80 hover:bg-magic-red text-white rounded font-bold text-xs cursor-pointer shadow-sm"
-                                    title="Reducir espacios máximos"
-                                  >
-                                    -
-                                  </button>
-                                  <button 
-                                    onClick={() => setSpellSlotMax(level, slot.max + 1)}
-                                    className="w-5 h-5 flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-xs cursor-pointer shadow-sm"
-                                    title="Aumentar espacios máximos"
-                                  >
-                                    +
-                                  </button>
-                                </div>
-                              )}
-                              <span className="text-[10px] text-ink-light font-bold">{slot.current} / {slot.max}</span>
-                            </div>
-                          </div>
-                          <div className="flex gap-2 flex-wrap">
-                            {Array.from({ length: slot.max }).map((_, idx) => {
-                              const isAvailable = idx < slot.current;
-                              return (
-                                <button
-                                  key={idx}
-                                  onClick={() => isAvailable ? useSpellSlot(level) : restoreSpellSlot(level)}
-                                  className={`w-8 h-8 rounded border-2 flex items-center justify-center cursor-pointer transition text-sm ${isAvailable ? 'bg-magic-gold border-magic-gold text-black font-bold' : 'bg-transparent border-ink/30 text-ink/30'}`}
-                                >
-                                  {isAvailable ? <Sparkles className="w-3.5 h-3.5" /> : <Circle className="w-3.5 h-3.5" />}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Known Spells List */}
-                {character.spells && character.spells.length > 0 && (
-                  <div className="bg-parchment p-4 sm:p-6 rounded border border-ink/20 space-y-4">
-                    <h3 className="text-xl font-bold font-cinzel text-ink border-b border-ink/20 pb-2">Conjuros Conocidos ({character.spells.length})</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {character.spells.map(spell => (
-                        <div key={spell.id} className="p-3 bg-parchment-dark rounded border border-ink/10 flex justify-between items-start">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm text-ink">{spell.name}</span>
-                              <span className="text-[10px] bg-magic-gold/20 text-magic-gold font-bold px-1.5 py-0.5 rounded">
-                                {spell.level === 0 ? 'Truco' : `Nivel ${spell.level}`}
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-ink-light block mt-0.5">{spell.school} • {spell.castingTime}</span>
-                            <p className="text-xs text-ink/80 mt-1">{spell.description}</p>
-                          </div>
-                          {isEditing && (
-                            <div className="flex items-center gap-1">
-                              <button 
-                                onClick={() => setSpellEditModal({ open: true, spell: { ...spell } })} 
-                                className="text-ink-light hover:text-magic-gold p-1 cursor-pointer" 
-                                title="Editar Conjuro (Pluma Mágica)"
-                              >
-                                <PenTool className="w-4 h-4"/>
-                              </button>
-                              <button onClick={() => removeSpell(spell.id)} className="text-ink-light hover:text-magic-red p-1 cursor-pointer" title="Eliminar Conjuro">
-                                <Trash2 className="w-4 h-4"/>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </motion.div>
+              <SpellcastingTab
+                character={character}
+                isEditing={isEditing}
+                getEffectiveStat={getEffectiveStat}
+                getAbilityMod={getAbilityMod}
+                useSpellSlot={useSpellSlot}
+                restoreSpellSlot={restoreSpellSlot}
+                setSpellSlotMax={setSpellSlotMax}
+                addSpell={addSpell}
+                removeSpell={removeSpell}
+                onOpenSpellEdit={(spell) => setSpellEditModal({ open: true, spell })}
+              />
             )}
 
             {/* TAB: NOTAS PERSONALES (100% PRIVADAS AL JUGADOR) */}
             {activeTab === "notes" && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                
-                {/* Header & Privacy Notice */}
-                <div className="bg-parchment p-4 sm:p-6 rounded-lg border-2 border-magic-gold shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <div>
-                    <h2 className="text-2xl font-bold font-cinzel text-ink flex items-center gap-2">
-                      <Scroll className="w-6 h-6 text-magic-gold" /> Notas Personales de {character.name}
-                    </h2>
-                    <p className="text-xs text-ink-light mt-1 flex items-center gap-1.5 font-sans flex-wrap">
-                      <span className="bg-amber-900/20 text-amber-900 border border-amber-900/30 px-2 py-0.5 rounded font-bold text-[10px] flex items-center gap-1">
-                        Respaldado en Firebase ({notes.length}/10)
-                      </span>
-                      Sincronización automática en la nube para tu personaje. <strong>No son visibles por el DM</strong>.
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => setNoteModal({ open: true, editingId: null, title: '', content: '' })}
-                    className="px-4 py-2.5 bg-magic-gold text-black font-bold rounded shadow hover:bg-yellow-500 transition text-xs flex items-center gap-2 cursor-pointer font-sans shrink-0"
-                  >
-                    <Plus className="w-4 h-4" /> Nueva Nota
-                  </button>
-                </div>
-
-                {/* Notes List / Grid */}
-                {notes.length === 0 ? (
-                  <div className="p-8 bg-parchment-dark/80 rounded-xl border border-ink/20 text-center space-y-3 font-sans">
-                    <Scroll className="w-12 h-12 text-ink/30 mx-auto" />
-                    <h3 className="text-lg font-bold text-ink font-cinzel">Sin notas guardadas</h3>
-                    <p className="text-xs text-ink-light max-w-md mx-auto">
-                      Anota pistas, nombres de PNJs, objetivos secretos, combinaciones de hechizos o cualquier recuerdo importante para tu partida.
-                    </p>
-                    <button
-                      onClick={() => setNoteModal({ open: true, editingId: null, title: '', content: '' })}
-                      className="px-5 py-2 bg-parchment border border-magic-gold text-magic-gold font-bold rounded text-xs hover:bg-magic-gold hover:text-black transition cursor-pointer font-sans"
-                    >
-                      + Crear Primera Nota
-                    </button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-sans">
-                    {[...notes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.createdAt - a.createdAt).map((note) => (
-                      <div 
-                        key={note.id} 
-                        className={`p-5 bg-parchment rounded-xl border transition flex flex-col justify-between space-y-3 shadow-md ${note.pinned ? 'border-magic-gold shadow-[0_0_15px_rgba(245,208,97,0.3)] bg-amber-950/5' : 'border-ink/20 hover:border-magic-gold/60'}`}
-                      >
-                        <div>
-                          <div className="flex justify-between items-start gap-2 border-b border-ink/10 pb-2 mb-2">
-                            <h3 className="text-lg font-bold text-ink font-cinzel break-words flex items-center gap-2">
-                              {note.pinned && <span className="text-xs bg-magic-gold text-black font-bold px-1.5 py-0.5 rounded">Fijada</span>}
-                              {note.title}
-                            </h3>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                onClick={() => togglePinNote(note.id)}
-                                className={`p-1.5 transition cursor-pointer ${note.pinned ? 'text-magic-gold' : 'text-ink-light opacity-40 hover:opacity-100'}`}
-                                title={note.pinned ? "Desfijar Nota" : "Fijar Nota al Inicio"}
-                              >
-                                <Pin className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => setNoteModal({ open: true, editingId: note.id, title: note.title, content: note.content })}
-                                className="p-1.5 text-ink-light hover:text-magic-gold transition cursor-pointer"
-                                title="Editar Nota"
-                              >
-                                <PenTool className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteNote(note.id)}
-                                className="p-1.5 text-ink-light hover:text-magic-red transition cursor-pointer"
-                                title="Eliminar Nota"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                          <p className="text-xs text-ink/90 whitespace-pre-wrap leading-relaxed break-words">
-                            {note.content}
-                          </p>
-                        </div>
-
-                        <div className="text-[10px] text-ink-light border-t border-ink/10 pt-2 flex justify-between items-center flex-wrap gap-2">
-                          <div className="flex items-center gap-2">
-                            <span>Creado: {new Date(note.createdAt).toLocaleDateString()} {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                            {note.updatedAt && (
-                              <span className="italic">Editado: {new Date(note.updatedAt).toLocaleDateString()}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-              </motion.div>
+              <PrivateNotesTab
+                characterName={character.name}
+                notes={notes}
+                onOpenNewNote={() => setNoteModal({ open: true, editingId: null, title: '', content: '' })}
+                onOpenEditNote={(note) => setNoteModal({ open: true, editingId: note.id, title: note.title, content: note.content })}
+                onDeleteNote={handleDeleteNote}
+                onTogglePinNote={togglePinNote}
+              />
             )}
 
           </AnimatePresence>

@@ -1,0 +1,32 @@
+{
+  "rules": {
+    "rooms": {
+      "$roomId": {
+        "meta": {
+          ".read": "auth != null",
+          ".write": "auth != null && (!data.exists() || data.child('dmId').val() === auth.uid)"
+        },
+        "presence": {
+          "$uid": {
+            ".read": "auth != null",
+            ".write": "auth != null && ($uid === auth.uid || root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid)"
+          }
+        },
+        "combat": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        },
+        "logs": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        },
+        "whispers": {
+          "$playerUid": {
+            ".read": "auth != null && (auth.uid === $playerUid || root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid)",
+            ".write": "auth != null && (auth.uid === $playerUid || root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid)"
+          }
+        }
+      }
+    }
+  }
+}

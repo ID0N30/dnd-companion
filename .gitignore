@@ -49,6 +49,8 @@ next-env.d.ts
 # debug logs & metrics
 firebase-debug.log*
 firestore-debug.log*
+database-debug.log*
+.firebase/
 *.log
 /metricas
 metricas/

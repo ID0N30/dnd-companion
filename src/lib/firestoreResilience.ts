@@ -17,7 +17,6 @@ const isTransientError = (err: any): boolean => {
     'deadline-exceeded',
     'aborted',
     'internal',
-    'resource-exhausted',
     'network-request-failed'
   ];
 
@@ -28,9 +27,7 @@ const isTransientError = (err: any): boolean => {
     message.includes('tiempo de espera') ||
     message.includes('unavailable') ||
     message.includes('network') ||
-    message.includes('failed to fetch') ||
-    message.includes('resource-exhausted') ||
-    message.includes('quota exceeded')
+    message.includes('failed to fetch')
   ) {
     return true;
   }

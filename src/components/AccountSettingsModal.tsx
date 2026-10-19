@@ -38,8 +38,8 @@ export default function AccountSettingsModal({
     if (open) {
       rehydrateLocalPlayers();
       setDisplayNameInput(user?.displayName || "");
-      if (user?.uid && availableRooms && availableRooms.length > 0) {
-        fetchUserCharactersAcrossRooms(user.uid, availableRooms.map(r => r.id)).then(cloudChars => {
+      if (user?.uid) {
+        fetchUserCharactersAcrossRooms(user.uid, (availableRooms || []).map(r => r.id)).then(cloudChars => {
           if (cloudChars && cloudChars.length > 0) {
             useStore.setState((state) => {
               const map = new Map<string, CharacterState>();

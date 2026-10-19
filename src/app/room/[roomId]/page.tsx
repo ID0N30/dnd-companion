@@ -7,10 +7,11 @@ import { useAuth } from "@/context/AuthContext";
 import { useStore, CharacterState, syncAllLocalPlayersToStorage } from "@/store/useStore";
 import { CLASS_SAVING_THROWS, CLASS_HIT_DIE, calculateMaxHP } from "@/lib/dndClassFeatures";
 import { 
-  subscribeRoom, subscribeRoomPlayers, subscribeRoomLogs, savePlayerInRoom, updatePlayerPresence, deletePlayerFromRoom, updateRoomState, addRoomLog, Room 
+  subscribeRoom, subscribeRoomPlayers, subscribeRoomLogs, savePlayerInRoom, updatePlayerPresence, setupRealtimePresence, deletePlayerFromRoom, updateRoomState, addRoomLog, Room 
 } from "@/lib/rooms";
-import CharacterSheetPage from "@/app/sheet/page";
-import DMPage from "@/app/dm/page";
+import { connectRTDB, disconnectRTDB } from "@/lib/firebase";
+import { CharacterSheetView } from "@/components/sheet/CharacterSheetView";
+import { DMView } from "@/components/dm/DMView";
 import DiceRoller from "@/components/DiceRoller";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import CelestialLevelUpModal from "@/components/CelestialLevelUpModal";
@@ -25,7 +26,7 @@ const CLASSES = ["Guerrero", "Mago", "Pícaro", "Clérigo", "Bardo", "Bárbaro",
 export default function RoomPage({ params }: { params: Promise<{ roomId: string }> }) {
   const { roomId } = use(params);
   const router = useRouter();
-  const { user, isGuest, isLoggedIn, signInAsGuest } = useAuth();
+  const { user, isGuest, isLoggedIn, signInAsGuest, loading: authLoading } = useAuth();
   
   const [room, setRoom] = useState<Room | null>(null);
   const [loadingRoom, setLoadingRoom] = useState(true);
@@ -66,10 +67,18 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
   // Ensure user is authenticated
   useEffect(() => {
-    if (!user) {
+    if (!authLoading && !user) {
       signInAsGuest();
     }
-  }, [user]);
+  }, [authLoading, user, signInAsGuest]);
+
+  // Manage RTDB connection explicitly to save simultaneous connections on Spark plan
+  useEffect(() => {
+    connectRTDB();
+    return () => {
+      disconnectRTDB();
+    };
+  }, [roomId]);
 
   // Subscribe to Room Data (Stable: depends ONLY on roomId)
   useEffect(() => {
@@ -219,22 +228,14 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     }
   }, [players, activePlayerId, isDM, room, user, roomId, loadingRoom]);
 
-  // Heartbeat & Presence tracking for active character in room (Isolated: only touches isOnline and lastSeen)
+  // Realtime Presence tracking for room using RTDB onDisconnect & Firebase
   useEffect(() => {
-    if (!roomId || !activePlayerId || isDM) return;
-
-    const currentId = activePlayerId;
-    updatePlayerPresence(roomId, currentId, true);
-    const interval = setInterval(() => updatePlayerPresence(roomId, currentId, true), 45000);
-
-    const handleBeforeUnload = () => updatePlayerPresence(roomId, currentId, false);
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
+    if (!roomId || !user?.uid) return;
+    const cleanupPresence = setupRealtimePresence(roomId, user.uid);
     return () => {
-      clearInterval(interval);
-      window.removeEventListener("beforeunload", handleBeforeUnload);
+      cleanupPresence();
     };
-  }, [roomId, activePlayerId, isDM]);
+  }, [roomId, user?.uid]);
 
   const handleExitRoom = () => {
     if (roomId && activePlayerId && !isDM) {
@@ -408,27 +409,33 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
       {/* ROOM TAB CONTENT */}
       <div className="flex-1">
-        {roomTab === "sheet" && (
-          players.length === 0 || !activeChar || (activeChar.ownerId && user && activeChar.ownerId !== user.uid && !isDM) ? (
-            <div className="flex items-center justify-center min-h-[70vh] p-6 text-center">
-              <div className="bg-parchment-dark p-8 rounded-xl border-2 border-magic-gold shadow-2xl max-w-md w-full space-y-4">
-                <Sparkles className="w-12 h-12 text-magic-gold mx-auto" />
-                <h3 className="text-2xl font-bold font-cinzel text-magic-gold">Bienvenido a {room.name}</h3>
-                <p className="text-xs text-ink-light">Crea o selecciona un aventurero para unirte a esta campaña.</p>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="w-full py-3 bg-magic-gold text-black font-bold rounded shadow hover:bg-yellow-500 transition text-sm cursor-pointer"
-                >
-                  + Crear Nuevo Héroe
-                </button>
+        {!isDM && (
+          <div className={roomTab !== "sheet" ? "hidden" : ""}>
+            {players.length === 0 || !activeChar || (activeChar.ownerId && user && activeChar.ownerId !== user.uid) ? (
+              <div className="flex items-center justify-center min-h-[70vh] p-6 text-center">
+                <div className="bg-parchment-dark p-8 rounded-xl border-2 border-magic-gold shadow-2xl max-w-md w-full space-y-4">
+                  <Sparkles className="w-12 h-12 text-magic-gold mx-auto" />
+                  <h3 className="text-2xl font-bold font-cinzel text-magic-gold">Bienvenido a {room.name}</h3>
+                  <p className="text-xs text-ink-light">Crea o selecciona un aventurero para unirte a esta campaña.</p>
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="w-full py-3 bg-magic-gold text-black font-bold rounded shadow hover:bg-yellow-500 transition text-sm cursor-pointer"
+                  >
+                    + Crear Nuevo Héroe
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <CharacterSheetPage isDM={isDM} />
-          )
+            ) : (
+              <CharacterSheetView insideRoom={true} isDM={isDM} />
+            )}
+          </div>
         )}
         
-        {roomTab === "dm" && isDM && <DMPage roomId={roomId} />}
+        {isDM && (
+          <div className={roomTab !== "dm" ? "hidden" : ""}>
+            <DMView roomId={roomId} insideRoom={true} />
+          </div>
+        )}
 
         {roomTab === "party" && (
           <div className="p-4 sm:p-8 max-w-6xl mx-auto space-y-6 font-sans">
@@ -438,13 +445,13 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
               </h2>
               <span className="text-xs font-bold text-ink-light bg-parchment px-3 py-1.5 rounded border border-ink/20 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
-                <span>{players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo' && p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 65000)).length} en línea / {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').length} totales</span>
+                <span>{players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo' && (p.isOnline === true ? true : p.isOnline === false ? false : (!p.lastSeen || (Date.now() - p.lastSeen) < 65000))).length} en línea / {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').length} totales</span>
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
               {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').map(p => {
-                const online = p.isOnline !== false && (!p.lastSeen || (Date.now() - p.lastSeen) < 65000);
+                const online = p.isOnline === true ? true : p.isOnline === false ? false : (!p.lastSeen || (Date.now() - p.lastSeen) < 65000);
                 return (
                   <div key={p.id} className={`p-6 rounded-xl border-2 shadow-xl space-y-4 ${p.isDead ? 'bg-black/80 border-magic-red text-white' : 'bg-parchment-dark border-magic-gold/40'} ${!online ? 'opacity-70' : ''}`}>
                     <div className="flex justify-between items-start">

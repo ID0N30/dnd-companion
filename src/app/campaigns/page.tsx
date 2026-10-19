@@ -6,14 +6,14 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { useStore } from "@/store/useStore";
-import { subscribePublicRooms, createRoom, verifyRoomPassword, Room } from "@/lib/rooms";
+import { fetchPublicRooms, createRoom, verifyRoomPassword, Room } from "@/lib/rooms";
 import AuthModal from "@/components/AuthModal";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
 import TeamLobbyPromo from "@/components/TeamLobbyPromo";
 import { getRecentRooms, removeRecentRoom, RecentRoom } from "@/lib/recentRooms";
 import { ASSETS } from "@/lib/assets";
 import { 
-  ArrowLeft, Compass, Shield, Swords, LogIn, LogOut, Plus, Lock, Globe, Users, Key, AlertCircle, Sparkles, UserCheck, Search, Settings, Clock, X
+  ArrowLeft, Compass, Shield, Swords, LogIn, LogOut, Plus, Lock, Globe, Users, Key, AlertCircle, Sparkles, UserCheck, Search, Settings, Clock, X, RefreshCw
 } from "lucide-react";
 
 export default function CampaignsPage() {
@@ -24,6 +24,7 @@ export default function CampaignsPage() {
   
   const [publicRooms, setPublicRooms] = useState<Room[]>([]);
   const [recentRooms, setRecentRooms] = useState<RecentRoom[]>([]);
+  const [refreshingRooms, setRefreshingRooms] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [joinModalRoom, setJoinModalRoom] = useState<Room | null>(null);
@@ -41,14 +42,23 @@ export default function CampaignsPage() {
     allowGuests: true,
   });
 
-  // Rehydrate local players, load recent campaigns, and subscribe to realtime public rooms
+  const loadRooms = async (forceRefresh = false) => {
+    setRefreshingRooms(true);
+    try {
+      const rooms = await fetchPublicRooms(forceRefresh);
+      setPublicRooms(rooms);
+    } catch (err) {
+      console.error("Error al cargar campañas públicas:", err);
+    } finally {
+      setRefreshingRooms(false);
+    }
+  };
+
+  // Rehydrate local players, load recent campaigns, and fetch public rooms (with cache)
   useEffect(() => {
     rehydrateLocalPlayers();
     setRecentRooms(getRecentRooms());
-    const unsub = subscribePublicRooms((rooms) => {
-      setPublicRooms(rooms);
-    });
-    return () => unsub();
+    loadRooms(false);
   }, [rehydrateLocalPlayers]);
 
   const handleRemoveRecent = (e: React.MouseEvent, id: string) => {
@@ -311,8 +321,18 @@ export default function CampaignsPage() {
               <h2 className="text-xl sm:text-2xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
                 <Globe className="w-6 h-6 text-magic-gold" /> Mesas de Juego Activas
               </h2>
-              <p className="text-xs text-ink-light">Campañas públicas sincronizadas en tiempo real mediante Cloud Firestore.</p>
+              <p className="text-xs text-ink-light">Campañas públicas disponibles sincronizadas con Cloud Firestore.</p>
             </div>
+
+            <button
+              onClick={() => loadRooms(true)}
+              disabled={refreshingRooms}
+              className="flex items-center gap-2 px-3.5 py-1.5 bg-parchment border border-ink/20 hover:border-magic-gold text-ink hover:text-magic-gold rounded-lg font-bold text-xs transition cursor-pointer shadow-sm disabled:opacity-50 shrink-0"
+              title="Refrescar lista de campañas públicas"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshingRooms ? 'animate-spin text-magic-gold' : ''}`} />
+              <span>{refreshingRooms ? 'Actualizando...' : 'Actualizar'}</span>
+            </button>
           </div>
 
           <div className="relative w-full">

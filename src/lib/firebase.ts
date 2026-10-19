@@ -3,10 +3,13 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInAnonymously, linkWithCredential, connectAuthEmulator,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile
 } from "firebase/auth";
-import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { 
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, connectFirestoreEmulator, Firestore 
+} from "firebase/firestore";
 import { 
   initializeAppCheck, ReCaptchaV3Provider, ReCaptchaEnterpriseProvider, AppCheck 
 } from "firebase/app-check";
+import { getDatabase, Database, goOnline, goOffline } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "demo-api-key",
@@ -52,8 +55,59 @@ if (app && typeof window !== 'undefined') {
 
 // Initialize Services
 export const auth = app ? getAuth(app) : null;
-export const db = app ? getFirestore(app) : null;
+
+let dbInstance: Firestore | null = null;
+if (app) {
+  if (typeof window !== "undefined") {
+    try {
+      dbInstance = initializeFirestore(app, {
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+      });
+    } catch {
+      // Fallback if initializeFirestore was already called (e.g. Next.js Fast Refresh)
+      dbInstance = getFirestore(app);
+    }
+  } else {
+    dbInstance = getFirestore(app);
+  }
+}
+
+export const db: Firestore | null = dbInstance;
 export const googleProvider = new GoogleAuthProvider();
+
+// Initialize Realtime Database (RTDB)
+const rtdbUrl = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || (firebaseConfig.projectId ? `https://${firebaseConfig.projectId}-default-rtdb.firebaseio.com` : undefined);
+
+let rtdbInstance: Database | null = null;
+if (app) {
+  try {
+    rtdbInstance = rtdbUrl ? getDatabase(app, rtdbUrl) : getDatabase(app);
+  } catch (rtdbErr) {
+    console.warn("[RTDB] No se pudo inicializar Firebase Realtime Database:", rtdbErr);
+  }
+}
+
+export const rtdb: Database | null = rtdbInstance;
+
+export const connectRTDB = () => {
+  if (rtdb) {
+    try {
+      goOnline(rtdb);
+    } catch (e) {
+      console.warn("[RTDB] Error al conectar a RTDB:", e);
+    }
+  }
+};
+
+export const disconnectRTDB = () => {
+  if (rtdb) {
+    try {
+      goOffline(rtdb);
+    } catch (e) {
+      console.warn("[RTDB] Error al desconectar de RTDB:", e);
+    }
+  }
+};
 
 // Connect to Firebase Local Emulators when NEXT_PUBLIC_USE_EMULATOR=true
 if (app && isUseEmulator && typeof window !== 'undefined') {

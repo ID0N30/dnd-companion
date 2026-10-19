@@ -1,7 +1,7 @@
 "use client";
 
-import CharacterSheetPage from "@/app/sheet/page";
+import { CharacterSheetView } from "@/components/sheet/CharacterSheetView";
 
 export default function DemoSandboxPage() {
-  return <CharacterSheetPage isDemoOverride={true} />;
+  return <CharacterSheetView isDemoOverride={true} />;
 }

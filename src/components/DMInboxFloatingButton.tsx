@@ -22,7 +22,7 @@ import { DEMO_INITIAL_MESSAGES } from "@/lib/demoData";
 
 const INITIAL_DEMO_MESSAGES: DirectMessage[] = DEMO_INITIAL_MESSAGES;
 
-let globalActiveDMInboxId: string | null = null;
+let activeInboxInstances = 0;
 
 export default function DMInboxFloatingButton({
   roomId,
@@ -51,23 +51,24 @@ export default function DMInboxFloatingButton({
   const [isSending, setIsSending] = useState(false);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   
-  const [instanceId] = useState(() => 'inbox_' + Math.random().toString(36).substring(2, 9));
   const [isPrimary, setIsPrimary] = useState(true);
 
-  // Singleton protection to prevent duplicate button rendering
+  // Singleton protection to prevent duplicate button rendering and phantom listeners
   useEffect(() => {
-    globalActiveDMInboxId = instanceId;
-    setIsPrimary(true);
+    if (activeInboxInstances > 0) {
+      setIsPrimary(false);
+    }
+    activeInboxInstances++;
 
     return () => {
-      if (globalActiveDMInboxId === instanceId) {
-        globalActiveDMInboxId = null;
-      }
+      activeInboxInstances--;
     };
-  }, [instanceId]);
+  }, []);
 
   // Load messages from realtime Firestore room or local demo state
   useEffect(() => {
+    if (!isPrimary) return;
+
     if (isDemo || !roomId) {
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem('dnd_demo_direct_messages');
@@ -96,7 +97,7 @@ export default function DMInboxFloatingButton({
       unsubRoom();
       unsubWhispers();
     };
-  }, [roomId, isDemo]);
+  }, [roomId, isDemo, isPrimary]);
 
   // Unified list of recipient characters in this room or messages
   const recipientOptions = useMemo(() => {
@@ -150,8 +151,9 @@ export default function DMInboxFloatingButton({
       return;
     }
 
-    await markDirectMessageAsRead(roomId, msgId);
-  }, [isDemo, roomId]);
+    const targetMsg = messages.find(m => m.id === msgId);
+    await markDirectMessageAsRead(roomId, msgId, targetMsg?.playerUid || targetMsg?.senderUid || targetMsg?.senderId);
+  }, [isDemo, roomId, messages]);
 
   // Mark all (or filtered) messages received from players as read
   const handleMarkAllAsRead = useCallback(async (targetFilter: string = playerFilter) => {
@@ -216,7 +218,8 @@ export default function DMInboxFloatingButton({
           }
           showAlert("Mensaje eliminado del buzón de demostración.", "Mensaje Borrado", "success");
         } else {
-          await deleteDirectMessage(roomId, msgId);
+          const targetMsg = messages.find(m => m.id === msgId);
+          await deleteDirectMessage(roomId, msgId, targetMsg?.playerUid || targetMsg?.senderUid || targetMsg?.senderId);
           showAlert("Mensaje eliminado del buzón.", "Mensaje Borrado", "success");
         }
       },

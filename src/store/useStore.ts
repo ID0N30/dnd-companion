@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS, getClassFeaturesForLevel, calculateLevelUpHPGain, getFixedHitDieValue } from "@/lib/dndClassFeatures";
 import { triggerDiceRoll } from "@/components/DiceRoller";
-import { addRoomLog, updateRoomState, savePlayerInRoom, deletePlayerFromRoom, advanceRoomTurnAtomic, isDemoRoom } from "@/lib/rooms";
+import { addRoomLog, updateRoomState, savePlayerInRoom, batchUpdatePlayersInRoom, deletePlayerFromRoom, advanceRoomTurnAtomic, isDemoRoom } from "@/lib/rooms";
 import { auth } from "@/lib/firebase";
 import { getFactoryDemoParty } from "@/lib/demoData";
 
@@ -150,6 +150,12 @@ export type CharacterState = {
   createdAt?: number;
   isOnline?: boolean;
   lastSeen?: number;
+};
+
+export const isCharacterOnline = (p: CharacterState, now = Date.now()): boolean => {
+  if (p.isOnline === true || (p as any).online === true) return true;
+  if (p.isOnline === false || (p as any).online === false) return false;
+  return !p.lastSeen || (now - p.lastSeen) < 65000;
 };
 
 export const getClassOptimizedStats = (charClass: string) => {
@@ -768,15 +774,13 @@ export const useStore = create<StoreState>((set, get) => ({
       if (selectedPlayerIds && selectedPlayerIds.length > 0) {
         targetIds = selectedPlayerIds;
       } else {
-        const presentPlayers = get().players.filter(p => {
-          if (p.isOnline === false) return false;
-          if (p.lastSeen && (now - p.lastSeen) > 45000) return false;
-          return true;
-        });
+        const presentPlayers = get().players.filter(p => isCharacterOnline(p, now));
 
         const targetPlayers = presentPlayers.length > 0 ? presentPlayers : get().players;
         targetIds = targetPlayers.map(p => p.id);
       }
+
+      const initiativeSummaries: string[] = [];
 
       const updatedPlayers = get().players.map(p => {
         if (!targetIds.includes(p.id)) return p;
@@ -786,7 +790,7 @@ export const useStore = create<StoreState>((set, get) => ({
         const dexMod = Math.floor((dexValue - 10) / 2);
         const total = die + dexMod;
         
-        get().addLog(`[Iniciativa] Iniciativa de ${p.name}: Dado (${die}) + Mod DEX (${dexMod >= 0 ? '+'+dexMod : dexMod}) = ${total}`);
+        initiativeSummaries.push(`${p.name} (${total})`);
         
         return {
           ...p,
@@ -799,15 +803,18 @@ export const useStore = create<StoreState>((set, get) => ({
         const die = Math.floor(Math.random() * 20) + 1;
         const bonus = m.initiativeBonus;
         const total = die + bonus;
-        const bonusSign = bonus >= 0 ? '+' + bonus : `${bonus}`;
 
-        get().addLog(`[Iniciativa] Iniciativa de ${m.name} (${m.type === 'ally' ? 'PNJ Aliado' : 'Enemigo'}): Dado (${die}) + Bono (${bonusSign}) = ${total}`);
+        initiativeSummaries.push(`${m.name} (${total})`);
 
         return {
           ...m,
           initiative: { die, dexMod: bonus, total }
         };
       });
+
+      if (initiativeSummaries.length > 0) {
+        get().addLog(`Iniciativas tiradas: ${initiativeSummaries.join(', ')}`);
+      }
 
       type Combatant = { id: string; name: string; total: number };
       const combatants: Combatant[] = [];
@@ -853,9 +860,17 @@ export const useStore = create<StoreState>((set, get) => ({
           currentTurnIndex: 0,
           combatMonsters: updatedMonsters
         });
-        updatedPlayers
+
+        const playerUpdates = updatedPlayers
           .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
-          .forEach(p => savePlayerInRoom(activeRoomId!, p));
+          .map(p => ({
+            id: p.id,
+            fields: { initiative: p.initiative }
+          }));
+
+        if (playerUpdates.length > 0) {
+          batchUpdatePlayersInRoom(activeRoomId, playerUpdates);
+        }
       }
     } else {
       get().addLog(`[Combate] El DM ha finalizado el Modo Combate.`);
@@ -1280,7 +1295,6 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     const finalRoomId = targetPlayer?.roomId || effectiveRoomId;
     if (finalRoomId && finalRoomId !== 'sin_campaña') {
-      addRoomLog(finalRoomId, `🎁 El DM otorgó a ${targetPlayer?.name || 'jugador'} el objeto: "${item.name}" (x${item.quantity}).`);
       updateRoomState(finalRoomId, { lastItemReceivedEvent: event });
     }
   },
@@ -2012,9 +2026,6 @@ export const useStore = create<StoreState>((set, get) => ({
     const logMsg = `☕ ${player.name} gastó 1 Dado de Golpe: 1d${hd.die} [${dieRoll}] ${conSign} CON = +${healed} HP curados. Vida: ${newCurrentHP}/${effMaxHP}. Dados restantes: ${remainingHD}/${hd.max}.`;
     
     get().addLog(logMsg);
-    if (player.roomId) {
-      addRoomLog(player.roomId, logMsg);
-    }
     triggerDiceRoll(('d' + hd.die) as any, conMod, `Gastar Dado de Golpe (+${healed} HP)`, dieRoll);
 
     let updatedChar: CharacterState | null = null;
@@ -2054,9 +2065,6 @@ export const useStore = create<StoreState>((set, get) => ({
 
         const hd = getCharacterHitDice(p);
         get().addLog(`☕ ${p.name} realizó un DESCANSO CORTO. Habilidades recargadas. Puedes gastar Dados de Golpe (${hd.current}/${hd.max} d${hd.die}) para curarte.`);
-        if (p.roomId) {
-          addRoomLog(p.roomId, `☕ ${p.name} realizó un DESCANSO CORTO.`);
-        }
         updatedChar = {
           ...p,
           customClassFeatures: updatedFeatures,
@@ -2100,10 +2108,6 @@ export const useStore = create<StoreState>((set, get) => ({
 
         get().addLog(`⛺ ${p.name} tomó un DESCANSO LARGO. Vida al máximo (${effMaxHP} HP), Espacios de Hechizo y Habilidades restaurados. Recuperó +${recoveredDice} Dados de Golpe (${newHDCurrent}/${hd.max} d${hd.die}).`);
 
-        if (p.roomId) {
-          addRoomLog(p.roomId, `⛺ ${p.name} completó un DESCANSO LARGO.`);
-        }
-
         updatedChar = {
           ...p,
           hp: { ...p.hp, current: effMaxHP, temp: 0 },
@@ -2143,9 +2147,6 @@ export const useStore = create<StoreState>((set, get) => ({
       // Generic action fallback
       get().addLog(`⚡ ${player.name} ejecutó la acción: "${featureName}".`);
       triggerDiceRoll('d20', 0, `Acción: ${featureName} (${player.name})`);
-      if (player.roomId) {
-        addRoomLog(player.roomId, `⚡ ${player.name} ejecutó la acción: "${featureName}".`);
-      }
       return;
     }
 
@@ -2194,9 +2195,6 @@ export const useStore = create<StoreState>((set, get) => ({
     const fullMessage = `⚡ ${player.name} usó la acción de clase: "${featDef.name}"${usageMsg}.${extraLog}`;
 
     get().addLog(fullMessage);
-    if (player.roomId) {
-      addRoomLog(player.roomId, fullMessage);
-    }
 
     // Update customClassFeatures list to persist usages for both custom & official features
     let updatedChar: CharacterState | undefined;
@@ -2236,7 +2234,7 @@ export const useStore = create<StoreState>((set, get) => ({
         let isStable = false;
         let isDead = false;
         let deathSaves = { successes: 0, failures: 0 };
-        let newHP = { ...p.hp };
+        const newHP = { ...p.hp };
 
         if (status === 'dying') {
           isDying = true;
@@ -2255,10 +2253,6 @@ export const useStore = create<StoreState>((set, get) => ({
           newHP.current = 0;
           deathSaves = { successes: 0, failures: 3 };
           get().addLog(`☠️ El DM ha marcado a ${p.name} como FALLECIDO.`);
-        }
-
-        if (p.roomId) {
-          addRoomLog(p.roomId, `⚙️ El DM actualizó el estado de salud de ${p.name}.`);
         }
 
         updatedChar = {
@@ -2386,11 +2380,7 @@ export const useStore = create<StoreState>((set, get) => ({
       if (state.players.length === 0) return state;
 
       const now = Date.now();
-      const presentPlayers = state.players.filter(p => {
-        if (p.isOnline === false) return false;
-        if (p.lastSeen && (now - p.lastSeen) > 45000) return false;
-        return true;
-      });
+      const presentPlayers = state.players.filter(p => isCharacterOnline(p, now));
       const targetIds = presentPlayers.length > 0 ? presentPlayers.map(p => p.id) : state.players.map(p => p.id);
 
       let maxNewLvl = 1;
@@ -2466,9 +2456,22 @@ export const useStore = create<StoreState>((set, get) => ({
 
     if (activeRoomId && event) {
       updateRoomState(activeRoomId, { lastLevelUpEvent: event });
-      updatedPlayers
+      const updates = updatedPlayers
         .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
-        .forEach(p => savePlayerInRoom(activeRoomId!, p));
+        .map(p => ({
+          id: p.id,
+          fields: {
+            level: p.level,
+            proficiencyBonus: p.proficiencyBonus,
+            hp: p.hp,
+            hitDice: p.hitDice,
+            spellSlots: p.spellSlots
+          }
+        }));
+
+      if (updates.length > 0) {
+        batchUpdatePlayersInRoom(activeRoomId, updates);
+      }
     }
   },
     
@@ -2688,8 +2691,7 @@ export const useStore = create<StoreState>((set, get) => ({
         const p = players.find(player => player.id === pid);
         if (!p) return false;
         if (p.isOnline === false) return false;
-        if (p.lastSeen && (now - p.lastSeen) > 45000) return false;
-        return true;
+        return isCharacterOnline(p, now);
       });
 
       const effectiveOrder = activeOrder.length > 0 ? activeOrder : initiativeOrder;
@@ -2737,10 +2739,20 @@ export const useStore = create<StoreState>((set, get) => ({
           console.warn("[advanceTurn] advanceRoomTurnAtomic fallback:", err);
         });
         if (isNewRound) {
-          updatedPlayers
+          const roundUpdates = updatedPlayers
             .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
             .filter(p => isCallerDM || !p.ownerId || p.ownerId === currentUid)
-            .forEach(p => savePlayerInRoom(activeRoomId!, p));
+            .map(p => ({
+              id: p.id,
+              fields: {
+                modifiers: p.modifiers,
+                inventory: p.inventory
+              }
+            }));
+
+          if (roundUpdates.length > 0) {
+            batchUpdatePlayersInRoom(activeRoomId, roundUpdates);
+          }
         }
       }
     } else {
@@ -2772,10 +2784,21 @@ export const useStore = create<StoreState>((set, get) => ({
         updateRoomState(activeRoomId, {
           lastTurnEvent: event
         });
-        updatedPlayers
+
+        const turnUpdates = updatedPlayers
           .filter(p => p.roomId === activeRoomId && !isDemoPlayer(p.id))
           .filter(p => isCallerDM || !p.ownerId || p.ownerId === currentUid)
-          .forEach(p => savePlayerInRoom(activeRoomId!, p));
+          .map(p => ({
+            id: p.id,
+            fields: {
+              modifiers: p.modifiers,
+              inventory: p.inventory
+            }
+          }));
+
+        if (turnUpdates.length > 0) {
+          batchUpdatePlayersInRoom(activeRoomId, turnUpdates);
+        }
       }
     }
   },

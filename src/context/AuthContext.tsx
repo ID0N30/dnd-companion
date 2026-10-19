@@ -56,14 +56,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (currentUser && db && !currentUser.isAnonymous) {
         try {
-          const userDocRef = doc(db, "users", currentUser.uid);
-          await setDoc(userDocRef, {
-            uid: currentUser.uid,
-            email: currentUser.email || "",
-            displayName: currentUser.displayName || currentUser.email || "Jugador",
-            displayNameLower: (currentUser.displayName || currentUser.email || "Jugador").toLowerCase(),
-            updatedAt: serverTimestamp()
-          }, { merge: true });
+          const profileSignature = `${currentUser.displayName || ''}|${currentUser.email || ''}|${currentUser.photoURL || ''}`;
+          const syncKey = `dnd_profile_synced_${currentUser.uid}`;
+          const cachedSignature = typeof window !== 'undefined' ? localStorage.getItem(syncKey) : null;
+
+          if (cachedSignature !== profileSignature) {
+            const userDocRef = doc(db, "users", currentUser.uid);
+            await setDoc(userDocRef, {
+              uid: currentUser.uid,
+              email: currentUser.email || "",
+              displayName: currentUser.displayName || currentUser.email || "Jugador",
+              displayNameLower: (currentUser.displayName || currentUser.email || "Jugador").toLowerCase(),
+              photoURL: currentUser.photoURL || "",
+              updatedAt: serverTimestamp()
+            }, { merge: true });
+
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(syncKey, profileSignature);
+            }
+          }
         } catch (e) {
           console.warn("No se pudo registrar perfil en Firestore:", e);
         }
@@ -218,6 +229,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           displayNameLower: cleanName.toLowerCase(),
           updatedAt: serverTimestamp()
         }, { merge: true });
+
+        if (typeof window !== 'undefined') {
+          const syncKey = `dnd_profile_synced_${auth.currentUser.uid}`;
+          const profileSignature = `${cleanName}|${auth.currentUser.email || ''}|${auth.currentUser.photoURL || ''}`;
+          localStorage.setItem(syncKey, profileSignature);
+        }
       } catch (e) {
         console.warn("No se pudo actualizar en Firestore:", e);
       }

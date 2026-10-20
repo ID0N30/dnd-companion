@@ -20,8 +20,8 @@ const jsonLd = {
   "@graph": [
     {
       "@type": "SoftwareApplication",
-      "name": "D&D Companion",
-      "alternateName": "Grimorio Digital D&D 5e",
+      "name": "ArcanaLobby",
+      "alternateName": ["ArcanaLobby 5e", "Grimorio Digital y Calculadora de Hoja 5e"],
       "applicationCategory": "GameApplication",
       "operatingSystem": "Web",
       "offers": {
@@ -30,28 +30,28 @@ const jsonLd = {
         "priceCurrency": "USD",
       },
       "description":
-        "Grimorio digital en tiempo real para D&D 5e. Crea tu hoja de personaje automatizada, dirige combates en el panel de DM y explora campañas de rol gratis.",
-      "url": "https://dnd-companion-chi.vercel.app/",
+        "ArcanaLobby es el grimorio digital y lobby en tiempo real compatible con D&D 5e. Creador y calculadora de hoja de personaje 5e online, panel de DM, rastreador de iniciativa y dados d20 gratis.",
+      "url": "https://arcanalobby.vercel.app/",
     },
     {
       "@type": "FAQPage",
       "mainEntity": [
         {
           "@type": "Question",
-          "name": "¿Qué es D&D Companion y cómo funciona este grimorio digital?",
+          "name": "¿Qué es ArcanaLobby y cómo funciona este grimorio digital?",
           "acceptedAnswer": {
             "@type": "Answer",
             "text":
-              "D&D Companion es un grimorio digital web diseñado para jugadores y Dungeon Masters de Dungeons & Dragons 5ª Edición (SRD 5e). Permite gestionar fichas de personaje, seguir turnos de iniciativa en combate, sincronizar tiradas de dados d20 y coordinar campañas en tiempo real. Funciona directamente en cualquier navegador moderno sin descargas.",
+              "ArcanaLobby es el grimorio digital y lobby en tiempo real compatible con D&D 5e (SRD 5.1). Diseñado como creador de personajes y calculadora de hoja de personaje 5e online, permite gestionar fichas de rol, seguir turnos de iniciativa en combate, sincronizar tiradas de dados d20 y coordinar campañas en tiempo real directamente en cualquier navegador moderno sin descargas.",
           },
         },
         {
           "@type": "Question",
-          "name": "¿Qué automatizaciones incluye la hoja de personaje 5e?",
+          "name": "¿Qué automatizaciones incluye la calculadora de hoja de personaje 5e?",
           "acceptedAnswer": {
             "@type": "Answer",
             "text":
-              "Cada hoja de personaje 5e calcula automáticamente modificadores de características, bonificador de competencia, tiradas de salvación, clase de armadura (CA), puntos de golpe máximos y temporales, ranuras de conjuros por nivel de lanzador y descansos cortos o largos según las reglas oficiales de D&D 5e.",
+              "Cada hoja de personaje 5e calcula automáticamente modificadores de características, bonificador de competencia, tiradas de salvación, clase de armadura (CA), puntos de golpe máximos y temporales, ranuras de conjuros por nivel de lanzador y descansos cortos o largos según las reglas del SRD 5.1 de 5ª Edición.",
           },
         },
         {
@@ -60,16 +60,16 @@ const jsonLd = {
           "acceptedAnswer": {
             "@type": "Answer",
             "text":
-              "El panel de DM proporciona al director de juego supervisión de salud y estados de la party en tiempo real, rueda de iniciativa para combate táctico, otorgamiento de dados de inspiración, reparto dinámico de botín y tesoros monetarios, e intercambio de susurros secretos individuales con los aventureros.",
+              "El panel de DM de ArcanaLobby proporciona al director de juego supervisión de salud y estados de la party en tiempo real, rueda de iniciativa para combate táctico, otorgamiento de dados de inspiración, reparto dinámico de botín y tesoros monetarios, e intercambio de susurros secretos individuales con los aventureros.",
           },
         },
         {
           "@type": "Question",
-          "name": "¿Es gratis usar D&D Companion en partidas presenciales o por Discord?",
+          "name": "¿Es gratis usar ArcanaLobby en partidas presenciales o por Discord?",
           "acceptedAnswer": {
             "@type": "Answer",
             "text":
-              "Sí, D&D Companion es una plataforma 100% gratuita y de libre acceso. Puedes jugar como invitado sin necesidad de registrarte, o iniciar sesión con Google para crear y guardar tus propias campañas como Dungeon Master tanto para partidas en mesa física como a distancia por Discord.",
+              "Sí, ArcanaLobby es una plataforma 100% gratuita y de libre acceso. Funciona como creador de personajes compatible con D&D 5e (SRD 5.1) y lobby en tiempo real para mesas de rol. Puedes jugar como invitado sin necesidad de registrarte, o iniciar sesión con Google para crear y guardar tus propias campañas como Dungeon Master tanto para partidas en mesa física como a distancia por Discord.",
           },
         },
       ],
@@ -96,7 +96,7 @@ export default function HomePage() {
       <header className="w-full max-w-6xl flex justify-between items-center bg-parchment-dark/80 p-3.5 sm:p-4 rounded-xl border border-magic-gold/40 mb-10 backdrop-blur-sm text-xs sm:text-sm shadow-lg">
         <Link href="/" className="flex items-center gap-2.5 group">
           <img src={ASSETS.icons.d20} className="w-6 h-6 sm:w-7 sm:h-7 object-contain drop-shadow group-hover:rotate-12 transition-transform duration-300" alt="D20 Emblem" />
-          <span className="font-cinzel font-bold text-base sm:text-lg text-magic-gold tracking-wide">D&D Companion</span>
+          <span className="font-cinzel font-bold text-base sm:text-lg text-magic-gold tracking-wide">ArcanaLobby</span>
         </Link>
 
         {/* Quick Nav Links */}
@@ -165,7 +165,7 @@ export default function HomePage() {
       {/* HERO SECTION (SEO & CONVERSION OPTIMIZED) */}
       <section className="w-full max-w-5xl flex flex-col items-center text-center mb-16 z-10">
         <motion.div 
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 1, y: 0 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7 }}
           className="w-full flex flex-col items-center"
@@ -175,7 +175,7 @@ export default function HomePage() {
             <div className="absolute -inset-1 bg-gradient-to-r from-magic-gold/40 via-yellow-600/30 to-magic-gold/40 rounded-2xl blur-lg opacity-75 group-hover:opacity-100 transition duration-500" />
             <Image 
               src={ASSETS.banners.companion} 
-              alt="D&D Companion — Grimorio Digital de Rol"
+              alt="ArcanaLobby — Grimorio Digital y Calculadora de Hoja 5e"
               width={1200}
               height={630}
               priority
@@ -184,11 +184,11 @@ export default function HomePage() {
           </div>
 
           <h1 className="text-3xl sm:text-4xl md:text-5xl text-magic-gold font-bold mb-4 font-cinzel tracking-wider drop-shadow-md leading-tight">
-            D&D Companion: Grimorio Digital, Hoja 5e y Panel de DM
+            ArcanaLobby: Grimorio Digital, Creador de Hoja 5e y Panel de DM
           </h1>
           
           <p className="text-base sm:text-xl text-ink-light mb-6 max-w-2xl italic font-serif leading-relaxed">
-            D&D Companion es el grimorio digital en tiempo real para Dungeons & Dragons 5ª Edición. Sincroniza cada hoja 5e automatizada y dirige combates tácticos con el panel de DM para partidas presenciales o por Discord.
+            ArcanaLobby es el grimorio digital en tiempo real para Dungeons & Dragons 5ª Edición. Sincroniza cada hoja 5e automatizada y dirige combates tácticos con el panel de DM para partidas presenciales o por Discord.
           </p>
           
           <p className="text-xs sm:text-sm text-ink-light max-w-xl mx-auto leading-relaxed mb-8">
@@ -240,7 +240,7 @@ export default function HomePage() {
                 Sincronización en Tiempo Real
               </h3>
               <p className="text-xs text-ink-light leading-relaxed">
-                Tiradas de dados d20, rueda de turnos de iniciativa y puntos de golpe compartidos al instante con D&D Companion. La sincronización en la nube conecta cada hoja 5e con el panel de DM en partidas presenciales o por Discord.
+                Tiradas de dados d20, rueda de turnos de iniciativa y puntos de golpe compartidos al instante con ArcanaLobby. La sincronización en la nube conecta cada hoja 5e con el panel de DM en partidas presenciales o por Discord.
               </p>
             </div>
             <div className="pt-3 border-t border-ink/10 text-[11px] text-ink font-bold flex items-center gap-1.5">
@@ -294,7 +294,7 @@ export default function HomePage() {
                 Acceso Inmediato & Sin Registro
               </h3>
               <p className="text-xs text-ink-light leading-relaxed">
-                Juega de inmediato en D&D Companion como invitado sin crear cuenta ni perder tiempo, o inicia sesión con Google para desbloquear el panel de DM y crear campañas privadas ilimitadas.
+                Juega de inmediato en ArcanaLobby como invitado sin crear cuenta ni perder tiempo, o inicia sesión con Google para desbloquear el panel de DM y crear campañas privadas ilimitadas.
               </p>
             </div>
             <div className="pt-3 border-t border-ink/10 text-[11px] text-ink font-bold flex items-center gap-1.5">
@@ -310,7 +310,7 @@ export default function HomePage() {
         <div className="bg-parchment-dark/60 rounded-2xl border border-ink/20 p-6 sm:p-10 shadow-xl">
           <div className="text-center mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-gold">
-              ¿Cómo Comenzar a Jugar en D&D Companion?
+              ¿Cómo Comenzar a Jugar en ArcanaLobby?
             </h2>
             <p className="text-xs sm:text-sm text-ink-light mt-1">
               En tres pasos sencillos estarás explorando mazmorras con tu grupo:
@@ -421,10 +421,10 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="p-5 bg-parchment rounded-xl border border-ink/15 space-y-2.5">
               <h3 className="font-bold font-cinzel text-sm sm:text-base text-magic-gold">
-                ¿Qué es D&D Companion y cómo funciona este grimorio digital?
+                ¿Qué es ArcanaLobby y cómo funciona este grimorio digital?
               </h3>
               <p className="text-xs sm:text-sm text-ink-light leading-relaxed">
-                D&D Companion es un grimorio digital web diseñado para jugadores y Dungeon Masters de Dungeons & Dragons 5ª Edición (SRD 5e). Permite gestionar fichas de personaje, seguir turnos de iniciativa en combate, sincronizar tiradas de dados d20 y coordinar campañas en tiempo real. No requiere descargas ni instalaciones pesadas; funciona directamente en cualquier navegador moderno tanto en dispositivos móviles como en ordenadores.
+                ArcanaLobby es un grimorio digital web diseñado para jugadores y Dungeon Masters de Dungeons & Dragons 5ª Edición (SRD 5e). Permite gestionar fichas de personaje, seguir turnos de iniciativa en combate, sincronizar tiradas de dados d20 y coordinar campañas en tiempo real. No requiere descargas ni instalaciones pesadas; funciona directamente en cualquier navegador moderno tanto en dispositivos móviles como en ordenadores.
               </p>
             </div>
 
@@ -448,10 +448,10 @@ export default function HomePage() {
 
             <div className="p-5 bg-parchment rounded-xl border border-ink/15 space-y-2.5">
               <h3 className="font-bold font-cinzel text-sm sm:text-base text-magic-gold">
-                ¿Es gratis usar D&D Companion en partidas presenciales o por Discord?
+                ¿Es gratis usar ArcanaLobby en partidas presenciales o por Discord?
               </h3>
               <p className="text-xs sm:text-sm text-ink-light leading-relaxed">
-                Sí, D&D Companion es una plataforma 100% gratuita y de acceso libre creada para la comunidad de rol. Puedes jugar como invitado sin necesidad de registrarte, o iniciar sesión con Google para crear y guardar tus propias campañas como DM. Es el complemento ideal tanto para partidas presenciales alrededor de la mesa física como para sesiones de rol en línea a través de canales de voz en Discord.
+                Sí, ArcanaLobby es una plataforma 100% gratuita y de acceso libre creada para la comunidad de rol. Puedes jugar como invitado sin necesidad de registrarte, o iniciar sesión con Google para crear y guardar tus propias campañas como DM. Es el complemento ideal tanto para partidas presenciales alrededor de la mesa física como para sesiones de rol en línea a través de canales de voz en Discord.
               </p>
             </div>
           </div>

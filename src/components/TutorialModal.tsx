@@ -29,7 +29,7 @@ export default function TutorialModal({ open, onClose }: { open: boolean; onClos
           <div className="flex justify-between items-start border-b border-ink/20 pb-3 mb-3">
             <div>
               <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-gold flex items-center gap-2">
-                <HelpCircle className="w-7 h-7 text-magic-gold" /> Tutorial Inicial de D&D Companion
+                <HelpCircle className="w-7 h-7 text-magic-gold" /> Tutorial Inicial de ArcanaLobby
               </h2>
               <p className="text-xs sm:text-sm text-ink-light">
                 Guía completa paso a paso para dominar tu mesa de juego presencial o por Discord.

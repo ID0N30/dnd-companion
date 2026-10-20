@@ -3,7 +3,8 @@ import { FileText, ArrowLeft, ShieldCheck, Scale, AlertCircle } from "lucide-rea
 
 export const metadata = {
   title: "Términos de Servicio — Idoneus Software",
-  description: "Términos y Condiciones de Uso de la plataforma DnD Companion.",
+  description: "Términos y Condiciones de Uso de la plataforma ArcanaLobby.",
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {
@@ -46,14 +47,14 @@ export default function TermsPage() {
             <Scale className="w-5 h-5" /> 1. Aceptación de los Términos
           </h2>
           <p>
-            Al acceder, registrarse o utilizar <strong>DnD Companion</strong> (desarrollado bajo la denominación comercial <strong>Idoneus Software</strong>), el usuario acepta estar sujeto a los presentes Términos de Servicio y a todas las leyes aplicables. Si no está de acuerdo con alguno de estos términos, debe abstenerse de utilizar la aplicación.
+            Al acceder, registrarse o utilizar <strong>ArcanaLobby</strong> (desarrollado bajo la denominación comercial <strong>Idoneus Software</strong>), el usuario acepta estar sujeto a los presentes Términos de Servicio y a todas las leyes aplicables. Si no está de acuerdo con alguno de estos términos, debe abstenerse de utilizar la aplicación.
           </p>
 
           <h2 className="text-lg font-bold font-cinzel text-magic-gold flex items-center gap-2 pt-4 border-t border-ink/10">
             <ShieldCheck className="w-5 h-5" /> 2. Descripción del Servicio y Modelo Freemium
           </h2>
           <p>
-            DnD Companion es una suite de herramientas en tiempo real para apoyar partidas de rol basadas en D&D 5ª Edición (D&D 5e). El servicio ofrece acceso a hojas de personaje sincronizadas, panel de Dungeon Master y asistente de dados.
+            ArcanaLobby es una suite de herramientas en tiempo real para apoyar partidas de rol basadas en D&D 5ª Edición (SRD 5e). El servicio ofrece acceso a hojas de personaje sincronizadas, panel de Dungeon Master y asistente de dados.
           </p>
           <p>
             Idoneus Software se reserva el derecho de establecer límites de cuotas de uso o introducir niveles de suscripción (modelo Freemium) en el futuro para mantener la escalabilidad de la infraestructura sin alterar las partidas existentes.
@@ -76,7 +77,14 @@ export default function TermsPage() {
           </p>
 
           <h2 className="text-lg font-bold font-cinzel text-magic-gold flex items-center gap-2 pt-4 border-t border-ink/10">
-            5. Contacto Legal y Soporte
+            📜 5. Propiedad Intelectual y Licencia SRD (CC-BY-4.0)
+          </h2>
+          <p>
+            ArcanaLobby es una plataforma independiente desarrollada por Idoneus Software y no está afiliada, respaldada ni patrocinada por Wizards of the Coast. Este trabajo incluye material tomado del System Reference Document 5.1 («SRD 5.1») de Wizards of the Coast LLC, disponible bajo licencia Creative Commons Attribution 4.0 International (CC-BY-4.0).
+          </p>
+
+          <h2 className="text-lg font-bold font-cinzel text-magic-gold flex items-center gap-2 pt-4 border-t border-ink/10">
+            6. Contacto Legal y Soporte
           </h2>
           <p>
             Para consultas relacionadas con estos términos, comuníquese formalmente a través de:{" "}

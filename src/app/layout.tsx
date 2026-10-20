@@ -19,48 +19,46 @@ const ebGaramond = EB_Garamond({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://dnd-companion-chi.vercel.app"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://arcanalobby.vercel.app"),
   title: {
-    default: "D&D Companion | Grimorio Digital, Hoja 5e y Panel de DM",
-    template: "%s | D&D Companion",
+    default: "ArcanaLobby | Grimorio Digital, Creador y Calculadora de Hoja de Personaje 5e",
+    template: "%s | ArcanaLobby",
   },
   description:
-    "Grimorio digital en tiempo real para D&D 5e. Crea tu hoja de personaje automatizada, dirige combates en el panel de DM y explora campañas de rol gratis.",
+    "ArcanaLobby es el grimorio digital y lobby en tiempo real compatible con D&D 5e. Creador y calculadora de hoja de personaje 5e online, panel de DM, rastreador de iniciativa y dados d20 gratis.",
   keywords: [
-    "D&D Companion",
-    "grimorio digital",
-    "hoja de personaje 5e",
-    "panel de DM",
-    "Dungeons and Dragons 5e español",
-    "campañas de rol online",
+    "ArcanaLobby",
+    "creador de personajes 5e",
+    "calculadora hoja de personaje dnd 5e",
+    "hoja de personaje 5e online español",
+    "grimorio digital 5e",
+    "panel de DM en tiempo real",
     "rastreador de iniciativa 5e",
-    "dados de rol d20",
+    "ficha de rol D&D 5e gratis",
+    "dados de rol d20 online",
   ],
-  alternates: {
-    canonical: "/",
-  },
   openGraph: {
     type: "website",
     locale: "es_ES",
-    url: "https://dnd-companion-chi.vercel.app/",
-    siteName: "D&D Companion",
-    title: "D&D Companion | Grimorio Digital, Hoja 5e y Panel de DM",
+    url: "https://arcanalobby.vercel.app/",
+    siteName: "ArcanaLobby",
+    title: "ArcanaLobby | Grimorio Digital, Creador y Calculadora de Hoja de Personaje 5e",
     description:
-      "Grimorio digital en tiempo real para D&D 5e. Crea tu hoja de personaje automatizada, dirige combates en el panel de DM y explora campañas de rol gratis.",
+      "ArcanaLobby es el grimorio digital y lobby en tiempo real compatible con D&D 5e. Creador y calculadora de hoja de personaje 5e online, panel de DM, rastreador de iniciativa y dados d20 gratis.",
     images: [
       {
         url: "/assets/banners/banner-companion.webp",
         width: 1200,
         height: 630,
-        alt: "D&D Companion — Grimorio Digital, Hoja 5e y Panel de DM",
+        alt: "ArcanaLobby — Grimorio Digital, Creador de Hoja 5e y Panel de DM",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "D&D Companion | Grimorio Digital, Hoja 5e y Panel de DM",
+    title: "ArcanaLobby | Grimorio Digital, Creador y Calculadora de Hoja de Personaje 5e",
     description:
-      "Grimorio digital en tiempo real para D&D 5e. Crea tu hoja de personaje automatizada, dirige combates en el panel de DM y explora campañas de rol gratis.",
+      "ArcanaLobby es el grimorio digital y lobby en tiempo real compatible con D&D 5e. Creador y calculadora de hoja de personaje 5e online, panel de DM, rastreador de iniciativa y dados d20 gratis.",
     images: ["/assets/banners/banner-companion.webp"],
   },
   icons: {

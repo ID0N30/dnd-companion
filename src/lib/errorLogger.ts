@@ -148,7 +148,7 @@ export const reportErrorToRemoteTelemetry = (logEntry: SystemErrorLog) => {
           event_id: logEntry.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32).padEnd(32, '0'),
           timestamp: new Date(logEntry.timestamp).toISOString(),
           level: logEntry.severity === 'CRITICAL' ? 'fatal' : 'warning',
-          logger: logEntry.context || 'dnd-companion',
+          logger: logEntry.context || 'arcanalobby',
           message: logEntry.message,
           extra: {
             code: logEntry.code,

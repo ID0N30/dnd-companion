@@ -17,10 +17,10 @@ export const TeamLobbyPromo: React.FC<TeamLobbyPromoProps> = ({
       onClick={() => window.open(targetUrl, '_blank', 'noopener,noreferrer')}
       className={`relative group cursor-pointer overflow-hidden rounded-xl border-2 border-magic-gold/40 hover:border-magic-gold bg-parchment-dark shadow-xl hover:shadow-2xl transition-all duration-300 active:scale-[0.995] ${className}`}
     >
-      {/* Sello de Alianza en la esquina superior derecha al estilo de las tarjetas de D&D */}
+      {/* Sello de Alianza en la esquina superior derecha al estilo de las tarjetas de ArcanaLobby */}
       <div className="absolute top-0 right-0 bg-magic-gold/20 text-magic-gold border-b border-l border-magic-gold/40 text-[9px] font-bold px-3 py-1 rounded-bl uppercase font-cinzel flex items-center gap-1.5 z-20">
         <Sparkles className="w-3 h-3 text-magic-gold" />
-        <span>Gremio Aliado • Ecosistema Gamer</span>
+        <span>Gremio Aliado • Ecosistema ArcanaLobby + TeamLobby</span>
       </div>
 
       {/* Marca de agua sutil en el fondo: Gamepad arcano */}
@@ -60,7 +60,7 @@ export const TeamLobbyPromo: React.FC<TeamLobbyPromoProps> = ({
             ¿Una pausa entre mazmorras y dragones? Reúne a tu grupo para la noche de videojuegos: <strong className="text-magic-gold">votación democrática</strong> con catálogo de Steam, ruleta del destino para desempates épicos, soundboard interactivo y vitrina para registrar tus trofeos platinados.
           </p>
 
-          {/* Chips temáticos armonizados con la paleta de D&D Companion */}
+          {/* Chips temáticos armonizados con la paleta de ArcanaLobby */}
           <div className="flex flex-wrap gap-2 pt-1 text-[10px] sm:text-xs">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-ink/10 border border-ink/20 text-ink font-bold">
               <Users className="w-3.5 h-3.5 text-magic-gold" /> Salas Públicas & Privadas

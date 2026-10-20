@@ -3,7 +3,8 @@ import { Cookie, ArrowLeft, Database, BarChart3, HardDrive } from "lucide-react"
 
 export const metadata = {
   title: "Política de Cookies — Idoneus Software",
-  description: "Información sobre el uso de cookies y almacenamiento local en DnD Companion.",
+  description: "Información sobre el uso de cookies y almacenamiento local en ArcanaLobby.",
+  alternates: { canonical: "/cookies" },
 };
 
 export default function CookiesPage() {
@@ -43,14 +44,14 @@ export default function CookiesPage() {
         <section className="space-y-4 text-xs sm:text-sm leading-relaxed text-ink/90">
           
           <p>
-            Esta política explica cómo <strong>DnD Companion</strong> (publicado bajo la denominación comercial <strong>Idoneus Software</strong>) utiliza cookies y tecnologías de almacenamiento local en el navegador del usuario para garantizar el correcto funcionamiento de las salas de juego en tiempo real.
+            Esta política explica cómo <strong>ArcanaLobby</strong> (publicado bajo la denominación comercial <strong>Idoneus Software</strong>) utiliza cookies y tecnologías de almacenamiento local en el navegador del usuario para garantizar el correcto funcionamiento de las salas de juego en tiempo real.
           </p>
 
           <h2 className="text-lg font-bold font-cinzel text-magic-gold flex items-center gap-2 pt-2 border-t border-ink/10">
             <HardDrive className="w-5 h-5" /> 1. Almacenamiento Local (LocalStorage & SessionStorage)
           </h2>
           <p>
-            DnD Companion emplea <strong>LocalStorage</strong> para conservar preferencias locales y asegurar que las fichas de personaje no se pierdan en caso de desconexiones temporales:
+            ArcanaLobby emplea <strong>LocalStorage</strong> para conservar preferencias locales y asegurar que las fichas de personaje no se pierdan en caso de desconexiones temporales:
           </p>
           <ul className="list-disc pl-5 space-y-1 text-xs sm:text-sm">
             <li><strong>Sesión de Autenticación</strong>: Mantiene el token de sesión de Google Firebase Auth o de invitado.</li>

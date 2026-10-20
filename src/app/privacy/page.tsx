@@ -3,7 +3,8 @@ import { Lock, ArrowLeft, ShieldAlert, UserCheck, Database, Globe } from "lucide
 
 export const metadata = {
   title: "Política de Privacidad — Idoneus Software",
-  description: "Política de Privacidad y Tratamiento de Datos Personales para DnD Companion.",
+  description: "Política de Privacidad y Tratamiento de Datos Personales para ArcanaLobby.",
+  alternates: { canonical: "/privacy" },
 };
 
 export default function PrivacyPage() {
@@ -48,7 +49,7 @@ export default function PrivacyPage() {
               <ShieldAlert className="w-5 h-5 text-magic-gold" /> Responsable Legal del Tratamiento de Datos
             </h3>
             <p className="text-xs sm:text-sm leading-relaxed">
-              En cumplimiento de las normativas de protección de datos personales aplicables, se establece explícitamente que la recolección, almacenamiento de información de cuentas y el tratamiento de datos para <strong>DnD Companion</strong> y <strong>TeamLobby</strong> son responsabilidad legal de <strong>Julian Andrés Osorio Marín</strong>, operando como persona natural desde <strong>Colombia</strong> bajo la denominación comercial <strong>Idoneus Software</strong>.
+              En cumplimiento de las normativas de protección de datos personales aplicables, se establece explícitamente que la recolección, almacenamiento de información de cuentas y el tratamiento de datos para <strong>ArcanaLobby</strong> y <strong>TeamLobby</strong> son responsabilidad legal de <strong>Julian Andrés Osorio Marín</strong>, operando como persona natural desde <strong>Colombia</strong> bajo la denominación comercial <strong>Idoneus Software</strong>.
             </p>
           </div>
 
@@ -56,7 +57,7 @@ export default function PrivacyPage() {
             <UserCheck className="w-5 h-5" /> 1. Datos Recopilados
           </h2>
           <p>
-            DnD Companion opera bajo el principio de minimización de datos. Solo recopilamos los siguientes elementos estrictamente necesarios:
+            ArcanaLobby opera bajo el principio de minimización de datos. Solo recopilamos los siguientes elementos estrictamente necesarios:
           </p>
           <ul className="list-disc pl-5 space-y-1 text-xs sm:text-sm">
             <li><strong>Autenticación de Cuenta</strong>: Dirección de correo electrónico y nombre público asociado suministrados voluntariamente mediante Google OAuth o ID temporal de invitado.</li>

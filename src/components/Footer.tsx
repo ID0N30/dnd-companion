@@ -64,7 +64,7 @@ export default function Footer() {
             <ul className="space-y-2 text-xs font-semibold text-ink-light">
               <li>
                 <a 
-                  href="mailto:jaomp3@gmail.com?subject=Soporte%20DnD%20Companion" 
+                  href="mailto:jaomp3@gmail.com?subject=Soporte%20ArcanaLobby" 
                   className="hover:text-magic-gold transition flex items-center gap-1.5"
                 >
                   <Mail className="w-3.5 h-3.5 text-magic-gold" /> jaomp3@gmail.com
@@ -72,7 +72,7 @@ export default function Footer() {
               </li>
               <li>
                 <a 
-                  href="mailto:jaomp3@gmail.com?subject=Reporte%20de%20Problema%20DnD%20Companion" 
+                  href="mailto:jaomp3@gmail.com?subject=Reporte%20de%20Problema%20ArcanaLobby" 
                   className="hover:text-magic-gold transition"
                 >
                   Reportar un problema
@@ -135,7 +135,7 @@ export default function Footer() {
               target="_blank" 
               rel="noopener noreferrer"
               className="hover:text-magic-gold transition p-1.5 bg-ink/5 rounded-lg border border-ink/10"
-              title="Repositorio GitHub de DnD Companion"
+              title="Repositorio GitHub de ArcanaLobby"
             >
               <Code2 className="w-4 h-4" />
             </a>
@@ -148,6 +148,13 @@ export default function Footer() {
             </a>
           </div>
 
+        </div>
+
+        {/* SRD 5.1 CC-BY-4.0 MANDATORY LEGAL ATTRIBUTION */}
+        <div className="border-t border-ink/10 pt-4 text-[10px] text-ink-light/75 leading-relaxed text-center sm:text-left">
+          <p>
+            ArcanaLobby es una plataforma independiente desarrollada por Idoneus Software y no está afiliada, respaldada ni patrocinada por Wizards of the Coast. Este trabajo incluye material tomado del System Reference Document 5.1 («SRD 5.1») de Wizards of the Coast LLC, disponible bajo licencia Creative Commons Attribution 4.0 International (CC-BY-4.0).
+          </p>
         </div>
 
       </div>

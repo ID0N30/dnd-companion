@@ -148,7 +148,7 @@ export default function CampaignsPage() {
 
           <Link href="/" className="flex items-center gap-2">
             <img src={ASSETS.icons.d20} className="w-6 h-6 object-contain drop-shadow" alt="D20 Emblem" />
-            <span className="font-cinzel font-bold text-base text-magic-gold tracking-wide">D&D Companion</span>
+            <span className="font-cinzel font-bold text-base text-magic-gold tracking-wide">ArcanaLobby</span>
           </Link>
         </div>
 

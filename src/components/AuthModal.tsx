@@ -92,7 +92,7 @@ export default function AuthModal({
               </h3>
               <p className="text-xs text-ink-light">
                 {tab === 'login' 
-                  ? 'Ingresa a tu cuenta de D&D Companion para administrar tus salas y héroes.' 
+                  ? 'Ingresa a tu cuenta de ArcanaLobby para administrar tus salas y héroes.' 
                   : 'Crea tu cuenta única con correo y nombre de usuario para unirte o crear campañas.'}
               </p>
             </div>

@@ -235,7 +235,7 @@ export const DEMO_INITIAL_MESSAGES: DirectMessage[] = [
 ];
 
 export const DEMO_INITIAL_LOGS: string[] = [
-  "D&D Companion: Sesión iniciada en la Mesa de Pruebas (Modo Sandbox).",
+  "ArcanaLobby: Sesión iniciada en la Mesa de Pruebas (Modo Sandbox).",
   "Drizzt Do'Urden desenvaina a Hielo y Centello con destreza letal.",
   "Lyra canaliza el poder sagrado y bendice la expedición.",
   "Varis Sombraluna detecta una trampa con tirada de Percepción (21).",

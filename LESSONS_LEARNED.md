@@ -117,7 +117,7 @@ Este documento registra los aprendizajes críticos, patrones de diseño probados
 - **El Problema**: Otorgar permisos globales `allow update: if isAuthenticated();` permitía que cualquier jugador en la sala modificara la contraseña, el nombre de la campaña o el estado de combate del DM.
 - **La Solución**:
   - `/rooms/{roomId}` restringe el permiso general de actualización exclusivamente al DM (`resource.data.dmId == request.auth.uid`).
-  - Para permitir que un jugador avance el turno de combate cuando finaliza su acción, se implementó una excepción quirúrgica controlada por CEL:
+  - Para permitir que un jugador avance el turno de combate cuando finaliza su acción (en modo fallback de Firestore), se implementó una excepción quirúrgica controlada por CEL:
     ```javascript
     allow update: if isAuthenticated() && (
       resource.data.dmId == request.auth.uid || 
@@ -127,29 +127,16 @@ Este documento registra los aprendizajes críticos, patrones de diseño probados
     ```
   - Esta regla asegura que ningún cliente no privilegiado pueda modificar campos ajenos a la rotación de turnos.
 
-### ⚠️ Validación de Propiedad en `/players/{playerId}`
-- Al crear o actualizar un personaje, se valida estrictamente `ownerId == request.auth.uid` o que el solicitante sea el DM de la sala. Se prohíbe además la usurpación de personajes impidiendo modificar el `ownerId` original una vez creado (`request.resource.data.ownerId == resource.data.ownerId`).
+### ⚠️ Validación de Propiedad y Límite de Campos en `/players/{playerId}`
+- Al crear o actualizar un personaje, se valida estrictamente `ownerId == request.auth.uid` o que el solicitante sea el DM de la sala.
+- Se prohíbe la usurpación de personajes impidiendo modificar el `ownerId` original una vez creado (`request.resource.data.ownerId == resource.data.ownerId`).
+- Se impide la escalada de privilegios prohibiendo que un jugador se auto-asigne el campo `dmId` y se limita el tamaño de cada documento a `request.resource.data.keys().size() <= 45`.
 
 ### ⚠️ Subcolección `/whispers` y la Regla "Rules Are Not Filters"
 - **El Principio de Firestore**: En Firestore, las reglas de seguridad son binarias y evaluadas antes de ejecutar la consulta; no actúan como filtros automáticos sobre los datos. Si un cliente solicita una colección completa mediante `collection()` pero una sola regla prohíbe un documento dentro de esa colección, Firestore rechaza la petición completa con `permission-denied`.
-- **El Problema con Susurros Bidireccionales**: En un canal privado donde el DM envía mensajes al jugador y el jugador envía mensajes al DM:
-  - Si el jugador se suscribe a toda la subcolección `/rooms/{roomId}/whispers`, Firestore evalúa si tiene permiso sobre los mensajes de *todos* los demás jugadores de la sala, fallando de inmediato.
 - **La Solución Arquitectónica**:
-  1. Cada documento de susurro almacena explícitamente `senderUid` (quien envía) y `playerUid` (el UID del jugador participante del hilo, tanto si es remitente como si es destinatario de una respuesta del DM).
-  2. La regla en `firestore.rules` autoriza la lectura si:
-     ```javascript
-     match /whispers/{whisperId} {
-       allow read: if isAuthenticated() && (
-         resource.data.senderUid == request.auth.uid || 
-         resource.data.playerUid == request.auth.uid || 
-         get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
-       );
-     }
-     ```
-  3. En el cliente (`subscribeRoomWhispers`), si el usuario es jugador (no DM), se ejecutan consultas filtradas que coinciden exactamente con la autorización:
-     - `query(whispersRef, where("senderUid", "==", uid))`
-     - `query(whispersRef, where("playerUid", "==", uid))`
-     Unificando reactivamente ambos resultados en un mapa en memoria para mostrar el historial completo de ida y vuelta sin arrojar violaciones de seguridad.
+  1. En **Realtime Database (Motor Primario)**, los susurros se agrupan por hilo privado en `/rooms/{roomId}/whispers/{playerUid}/{msgId}`, donde las reglas `database.rules.json` autorizan la lectura y escritura del nodo completo únicamente a `$playerUid === auth.uid` o al DM (`root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid`).
+  2. En **Firestore (Motor Fallback)**, cada documento almacena `senderUid` y `playerUid`, ejecutando consultas filtradas para cumplir *"rules are not filters"*.
 
 ---
 
@@ -165,18 +152,9 @@ Este documento registra los aprendizajes críticos, patrones de diseño probados
     ```
 
 ### ⚠️ Recuperación Cruzada de Personajes con `collectionGroup`
-- **El Problema Previo**: `fetchUserCharactersAcrossRooms` recorría en un bucle secuencial las $N$ salas visitadas por el usuario, consultando cada subcolección individualmente. Si un usuario participaba en 15 campañas, se disparaban 15 peticiones consecutivas con alta latencia y fallos si alguna sala no respondía.
+- **El Problema Previo**: `fetchUserCharactersAcrossRooms` recorría en un bucle secuencial las $N$ salas visitadas por el usuario, consultando cada subcolección individualmente.
 - **La Solución Óptima**:
-  - Uso de `collectionGroup(db, "players")` con filtro `where("ownerId", "==", userId)` para recuperar en un único disparo todas las fichas del usuario en toda la base de datos.
-  - Declaración del índice compuesto oficial en `firestore.indexes.json`:
-    ```json
-    {
-      "collectionGroup": "players",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [{ "fieldPath": "ownerId", "order": "ASCENDING" }]
-    }
-    ```
-  - **Estrategia Fallback Silenciosa**: Si el índice aún no se encuentra desplegado en Firebase Console o ocurre una excepción transitoria, el sistema conmuta inmediatamente a un barrido paralelo optimizado con `Promise.all` sobre las salas activas.
+  - Uso de `collectionGroup(db, "players")` con filtro `where("ownerId", "==", userId)` para recuperar en un único disparo todas las fichas del usuario en toda la base de datos, siempre verificando antes que `user?.uid` esté presente para no disparar consultas huérfanas.
 
 ---
 
@@ -188,39 +166,55 @@ Este documento registra los aprendizajes críticos, patrones de diseño probados
   2. **Backoff Exponencial con Jitter**: Reintento de hasta 3 veces ante errores transitorios (`unavailable`, `deadline-exceeded`, `resource-exhausted`, `network-request-failed`), espaciando los reintentos con variación aleatoria para prevenir el problema del rebaño atronador (*thundering herd*).
   3. **Refresco Proactivo de Token**: Si el primer intento devuelve `permission-denied`, se invoca `auth.currentUser.getIdToken(true)` para renovar el token JWT de Firebase Auth y se reintenta la petición.
 
-### ⚠️ Avance Atómico de Turnos (`advanceRoomTurnAtomic`)
-- Para evitar que dos jugadores o el DM presionen el botón de avance de turno simultáneamente provocando saltos dobles de iniciativa o valores desincronizados:
-  - Se utiliza `runTransaction(db, async (tx) => { ... })`.
-  - La transacción lee la versión más reciente de `currentTurnIndex` e `initiativeOrder`, calcula de forma atómica el índice siguiente `(currentTurnIndex + 1) % initiativeOrder.length` y escribe la actualización. Si se detecta concurrencia, Firestore reintenta automáticamente la transacción.
-
-### ⚠️ Lotes en Operaciones Masivas (`writeBatch`) y Rate-Limiting en Logs
-- **Marcado de Lectura Masivo**: Al pulsar "Marcar todos como leídos", se utiliza `writeBatch(db)` para actualizar hasta 500 documentos de susurros en una única transacción atómica de red en lugar de llamadas `updateDoc` independientes.
-- **Deduplicación y Rate-Limiting en `addRoomLog`**:
-  - Un mapa en memoria `lastLogTimeMap` descarta logs idénticos enviados en menos de 1000 ms o ráfagas consecutivas menores a 600 ms, protegiendo las cuotas de Firestore contra spam involuntario.
-
 ---
 
 ## 10. Estándar Visual de Cero Emojis, Banners Full-Screen y Modularización (`React.memo`)
 
 ### ⚠️ Cero Emojis en la Interfaz y Filosofía de Diseño Grimorio
-- Los emojis nativos del sistema operativo se renderizan de manera inconsistente (Apple vs Android vs Windows) y rompen la estética medieval y arcana de D&D.
+- Los emojis nativos del sistema operativo se renderizan de manera inconsistente y rompen la estética medieval y arcana de D&D.
 - **Estandarización**:
-  - Eliminación total de emojis en textos de interfaz, modales y banners.
-  - Uso exclusivo de activos vectoriales e ilustraciones personalizadas centralizadas en `src/lib/assets.ts` (`ASSETS.banners.*`, `ASSETS.icons.*`).
-  - Uso de iconografía SVG consistente mediante `lucide-react` (`Shield`, `Swords`, `Dice5`, `Sparkles`, `ScrollText`).
+  - Uso exclusivo de activos vectoriales e ilustraciones personalizadas centralizadas en `src/lib/assets.ts` (`ASSETS.banners.*`, `ASSETS.icons.*`) e iconografía SVG mediante `lucide-react`.
 
-### ⚠️ Separación de Responsabilidades: Landing Page (`/`) vs Salón de Campañas (`/campaigns`)
-- **`/` (Landing Page)**: Centrada en el valor del producto, captura de usuarios, accesibilidad semántica (`<h1>` oculto para SEO), presentación de características y acceso directo a la Mesa de Pruebas.
-- **`/campaigns` (Salón de Campañas)**: Centro operativo para búsqueda de partidas, creación de salas, gestión de contraseñas y reingreso a campañas recientes.
-- **`/demo` (Mesa de Pruebas)**: Laboratorio interactivo 100% aislado de Firebase para pruebas de mecánicas y demostración rápida.
+---
 
-### ⚠️ Modularización de Vistas Complejas con `React.memo`
-- La hoja de personaje (`src/app/sheet/page.tsx`) presentaba alta carga de renderizado por re-evaluaciones completas ante cualquier cambio de estado.
-- Se extrajeron y desacoplaron subcomponentes aislados en `src/components/sheet/`:
-  1. **`CombatStatusBanners.tsx`**: Renderiza los banners inmersivos a pantalla completa para turno de combate, estado moribundo, estabilización y muerte con fondos gráficos optimizados.
-  2. **`DemoSandboxToolbar.tsx`**: Barra de herramientas flotante de simulación de daño, curación y reset de fábrica para modo demo.
-  3. **`WhisperConversationModal.tsx`**: Modal de chat privado con hilo de mensajes de ida y vuelta, renderizado memorizado y campo de respuesta en vivo.
-  Todos ellos envueltos en `React.memo` para evitar re-renderizados innecesarios cuando las propiedades no cambian.
+## 11. Arquitectura Híbrida Firestore + Realtime Database (Optimización Extrema Plan Spark)
 
+### ⚠️ El Problema de los Eventos Efímeros en Firestore
+- **El Problema**: En una sesión de D&D de 3 horas con 5 jugadores, los latidos de presencia (`lastSeen` cada 45s), los cambios de turno de combate, las tiradas de dados en el log y los susurros generaban miles de lecturas y escrituras por documento en Cloud Firestore, amenazando con agotar los límites diarios del plan gratuito Spark (50,000 lecturas / 20,000 escrituras por día).
+- **La Solución Híbrida de Doble Motor**:
+  - **Cloud Firestore (Estado Persistente)**: Almacena únicamente los documentos estructurales que cambian con baja frecuencia: campañas (`rooms/{roomId}`), fichas de personaje (`rooms/{roomId}/players/{playerId}`), perfiles (`users/{uid}`), índice de nombres (`usernames/{nameLower}`) y notas privadas (`users/{uid}/privateNotes/{charId}`). Además, utiliza caché persistente multitab (`persistentLocalCache({ tabManager: persistentMultipleTabManager() })`) y guardas de visibilidad (`document.visibilityState === 'visible'`) para evitar lecturas en pestañas en segundo plano.
+  - **Firebase Realtime Database (Telemetría de Tiempo Real y Alta Frecuencia)**: Factura por ancho de banda (10 GB/mes gratis) en lugar de por operación individual. Se migraron a RTDB 4 subsistemas clave bajo `/rooms/{roomId}/`:
+    1. **`presence/{uid}`**: Usa el socket nativo `.info/connected` y `onDisconnect().update({ online: false, lastSeen: serverTimestamp() })`. Elimina el polling de escrituras periódicas cada 45s.
+    2. **`combat`**: Sincroniza `isCombatMode`, `initiativeOrder`, `currentTurnIndex`, `combatMonsters` y eventos efímeros (`lastTurnEvent`, `lastDiceRoll`, `lastLevelUpEvent`) mediante transacciones atómicas (`runTransaction` de RTDB).
+    3. **`logs`**: Historial de tiradas de dados limitado con `limitToLast(45)` y **poda incremental en memoria (`roomActiveLogKeys`)**, evitando descargar los 60 logs previos en cada tirada antes de borrar el más antiguo.
+    4. **`whispers/{playerUid}`**: Hilos privados de susurros con autopoda a 15 mensajes y mapa en memoria `whisperMsgThreadMap` para que el DM pueda marcar como leído o borrar mensajes directamente en el nodo del jugador sin descargas adicionales.
 
+### ⚠️ Auto-Hidratación de `/rooms/{roomId}/meta` y Helper `isCharacterOnline`
+- **Retrocompatibilidad de Salas Previas**: Si una campaña fue creada antes de la integración con RTDB, carecerá del nodo `/rooms/{roomId}/meta/dmId` necesario para que `database.rules.json` reconozca al DM. En `subscribeRoom`, cuando el DM abre la sala, el cliente verifica y auto-hidrata `/rooms/{roomId}/meta` de forma transparente.
+- **Unificación de Presencia (`isCharacterOnline`)**: Para evitar que la interfaz muestre como "En línea" a un jugador desconectado durante 65 segundos por el cálculo heredado de `lastSeen`, el helper `isCharacterOnline(p)` en `useStore.ts` prioriza el booleano instantáneo `p.isOnline` proveniente de RTDB.
 
+---
+
+## 12. Blindaje de Seguridad, Privacidad de Datos y Prevención de DoS
+
+### ⚠️ Lección Crítica de Firebase App Check: `appId` Real vs `measurementId` y Coincidencia de Proveedor
+- **Síntoma Detectado**: Al activar el cumplimiento obligatorio (*Enforcement*) de App Check en Firestore, funciones públicas como `verifyRoomPassword` arrojaban `FirebaseError: Missing or insufficient permissions (permission-denied)` a pesar de que `firestore.rules` tenía `allow read: if true;`.
+- **Causas Raíz Descubiertas**:
+  1. **`NEXT_PUBLIC_FIREBASE_APP_ID` configurado con un ID de Google Analytics (`G-XXXXXXXX`)**: Mientras que Auth y Firestore pueden operar sin validar el formato de `appId`, el SDK de **Firebase App Check construye una URL REST con `appId`** (`.../apps/{appId}:exchangeRecaptcha...Token`). Si recibe un `G-...` en lugar del ID de aplicación web real (`1:388713990161:web:...`), el servidor de App Check responde `400/404`, no se emite token y Firestore bloquea todas las peticiones antes de evaluar las reglas.
+  2. **Concordancia Estricta de Proveedor (`ReCaptchaV3Provider` vs `ReCaptchaEnterpriseProvider`)**: El proveedor instanciado en `src/lib/firebase.ts` debe coincidir exactamente con la pestaña donde se registró la clave en Firebase Console → App Check, y el dominio (`localhost` en desarrollo y `dnd-companion-chi.vercel.app` en producción) debe estar autorizado en la clave de Google Cloud.
+
+### ⚠️ Privacidad Real: Aislamiento de Notas Personales y Protección contra Enumeración de Usuarios
+1. **Notas Privadas del Jugador (`/users/{uid}/privateNotes/{charId}`)**:
+   - Guardar el arreglo `notes` dentro de `/rooms/{roomId}/players/{playerId}` permitía que cualquier jugador de la sala (o el DM) leyera las notas privadas de otro jugador inspeccionando el tráfico de red de `subscribeRoomPlayers`.
+   - `savePlayerInRoom`, `batchUpdatePlayersInRoom` y `updatePlayerFieldsInRoom` eliminan el campo `notes` antes de escribir en la sala pública, y las notas se respaldan de forma aislada en `/users/{uid}/privateNotes/{charId}` donde `firestore.rules` exige `allow read, write: if isOwner(userId);`.
+2. **Prevención de Enumeración de Correos (`/usernames/{usernameLower}`)**:
+   - La colección `/users/{userId}` está cerrada a lecturas de terceros (`allow read: if isOwner(userId);`).
+   - Para verificar si un nombre de usuario está disponible sin abrir la colección `/users`, se utiliza la colección índice `/usernames/{usernameLower}` que almacena únicamente `{ uid, updatedAt }`.
+
+### ⚠️ Hashing SHA-256 de Contraseñas de Sala + Rate-Limiting Anti-Fuerza Bruta
+- Las contraseñas de campaña jamás se almacenan en texto plano (`password: ""`). Se calcula un digest criptográfico `SHA-256` con sal (`hashRoomPassword` vía `crypto.subtle.digest`) almacenado en `passwordHash`.
+- `verifyRoomPassword` incluye un limitador en memoria (`MAX_PASSWORD_ATTEMPTS = 5` por ventana de 60 segundos por sala) para bloquear ataques de diccionario o fuerza bruta.
+
+### ⚠️ Sanitización de Telemetría (`errorLogger.ts`) y Cabeceras HTTP (`next.config.ts`)
+- **Redacción de PII/Tokens**: Antes de enviar cualquier reporte a la colección `error_logs`, `sanitizeErrorText` reemplaza direcciones de correo por `[REDACTED_EMAIL]`, tokens JWT/Bearer por `[REDACTED_TOKEN]` y trunca `message` (300 chars) y `stack` (1000 chars).
+- **Cabeceras de Seguridad HTTP**: `next.config.ts` desactiva `X-Powered-By` e inyecta `Content-Security-Policy (CSP)`, `Strict-Transport-Security (HSTS)`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy` y `Permissions-Policy`.

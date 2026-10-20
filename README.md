@@ -1,16 +1,16 @@
 # 🐉 D&D Companion — Centro de Mando en Tiempo Real para D&D 5e
 
-[![Estado del Proyecto](https://img.shields.io/badge/Estado-Beta_Pública_(v0.8)-gold?style=for-the-badge)](https://dnd-companion-chi.vercel.app/)
+[![Estado del Proyecto](https://img.shields.io/badge/Estado-Beta_Pública_(v0.9)-gold?style=for-the-badge)](https://dnd-companion-chi.vercel.app/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.3-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue?style=for-the-badge&logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
-[![Firebase](https://img.shields.io/badge/Firebase-Firestore%20%26%20Auth-orange?style=for-the-badge&logo=firebase)](https://firebase.google.com/)
+[![Firebase](https://img.shields.io/badge/Firebase-Firestore%20%2B%20RTDB%20%26%20Auth-orange?style=for-the-badge&logo=firebase)](https://firebase.google.com/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
-[![Vercel](https://img.shields.io/badge/Vercel-Deployed-black?style=for-the-badge&logo=vercel)](https://dnd-companion-web.vercel.app/)
+[![Vercel](https://img.shields.io/badge/Vercel-Deployed-black?style=for-the-badge&logo=vercel)](https://dnd-companion-chi.vercel.app/)
 
-> **D&D Companion** es una aplicación web interactiva en tiempo real diseñada para potenciar las partidas de **Dungeons & Dragons 5ª Edición (D&D 5e)**, tanto en mesas presenciales como en sesiones a través de Discord. Combina la atmósfera inmersiva de un grimorio arcano con la sincronización instantánea y reactiva de **Cloud Firestore**.
+> **D&D Companion** es una aplicación web interactiva en tiempo real diseñada para potenciar las partidas de **Dungeons & Dragons 5ª Edición (D&D 5e)**, tanto en mesas presenciales como en sesiones a través de Discord. Combina la atmósfera inmersiva de un grimorio arcano con una **arquitectura híbrida de doble motor en Firebase (Cloud Firestore + Realtime Database)** optimizada al extremo para operar dentro del plan gratuito Spark con latencia cero.
 
-🎮 **[¡Probar la Mesa de Pruebas Interactiva (Demo sin Registro ni Conexión)!](https://dnd-companion-web.vercel.app/demo)**
+🎮 **[¡Probar la Mesa de Pruebas Interactiva (Demo sin Registro ni Conexión)!](https://dnd-companion-chi.vercel.app/demo)**
 
 ---
 
@@ -18,18 +18,19 @@
 
 ### 🛡️ Para el Dungeon Master (Panel Maestro)
 * **Bestiario & Rastreador de PNJs / Monstruos en Combate**: Despliegue de plantillas rápidas oficiales de D&D 5e en 1 clic (*Goblin, Orco, Esqueleto, Dragón Joven*), creación de monstruos/aliados personalizados, gestión de vida en vivo y rueda de iniciativa táctica mixta (Jugadores + PNJs/Monstruos).
-* **Combate & Iniciativa Táctica Atómica**: Inicia combate con un clic; tiradas automáticas de iniciativa ($1d20 + \text{Modificador de DES}$) para todos los presentes, rueda de turnos sincronizada y avance atómico con `runTransaction` libre de condiciones de carrera.
+* **Combate & Iniciativa Táctica Atómica (RTDB)**: Inicia combate con un clic; tiradas automáticas de iniciativa ($1d20 + \text{Modificador de DES}$) para todos los presentes, rueda de turnos sincronizada en **Firebase Realtime Database** y avance atómico con `runTransaction` libre de condiciones de carrera.
 * **Control de Party en Vivo**: Inspección en tiempo real de HP, Clase de Armadura (CA), Percepción Pasiva, ranuras y equipo de cada integrante.
 * **Reparto de Botín & Magia Directa**: Concede objetos mágicos legendarios o conjuros directamente al inventario de un aventurero o a todo el grupo en segundos.
-* **Buzón Secreto Bidireccional (Jugador <-> DM)**: Sistema de mensajería privada bidireccional sobre la subcolección protegida `/whispers`. Permite al DM responder a cada aventurero en hilos individuales, con insignias de no leídos y confirmaciones de lectura en tiempo real.
+* **Buzón Secreto Bidireccional (Jugador <-> DM)**: Sistema de mensajería privada bidireccional sobre nodos aislados `/rooms/{roomId}/whispers/{playerUid}` en Realtime Database (con respaldo en Firestore). Permite al DM responder a cada aventurero en hilos individuales (con autopoda a los últimos 15 mensajes), insignias de no leídos y confirmaciones de lectura en tiempo real.
 * **Ascenso Celestial (Subida de Nivel)**: Sube de nivel a un jugador o a toda la party con animación celebratoria en pantalla completa y recálculo oficial de HP (fijo o por tirada de dado de golpe) y nuevas ranuras mágicas.
-* **Gestión de Campaña**: Control de presencia (🟢 En línea / 🔴 Ausente), purga de inactivos, personalización de terminología de salud (**HP** / **PG**) y protección por contraseña.
+* **Gestión de Campaña**: Control de presencia instantáneo mediante sockets nativos `onDisconnect()` (🟢 En línea / 🔴 Ausente), purga de inactivos, personalización de terminología de salud (**HP** / **PG**) y protección por contraseña cifrada con hash **SHA-256**.
 
 ---
 
 ### 📜 Para el Aventurero (Hoja de Personaje 5e)
 * **Automatización Oficial de Reglas 5e**: Cálculo automático de modificadores de atributo, CA dinámica según armadura/escudo equipado, dados de golpe según clase y bonificador de competencia.
 * **Tiradas Animadas & Modificadores Automáticos 5e**: Lanzador interactivo para $d4, d6, d8, d10, d12, d20 \text{ y } d100$ con modificadores en vivo, sonidos y registro automático en el diario de la campaña.
+* **Diario Privado Aislado en la Nube**: Notas personales del jugador sincronizadas exclusivamente en su bóveda privada `/users/{uid}/privateNotes/{charId}`, 100% invisibles para el DM y el resto de la mesa.
 * **Banners de Estado en Combate**: Indicadores inmersivos a pantalla completa para turno activo, agonía / moribundo, estabilización y muerte con arte oficial y sin emojis.
 * **Gestión de Recursos & Descansos**:
   * **Descanso Corto**: Gasto interactivo de Dados de Golpe con recuperación de HP y reseteo de rasgos por descanso corto (*Segundo Aliento*, *Oleada de Acción*, etc.).
@@ -57,11 +58,16 @@
 
 ---
 
-### 🛡️ Blindaje Cloud & Resiliencia
-* **Reglas de Seguridad Granulares (`firestore.rules`)**: Restricción estricta de escrituras al DM, validación de `ownerId` en personajes y aislamiento por usuario en susurros (`senderUid` y `playerUid`).
+### 🛡️ Blindaje Cloud, Seguridad & Optimización Spark
+* **Arquitectura Híbrida Firestore + Realtime Database**: Persistencia documental estructurada en **Cloud Firestore** (con caché persistente multitab IndexedDB) combinada con **Firebase Realtime Database** para eventos de alta frecuencia (presencia instantánea con `onDisconnect()`, combate y turnos atómicos, logs de tiradas con poda incremental en memoria y susurros en vivo), reduciendo en más de un 90% el consumo de lecturas/escrituras de Firestore.
+* **Escudo Anti-Bots y Anti-DoS con Firebase App Check**: Integración nativa con **reCAPTCHA v3 / Enterprise** y cumplimiento obligatorio (*Enforcement*) en Firestore y RTDB para bloquear tráfico automatizado y abusos de cuota.
+* **Reglas de Seguridad Granulares (`firestore.rules` y `database.rules.json`)**:
+  * Aislamiento total de perfiles en `/users/{userId}` contra enumeración de correos, apoyado en el índice ligero `/usernames/{usernameLower}`.
+  * Notas personales del aventurero aisladas en `/users/{uid}/privateNotes/{charId}` (100% privadas frente al DM y otros jugadores).
+  * Contraseñas de sala protegidas con hash **SHA-256** (`Web Crypto API`) y *rate-limiting* contra fuerza bruta (máximo 5 intentos por minuto).
+  * Hilos de susurros (`/whispers/{playerUid}`) restringidos exclusivamente al jugador participante y al DM de la campaña.
+* **Cabeceras de Seguridad HTTP y Sanitización**: Políticas estrictas `Content-Security-Policy (CSP)`, `HSTS`, `X-Frame-Options: DENY` en `next.config.ts`, y redacción automática de PII/tokens en `errorLogger.ts`.
 * **Capa de Resiliencia (`withRetry` / `withTimeout`)**: Reintentos automáticos con retroceso exponencial, temporizador de 8s y refresco proactivo de token ante expiraciones de sesión.
-* **Transacciones Atómicas & Batching**: Transiciones seguras de turno con `runTransaction` y marcado masivo de lectura con `writeBatch`.
-* **Consultas Indexadas & App Check**: Recuperación multi-sala mediante `collectionGroup("players")` con índice compuesto y soporte nativo para Firebase App Check (reCAPTCHA v3) y Sentry.
 
 ---
 
@@ -106,8 +112,8 @@ D&D Companion forma parte de un ecosistema de aplicaciones lúdicas en colaborac
 * **Framework Front-End**: [Next.js 16 (App Router)](https://nextjs.org/) con React 19 y TypeScript 5.
 * **Estilos & Animaciones**: [Tailwind CSS v4](https://tailwindcss.com/), [Framer Motion](https://www.framer.com/motion/) y [Lucide React Icons](https://lucide.dev/).
 * **Gestión de Estado**: [Zustand](https://github.com/pmndrs/zustand) con persistencia local higienizada y desacoplamiento de sandbox.
-* **Infraestructura Cloud**: [Firebase Firestore](https://firebase.google.com/docs/firestore) y [Firebase Authentication](https://firebase.google.com/docs/auth) (Google OAuth).
-* **Despliegue & Analítica**: [Vercel](https://vercel.com/) con `@vercel/analytics`.
+* **Infraestructura Cloud**: [Firebase Cloud Firestore](https://firebase.google.com/docs/firestore), [Firebase Realtime Database](https://firebase.google.com/docs/database), [Firebase App Check](https://firebase.google.com/docs/app-check) y [Firebase Authentication](https://firebase.google.com/docs/auth) (Google OAuth + Email/Password).
+* **Despliegue & Analítica**: [Vercel](https://dnd-companion-chi.vercel.app/) con `@vercel/analytics`.
 
 ---
 
@@ -128,19 +134,21 @@ npm install
 Crea un archivo `.env.local` en la raíz del proyecto (o toma como base `.env.example`) con tus credenciales de Firebase Console y servicios complementarios:
 
 ```env
-# Credenciales Obligatorias de Firebase Web
+# Credenciales Obligatorias de Firebase Web (Importante: APP_ID debe tener formato 1:...:web:..., nunca G-...)
 NEXT_PUBLIC_FIREBASE_API_KEY=tu_api_key
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=tu_proyecto.firebaseapp.com
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=tu_proyecto_id
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=tu_proyecto.appspot.com
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=tu_proyecto.firebasestorage.app
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=tu_messaging_sender_id
-NEXT_PUBLIC_FIREBASE_APP_ID=tu_app_id
+NEXT_PUBLIC_FIREBASE_APP_ID=1:1234567890:web:abcdef123456
+NEXT_PUBLIC_FIREBASE_DATABASE_URL=https://tu_proyecto-default-rtdb.firebaseio.com
 
 # Emuladores Locales (Opcional, false por defecto)
 NEXT_PUBLIC_USE_EMULATOR=false
 
-# Firebase App Check (Opcional - reCAPTCHA v3 / Debug Token para protección contra bots y abuso de cuota)
-NEXT_PUBLIC_RECAPTCHA_SITE_KEY=tu_recaptcha_v3_site_key
+# Firebase App Check (Protección contra bots y abuso de cuota)
+NEXT_PUBLIC_RECAPTCHA_SITE_KEY=tu_recaptcha_site_key
+NEXT_PUBLIC_RECAPTCHA_ENTERPRISE=false
 NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN=tu_debug_token_para_localhost
 
 # Telemetría y Observabilidad de Errores (Opcional)
@@ -152,7 +160,7 @@ NEXT_PUBLIC_TELEMETRY_WEBHOOK_URL=https://tu-endpoint-webhook.com/api/errors
 ```bash
 npm run dev
 ```
-Abre [http://localhost:3000](http://localhost:3000) en tu navegador para comenzar la aventura.
+Abre [http://localhost:3000](http://localhost:3000) en tu navegador para comenzar la aventura, o visita la versión oficial desplegada en **[https://dnd-companion-chi.vercel.app/](https://dnd-companion-chi.vercel.app/)**.
 
 ---
 

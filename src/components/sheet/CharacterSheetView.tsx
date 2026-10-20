@@ -9,7 +9,7 @@ import DiceRoller from "@/components/DiceRoller";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import TutorialModal from "@/components/TutorialModal";
 import DMPage from "@/app/dm/page";
-import { subscribeRoom, subscribeRoomWhispers, Room, DirectMessage, markDirectMessageAsRead, markAllDirectMessagesAsRead } from "@/lib/rooms";
+import { subscribeRoom, subscribeRoomWhispers, Room, DirectMessage, markDirectMessageAsRead, markAllDirectMessagesAsRead, fetchPrivateCharacterNotes, savePrivateCharacterNotes } from "@/lib/rooms";
 import { useAuth } from "@/context/AuthContext";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
 import { 
@@ -118,7 +118,7 @@ export function CharacterSheetView({ isDM = false, isDemoOverride = false, insid
       const effectiveRoomId = isDemoMode ? 'demo_sandbox_room' : character?.roomId;
       const unreadWhispers = mySentMessages.filter(m => m.isFromDM && !m.read);
       if (unreadWhispers.length > 0 && effectiveRoomId) {
-        markAllDirectMessagesAsRead(effectiveRoomId, 'dm', user?.uid || character?.ownerId || character?.id);
+        markAllDirectMessagesAsRead(effectiveRoomId, undefined, user?.uid || character?.ownerId || character?.id);
         setMySentMessages(prev => prev.map(m => m.isFromDM ? { ...m, read: true } : m));
       }
     }
@@ -192,6 +192,29 @@ export function CharacterSheetView({ isDM = false, isDemoOverride = false, insid
     }
   }, [character.id, character.notes]);
 
+  // Isolated cloud recovery for private notes
+  useEffect(() => {
+    if (isDemoMode || !user?.uid || !character?.id || character.id === 'default') return;
+    let isCancelled = false;
+    fetchPrivateCharacterNotes(user.uid, character.id).then((cloudNotes) => {
+      if (isCancelled || !cloudNotes) return;
+      setNotes((prevNotes) => {
+        const prevJson = JSON.stringify(prevNotes);
+        const cloudJson = JSON.stringify(cloudNotes);
+        if (prevJson !== cloudJson) {
+          useStore.setState((state) => ({
+            players: state.players.map((p) => p.id === character.id ? { ...p, notes: cloudNotes } : p)
+          }));
+          return cloudNotes;
+        }
+        return prevNotes;
+      });
+    }).catch((err) => {
+      console.error("Error al sincronizar notas privadas desde Firestore", err);
+    });
+    return () => { isCancelled = true; };
+  }, [user?.uid, character?.id, isDemoMode]);
+
   const saveNotesToStorage = (updatedNotes: PersonalNote[]) => {
     const limitedNotes = updatedNotes.slice(0, 10);
     setNotes(limitedNotes);
@@ -201,6 +224,9 @@ export function CharacterSheetView({ isDM = false, isDemoOverride = false, insid
         localStorage.setItem(`dnd_private_notes_${character.id}`, JSON.stringify(limitedNotes));
       } catch (e) {
         console.error("Error al guardar notas personales", e);
+      }
+      if (user?.uid && !isDemoMode && character.id !== 'default') {
+        savePrivateCharacterNotes(user.uid, character.id, limitedNotes);
       }
     }
   };

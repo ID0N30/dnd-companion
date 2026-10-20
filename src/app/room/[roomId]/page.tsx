@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
-import { useStore, CharacterState, syncAllLocalPlayersToStorage } from "@/store/useStore";
+import { useStore, CharacterState, syncAllLocalPlayersToStorage, isCharacterOnline } from "@/store/useStore";
 import { CLASS_SAVING_THROWS, CLASS_HIT_DIE, calculateMaxHP } from "@/lib/dndClassFeatures";
 import { 
   subscribeRoom, subscribeRoomPlayers, subscribeRoomLogs, savePlayerInRoom, updatePlayerPresence, setupRealtimePresence, deletePlayerFromRoom, updateRoomState, addRoomLog, Room 
@@ -445,13 +445,13 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
               </h2>
               <span className="text-xs font-bold text-ink-light bg-parchment px-3 py-1.5 rounded border border-ink/20 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
-                <span>{players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo' && (p.isOnline === true ? true : p.isOnline === false ? false : (!p.lastSeen || (Date.now() - p.lastSeen) < 65000))).length} en línea / {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').length} totales</span>
+                <span>{players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo' && isCharacterOnline(p)).length} en línea / {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').length} totales</span>
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
               {players.filter(p => p.roomId === roomId && p.id !== 'drizzt_dourden_demo').map(p => {
-                const online = p.isOnline === true ? true : p.isOnline === false ? false : (!p.lastSeen || (Date.now() - p.lastSeen) < 65000);
+                const online = isCharacterOnline(p);
                 return (
                   <div key={p.id} className={`p-6 rounded-xl border-2 shadow-xl space-y-4 ${p.isDead ? 'bg-black/80 border-magic-red text-white' : 'bg-parchment-dark border-magic-gold/40'} ${!online ? 'opacity-70' : ''}`}>
                     <div className="flex justify-between items-start">
@@ -603,6 +603,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                   <input 
                     type="text" 
                     required 
+                    maxLength={60}
                     value={newCharForm.name}
                     onChange={e => setNewCharForm({...newCharForm, name: e.target.value})}
                     placeholder="Ej. Valeros"

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useStore, CharacterState, ItemType, Item, Spell, Currency, SKILLS_5E, syncAllLocalPlayersToStorage, isDemoPlayer } from "@/store/useStore";
+import { useStore, CharacterState, ItemType, Item, Spell, Currency, SKILLS_5E, syncAllLocalPlayersToStorage, isDemoPlayer, isCharacterOnline } from "@/store/useStore";
 import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, updatePlayerFieldsInRoom, subscribeRoom, Room, getLogCategory, LogCategory, DirectMessage, deleteRoom } from "@/lib/rooms";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import TutorialModal from "@/components/TutorialModal";
@@ -72,12 +72,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
     ? players.filter(p => isDemoPlayer(p.id))
     : players.filter(p => p.roomId === roomId && !isDemoPlayer(p.id));
 
-  const isPlayerOnline = (p: CharacterState) => {
-    if (p.isOnline === true) return true;
-    if (p.isOnline === false) return false;
-    if (!p.lastSeen) return true;
-    return (Date.now() - p.lastSeen) < 65000;
-  };
+  const isPlayerOnline = (p: CharacterState) => isCharacterOnline(p);
 
   const handleCleanAbsentPlayers = () => {
     if (isDemo || !roomId) {
@@ -777,6 +772,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                       <label className="block text-[10px] text-ink-light font-bold mb-0.5">Nombre</label>
                       <input 
                         type="text" 
+                        maxLength={60}
                         value={customMonsterName}
                         onChange={e => setCustomMonsterName(e.target.value)}
                         placeholder="Ej. Nigromante"
@@ -1193,6 +1189,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                   <label className="block font-bold mb-1">Nombre de la Campaña</label>
                   <input 
                     type="text" 
+                    maxLength={80}
                     value={adminForm.name}
                     onChange={e => setAdminForm({...adminForm, name: e.target.value})}
                     placeholder="Nuevo nombre..."
@@ -1639,6 +1636,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                           <label className="block text-[10px] font-bold mb-0.5">Nombre del Objeto</label>
                           <input 
                             type="text" 
+                            maxLength={80}
                             placeholder="Ej. Espada Flameante"
                             value={dmNewItem.name}
                             onChange={e => setDmNewItem({ ...dmNewItem, name: e.target.value })}
@@ -1711,6 +1709,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                           <label className="block text-[10px] font-bold mb-0.5">Descripción</label>
                           <input 
                             type="text" 
+                            maxLength={600}
                             placeholder="Descripción o efectos del objeto..."
                             value={dmNewItem.desc}
                             onChange={e => setDmNewItem({ ...dmNewItem, desc: e.target.value })}
@@ -1818,6 +1817,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                         <input 
                           type="text" 
+                          maxLength={80}
                           placeholder="Nombre del Conjuro..."
                           value={dmNewSpell.name}
                           onChange={e => setDmNewSpell({ ...dmNewSpell, name: e.target.value })}
@@ -1838,6 +1838,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                       </div>
                       <input 
                         type="text" 
+                        maxLength={600}
                         placeholder="Descripción corta del hechizo..."
                         value={dmNewSpell.desc}
                         onChange={e => setDmNewSpell({ ...dmNewSpell, desc: e.target.value })}

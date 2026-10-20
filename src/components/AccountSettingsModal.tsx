@@ -236,6 +236,7 @@ export default function AccountSettingsModal({
                       type="text"
                       value={displayNameInput}
                       onChange={(e) => setDisplayNameInput(e.target.value)}
+                      maxLength={40}
                       className="w-full p-3 bg-parchment-dark border border-ink/30 rounded-lg text-ink font-bold text-base focus:outline-none focus:border-magic-gold"
                       placeholder="Ej. Gandalf el Gris"
                       required
@@ -362,6 +363,7 @@ export default function AccountSettingsModal({
                   type="text"
                   value={searchRoomQuery}
                   onChange={(e) => setSearchRoomQuery(e.target.value)}
+                  maxLength={60}
                   className="w-full p-2.5 pl-8 bg-parchment border border-ink/30 rounded-lg text-ink font-bold text-xs focus:outline-none focus:border-magic-gold"
                   placeholder="Buscar campaña por nombre o ID..."
                 />
@@ -411,6 +413,7 @@ export default function AccountSettingsModal({
                     setSelectedRoomId(e.target.value);
                     setPasswordError("");
                   }}
+                  maxLength={60}
                   className="w-full p-2.5 bg-parchment border border-ink/30 rounded-lg text-ink font-bold text-xs focus:outline-none focus:border-magic-gold font-mono"
                   placeholder="Ej. MaresDeCodicia"
                   required
@@ -430,6 +433,7 @@ export default function AccountSettingsModal({
                       setEnteredPassword(e.target.value);
                       setPasswordError("");
                     }}
+                    maxLength={60}
                     className="w-full p-2 bg-parchment border border-ink/30 rounded text-ink font-bold text-xs focus:outline-none focus:border-magic-gold"
                     placeholder="Escribe la contraseña de la campaña..."
                     required

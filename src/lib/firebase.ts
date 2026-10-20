@@ -34,17 +34,17 @@ const app = getApps().length > 0
     ? initializeApp(firebaseConfig)
     : null;
 
-// Initialize Firebase App Check (reCAPTCHA v3 / Debug Token)
+// Initialize Firebase App Check (reCAPTCHA Enterprise / Debug Token in Dev)
 export let appCheck: AppCheck | null = null;
 if (app && typeof window !== 'undefined') {
   try {
-    if (process.env.NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN) {
+    if (process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN) {
       (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = process.env.NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN;
     }
     const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
     if (recaptchaSiteKey) {
       appCheck = initializeAppCheck(app, {
-        provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+        provider: new ReCaptchaEnterpriseProvider(recaptchaSiteKey),
         isTokenAutoRefreshEnabled: true
       });
     }

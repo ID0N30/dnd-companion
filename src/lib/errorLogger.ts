@@ -46,6 +46,20 @@ export const clearErrorLogs = (): void => {
   }
 };
 
+const EMAIL_REGEX = /[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/g;
+const JWT_OR_TOKEN_REGEX = /(Bearer\s+[A-Za-z0-9\-_.]+|eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*|AIza[0-9A-Za-z-_]{35}|[A-Za-z0-9-_]{40,})/g;
+
+export const sanitizeErrorText = (text: string | undefined, maxLength: number): string => {
+  if (!text) return '';
+  let sanitized = String(text)
+    .replace(EMAIL_REGEX, '[REDACTED_EMAIL]')
+    .replace(JWT_OR_TOKEN_REGEX, '[REDACTED_TOKEN]');
+  if (sanitized.length > maxLength) {
+    sanitized = sanitized.slice(0, maxLength);
+  }
+  return sanitized;
+};
+
 export const logError = (
   error: any,
   context: string = 'General',
@@ -79,14 +93,17 @@ export const logError = (
     message = 'Error de conexión de red. Verifica tu enlace a internet.';
   }
 
+  const sanitizedMessage = sanitizeErrorText(message, 300);
+  const sanitizedStack = stack ? sanitizeErrorText(stack, 1000) : undefined;
+
   const logEntry: SystemErrorLog = {
     id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5),
     timestamp: Date.now(),
     severity,
     code,
-    message,
+    message: sanitizedMessage,
     context,
-    stack
+    stack: sanitizedStack
   };
 
   // Persist to localStorage

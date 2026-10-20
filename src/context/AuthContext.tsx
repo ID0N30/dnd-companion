@@ -5,7 +5,7 @@ import {
   User, onAuthStateChanged, signOut, GoogleAuthProvider, linkWithCredential, signInWithCredential, sendEmailVerification
 } from "firebase/auth";
 import { 
-  collection, query, where, limit, getDocs, doc, setDoc, serverTimestamp 
+  collection, query, where, limit, getDocs, getDoc, doc, setDoc, serverTimestamp 
 } from "firebase/firestore";
 import { 
   auth, db, googleProvider, loginWithGoogle, loginAnonymously, isFirebaseConfigured,
@@ -126,12 +126,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       throw new Error("⚠️ La contraseña debe incluir al menos una letra y un número.");
     }
 
-    // 1. Enforce unique username check across Firestore users collection
+    // 1. Enforce unique username check across Firestore usernames collection
     if (db) {
       try {
-        const q = query(collection(db, "users"), where("displayNameLower", "==", lowerName), limit(1));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
+        const usernameSnap = await getDoc(doc(db, "usernames", lowerName));
+        if (usernameSnap.exists()) {
           throw new Error(`⚠️ El nombre de usuario "${cleanName}" ya está en uso. Por favor elige otro nombre de usuario.`);
         }
       } catch (e: any) {
@@ -161,6 +160,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             displayNameLower: lowerName,
             createdAt: serverTimestamp()
           });
+
+          try {
+            await setDoc(doc(db, "usernames", lowerName), {
+              uid: res.user.uid,
+              updatedAt: Date.now()
+            });
+          } catch (unameErr) {
+            console.warn("No se pudo registrar en usernames:", unameErr);
+          }
         }
       }
       return res.user;
@@ -208,13 +216,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (!cleanName) throw new Error("El nombre de usuario no puede estar vacío.");
 
     // Check unique username if user is logged in
+    const lowerName = cleanName.toLowerCase();
     if (db && !auth.currentUser.isAnonymous) {
-      const lowerName = cleanName.toLowerCase();
-      const q = query(collection(db, "users"), where("displayNameLower", "==", lowerName), limit(1));
-      const snap = await getDocs(q);
-      const existingDoc = snap.docs[0];
-      if (existingDoc && existingDoc.id !== auth.currentUser.uid) {
-        throw new Error(`⚠️ El nombre de usuario "${cleanName}" ya está en uso.`);
+      const usernameSnap = await getDoc(doc(db, "usernames", lowerName));
+      if (usernameSnap.exists()) {
+        const uData = usernameSnap.data();
+        if (uData && uData.uid !== auth.currentUser.uid) {
+          throw new Error(`⚠️ El nombre de usuario "${cleanName}" ya está en uso.`);
+        }
       }
     }
 
@@ -226,9 +235,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const userDocRef = doc(db, "users", auth.currentUser.uid);
         await setDoc(userDocRef, {
           displayName: cleanName,
-          displayNameLower: cleanName.toLowerCase(),
+          displayNameLower: lowerName,
           updatedAt: serverTimestamp()
         }, { merge: true });
+
+        // Update usernames document
+        await setDoc(doc(db, "usernames", lowerName), {
+          uid: auth.currentUser.uid,
+          updatedAt: Date.now()
+        });
 
         if (typeof window !== 'undefined') {
           const syncKey = `dnd_profile_synced_${auth.currentUser.uid}`;

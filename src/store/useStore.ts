@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { CLASS_SAVING_THROWS, calculateMaxHP, ClassFeature, CLASS_HIT_DIE, CLASS_STARTING_EQUIPMENT, CLASS_STARTING_SPELLS, getClassFeaturesForLevel, calculateLevelUpHPGain, getFixedHitDieValue } from "@/lib/dndClassFeatures";
 import { triggerDiceRoll } from "@/components/DiceRoller";
-import { addRoomLog, updateRoomState, savePlayerInRoom, batchUpdatePlayersInRoom, deletePlayerFromRoom, advanceRoomTurnAtomic, isDemoRoom } from "@/lib/rooms";
+import { addRoomLog, updateRoomState, savePlayerInRoom, batchUpdatePlayersInRoom, deletePlayerFromRoom, advanceRoomTurnAtomic, isDemoRoom, savePrivateCharacterNotes } from "@/lib/rooms";
 import { auth } from "@/lib/firebase";
 import { getFactoryDemoParty } from "@/lib/demoData";
 
@@ -334,10 +334,10 @@ export const createDefaultCharacter = (
 
   return {
     id,
-    name,
-    race,
-    charClass,
-    background,
+    name: (name || '').trim().slice(0, 60),
+    race: (race || '').trim().slice(0, 60),
+    charClass: (charClass || '').trim().slice(0, 60),
+    background: (background || '').trim().slice(0, 60),
     level,
     roomId,
     ownerId,
@@ -520,6 +520,10 @@ export interface StoreState {
   updateCurrency: (playerId?: string, updates?: Partial<Currency>) => void;
   spendCurrency: (playerId?: string, spend?: Partial<Currency>, reason?: string) => void;
   saveNotesToCharacter: (playerId: string, notes: PersonalNote[]) => void;
+  updateNotes?: (playerId: string, notes: PersonalNote[]) => void;
+  addPersonalNote?: (playerId: string, note: Omit<PersonalNote, 'id' | 'createdAt'>) => void;
+  updatePersonalNote?: (playerId: string, noteId: string, updates: Partial<PersonalNote>) => void;
+  deletePersonalNote?: (playerId: string, noteId: string) => void;
 
   logs: LogEntry[];
   addLog: (message: string) => void;
@@ -898,18 +902,30 @@ export const useStore = create<StoreState>((set, get) => ({
   setActivePlayerId: (id) => set({ activePlayerId: id }),
   
   createCharacter: (name, race, charClass, background, level = 1, stats, ownerId, ownerName, roomId) => {
+    const cleanName = (name || '').trim().slice(0, 60);
     const existingNames = get().players
       .filter(p => !roomId || p.roomId === roomId)
       .map(p => p.name.trim().toLowerCase());
-    if (existingNames.includes(name.trim().toLowerCase())) {
-      get().showAlert(`⚠️ Ya existe un personaje llamado "${name.trim()}" en esta campaña. Por favor, elige un nombre único.`, "Nombre Duplicado", "warning");
+    if (existingNames.includes(cleanName.toLowerCase())) {
+      get().showAlert(`⚠️ Ya existe un personaje llamado "${cleanName}" en esta campaña. Por favor, elige un nombre único.`, "Nombre Duplicado", "warning");
       return '';
     }
     const curUser = auth?.currentUser;
     const effectiveOwnerId = ownerId || curUser?.uid;
     const effectiveOwnerName = ownerName || curUser?.displayName || curUser?.email || (curUser?.isAnonymous ? 'Invitado' : 'Jugador');
     const newId = 'player_' + Date.now();
-    const newChar = createDefaultCharacter(newId, name, race, charClass, background, level, stats, effectiveOwnerId, effectiveOwnerName, roomId);
+    const newChar = createDefaultCharacter(
+      newId,
+      cleanName,
+      (race || '').trim().slice(0, 60),
+      (charClass || '').trim().slice(0, 60),
+      (background || '').trim().slice(0, 60),
+      level,
+      stats,
+      effectiveOwnerId,
+      effectiveOwnerName,
+      roomId
+    );
     set((state) => ({
       players: [...state.players, newChar],
       activePlayerId: newId
@@ -1169,17 +1185,64 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   saveNotesToCharacter: (playerId, notes) => {
+    const sanitizedNotes: PersonalNote[] = (notes || []).slice(0, 10).map(n => ({
+      ...n,
+      title: (n.title || '').trim().slice(0, 80),
+      content: (n.content || '').slice(0, 600)
+    }));
     let updatedChar: CharacterState | undefined;
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
-        updatedChar = { ...p, notes: notes.slice(0, 10) };
+        updatedChar = { ...p, notes: sanitizedNotes };
         return updatedChar;
       })
     }));
+    if (auth?.currentUser?.uid) {
+      savePrivateCharacterNotes(auth.currentUser.uid, playerId, sanitizedNotes);
+    }
     if (updatedChar) {
       persistCharacterChanges(updatedChar, true);
     }
+  },
+
+  updateNotes: (playerId, notes) => {
+    get().saveNotesToCharacter(playerId, notes);
+  },
+
+  addPersonalNote: (playerId, note) => {
+    const curPlayer = get().players.find(p => p.id === playerId);
+    const curNotes = curPlayer?.notes || [];
+    const newNote: PersonalNote = {
+      id: 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      title: (note.title || '').trim().slice(0, 80),
+      content: (note.content || '').slice(0, 600),
+      createdAt: Date.now(),
+      pinned: Boolean(note.pinned)
+    };
+    get().saveNotesToCharacter(playerId, [...curNotes, newNote]);
+  },
+
+  updatePersonalNote: (playerId, noteId, updates) => {
+    const curPlayer = get().players.find(p => p.id === playerId);
+    const curNotes = curPlayer?.notes || [];
+    const updated = curNotes.map(n => {
+      if (n.id !== noteId) return n;
+      return {
+        ...n,
+        ...updates,
+        title: updates.title !== undefined ? (updates.title || '').trim().slice(0, 80) : n.title,
+        content: updates.content !== undefined ? (updates.content || '').slice(0, 600) : n.content,
+        updatedAt: Date.now()
+      };
+    });
+    get().saveNotesToCharacter(playerId, updated);
+  },
+
+  deletePersonalNote: (playerId, noteId) => {
+    const curPlayer = get().players.find(p => p.id === playerId);
+    const curNotes = curPlayer?.notes || [];
+    get().saveNotesToCharacter(playerId, curNotes.filter(n => n.id !== noteId));
   },
 
   updatePlayerStatsByDM: (playerId, stats) => {
@@ -1270,19 +1333,24 @@ export const useStore = create<StoreState>((set, get) => ({
         effectiveRoomId = match[1];
       }
     }
+    const sanitizedItem: Item = {
+      ...item,
+      name: (item.name || '').trim().slice(0, 80),
+      description: (item.description || '').slice(0, 600)
+    };
     const event = {
       id: 'item_evt_' + Date.now(),
       roomId: effectiveRoomId,
       playerId,
-      itemName: item.name,
-      quantity: item.quantity,
+      itemName: sanitizedItem.name,
+      quantity: sanitizedItem.quantity,
       timestamp: Date.now()
     };
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
-        targetPlayer = { ...p, roomId: effectiveRoomId || p.roomId, inventory: [...p.inventory, item] };
-        get().addLog(`🎁 El DM ha otorgado a ${p.name}: ${item.name} x${item.quantity}`);
+        targetPlayer = { ...p, roomId: effectiveRoomId || p.roomId, inventory: [...p.inventory, sanitizedItem] };
+        get().addLog(`🎁 El DM ha otorgado a ${p.name}: ${sanitizedItem.name} x${sanitizedItem.quantity}`);
         return targetPlayer;
       }),
       lastItemReceivedEvent: event
@@ -1317,11 +1385,16 @@ export const useStore = create<StoreState>((set, get) => ({
 
   addSpellToPlayer: (playerId, spell) => {
     let targetPlayer: CharacterState | undefined;
+    const sanitizedSpell: Spell = {
+      ...spell,
+      name: (spell.name || '').trim().slice(0, 80),
+      description: (spell.description || '').slice(0, 600)
+    };
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== playerId) return p;
-        get().addLog(`El DM ha otorgado el conjuro "${spell.name}" a ${p.name}.`);
-        targetPlayer = { ...p, spells: [...p.spells, spell] };
+        get().addLog(`El DM ha otorgado el conjuro "${sanitizedSpell.name}" a ${p.name}.`);
+        targetPlayer = { ...p, spells: [...p.spells, sanitizedSpell] };
         return targetPlayer;
       })
     }));
@@ -2480,9 +2553,14 @@ export const useStore = create<StoreState>((set, get) => ({
     const activeChar = get().players.find(p => p.id === activeId);
     if (!activeChar) return;
 
-    get().addLog(`Objeto añadido a ${activeChar.name} (${item.type}): ${item.name} x${item.quantity}`);
+    const sanitizedItemName = (item.name || '').trim().slice(0, 80);
+    const sanitizedItemDesc = (item.description || '').slice(0, 600);
+
+    get().addLog(`Objeto añadido a ${activeChar.name} (${item.type}): ${sanitizedItemName} x${item.quantity}`);
     const itemToAdd: Item = {
       ...item,
+      name: sanitizedItemName,
+      description: sanitizedItemDesc,
       equipped: item.equipped !== undefined ? item.equipped : false,
       isTemporary: isTemp || false,
       duration: isTemp ? (duration || null) : null
@@ -2507,8 +2585,8 @@ export const useStore = create<StoreState>((set, get) => ({
     if (isTemp) {
       get().addModifier({
         id: Date.now().toString(),
-        name: `Objeto Temporal: ${item.name}`,
-        description: `x${item.quantity} - ${item.description}`,
+        name: `Objeto Temporal: ${sanitizedItemName}`,
+        description: `x${item.quantity} - ${sanitizedItemDesc}`,
         duration: duration || null
       });
     }
@@ -2517,14 +2595,19 @@ export const useStore = create<StoreState>((set, get) => ({
   updateItem: (itemId, updates) => {
     const activeId = get().activePlayerId;
     let updatedChar: CharacterState | undefined;
+    const sanitizedUpdates: Partial<Item> = {
+      ...updates,
+      ...(updates.name ? { name: updates.name.trim().slice(0, 80) } : {}),
+      ...(updates.description ? { description: updates.description.slice(0, 600) } : {})
+    };
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const item = p.inventory.find(i => i.id === itemId);
-        if (item) get().addLog(`Objeto editado en el inventario de ${p.name}: ${updates.name || item.name}`);
+        if (item) get().addLog(`Objeto editado en el inventario de ${p.name}: ${sanitizedUpdates.name || item.name}`);
         updatedChar = {
           ...p,
-          inventory: p.inventory.map(i => i.id === itemId ? { ...i, ...updates } : i)
+          inventory: p.inventory.map(i => i.id === itemId ? { ...i, ...sanitizedUpdates } : i)
         };
         return updatedChar;
       })
@@ -2559,12 +2642,20 @@ export const useStore = create<StoreState>((set, get) => ({
     const activeChar = get().players.find(p => p.id === activeId);
     if (!activeChar) return;
 
-    get().addLog(`Conjuro aprendido por ${activeChar.name}: ${spell.name} (Nivel ${spell.level === 0 ? 'Truco' : spell.level})`);
+    const sanitizedSpellName = (spell.name || '').trim().slice(0, 80);
+    const sanitizedSpellDesc = (spell.description || '').slice(0, 600);
+    const spellToAdd: Spell = {
+      ...spell,
+      name: sanitizedSpellName,
+      description: sanitizedSpellDesc
+    };
+
+    get().addLog(`Conjuro aprendido por ${activeChar.name}: ${spellToAdd.name} (Nivel ${spellToAdd.level === 0 ? 'Truco' : spellToAdd.level})`);
     if (isTemp) {
       get().addModifier({
         id: Date.now().toString(),
-        name: `Hechizo Temporal: ${spell.name}`,
-        description: `Nivel ${spell.level} - ${spell.description}`,
+        name: `Hechizo Temporal: ${spellToAdd.name}`,
+        description: `Nivel ${spellToAdd.level} - ${spellToAdd.description}`,
         duration: duration || null
       });
     } else {
@@ -2574,7 +2665,7 @@ export const useStore = create<StoreState>((set, get) => ({
           if (p.id !== activeId) return p;
           updatedChar = {
             ...p,
-            spells: [...p.spells, spell]
+            spells: [...p.spells, spellToAdd]
           };
           return updatedChar;
         })
@@ -2588,14 +2679,19 @@ export const useStore = create<StoreState>((set, get) => ({
   updateSpell: (spellId, updates) => {
     const activeId = get().activePlayerId;
     let updatedChar: CharacterState | undefined;
+    const sanitizedUpdates: Partial<Spell> = {
+      ...updates,
+      ...(updates.name ? { name: updates.name.trim().slice(0, 80) } : {}),
+      ...(updates.description ? { description: updates.description.slice(0, 600) } : {})
+    };
     set((state) => ({
       players: state.players.map(p => {
         if (p.id !== activeId) return p;
         const spell = p.spells.find(s => s.id === spellId);
-        if (spell) get().addLog(`Conjuro editado en el grimorio de ${p.name}: ${updates.name || spell.name}`);
+        if (spell) get().addLog(`Conjuro editado en el grimorio de ${p.name}: ${sanitizedUpdates.name || spell.name}`);
         updatedChar = {
           ...p,
-          spells: p.spells.map(s => s.id === spellId ? { ...s, ...updates } : s)
+          spells: p.spells.map(s => s.id === spellId ? { ...s, ...sanitizedUpdates } : s)
         };
         return updatedChar;
       })

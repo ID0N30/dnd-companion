@@ -9,21 +9,31 @@
         "presence": {
           "$uid": {
             ".read": "auth != null",
-            ".write": "auth != null && ($uid === auth.uid || root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid)"
+            ".write": "auth != null && ($uid === auth.uid || root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid)",
+            ".validate": "!newData.exists() || (newData.child('online').isBoolean() && newData.child('lastSeen').isNumber())"
           }
         },
         "combat": {
           ".read": "auth != null",
-          ".write": "auth != null"
+          ".write": "auth != null && (root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid || !data.exists() || (newData.child('isCombatMode').val() === data.child('isCombatMode').val() && newData.child('inCombat').val() === data.child('inCombat').val()))"
         },
         "logs": {
           ".read": "auth != null",
-          ".write": "auth != null"
+          ".write": "auth != null && root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid",
+          "$logId": {
+            ".write": "auth != null",
+            ".validate": "!newData.exists() || (newData.hasChildren(['id', 'message', 'timestamp']) && newData.child('message').isString() && newData.child('message').val().length <= 600 && newData.child('timestamp').isNumber())"
+          }
         },
         "whispers": {
+          ".read": "auth != null && root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid",
+          ".write": "auth != null && root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid",
           "$playerUid": {
             ".read": "auth != null && (auth.uid === $playerUid || root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid)",
-            ".write": "auth != null && (auth.uid === $playerUid || root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid)"
+            ".write": "auth != null && (auth.uid === $playerUid || root.child('rooms/' + $roomId + '/meta/dmId').val() === auth.uid)",
+            "$msgId": {
+              ".validate": "!newData.exists() || (newData.child('content').isString() && newData.child('content').val().length <= 500)"
+            }
           }
         }
       }

@@ -35,6 +35,9 @@ export default function AuthModal({
         if (!form.displayName.trim()) {
           throw new Error("⚠️ Por favor ingresa tu nombre de usuario.");
         }
+        if (form.password.length < 8 || !/[a-zA-Z]/.test(form.password) || !/[0-9]/.test(form.password)) {
+          throw new Error("⚠️ La contraseña debe tener al menos 8 caracteres e incluir letras y números.");
+        }
         await signUpWithEmail(form.email, form.password, form.displayName);
       } else {
         await signInWithEmail(form.email, form.password);
@@ -127,6 +130,7 @@ export default function AuthModal({
                   <input 
                     type="text" 
                     required 
+                    maxLength={40}
                     value={form.displayName}
                     onChange={e => setForm({...form, displayName: e.target.value})}
                     placeholder="Ej. DM_Gandalf o HeroeLegendario" 
@@ -142,6 +146,7 @@ export default function AuthModal({
                 <input 
                   type="email" 
                   required 
+                  maxLength={100}
                   value={form.email}
                   onChange={e => setForm({...form, email: e.target.value})}
                   placeholder="ejemplo@gmail.com" 
@@ -156,10 +161,11 @@ export default function AuthModal({
                 <input 
                   type="password" 
                   required 
-                  minLength={6}
+                  minLength={8}
+                  maxLength={128}
                   value={form.password}
                   onChange={e => setForm({...form, password: e.target.value})}
-                  placeholder="Mínimo 6 caracteres" 
+                  placeholder="Mínimo 8 caracteres (letras y números)" 
                   className="w-full p-2.5 bg-parchment border border-ink/30 text-ink rounded focus:outline-none focus:border-magic-gold text-sm"
                 />
               </div>

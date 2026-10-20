@@ -10,48 +10,74 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Regla global para collectionGroup("players") (Lectura en toda la base de datos para recuperación cruzada de personajes)
+    // Regla global para collectionGroup("players") (Lectura en toda la base de datos para recuperación cruzada de personajes autenticados)
     match /{path=**}/players/{playerId} {
-      allow read: if true;
+      allow read: if isAuthenticated();
     }
 
-    // Colección de Perfiles de Usuario
+    // Colección de Nombres de Usuario Públicos
+    match /usernames/{usernameLower} {
+      allow read: if true;
+      allow create, update: if isAuthenticated()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'updatedAt']);
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+
+    // Colección de Perfiles de Usuario (Privada por dueño)
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      allow read: if isOwner(userId);
       allow create, update: if isOwner(userId);
+
+      // Subcolección de Notas Privadas del Personaje
+      match /privateNotes/{charId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     // Colección de Salas / Campañas
     match /rooms/{roomId} {
-      // Cualquier persona puede leer información de salas públicas
+      // Cualquier persona puede leer información básica de salas públicas
       allow read: if true;
       
       // Solo usuarios autenticados que sean el DM pueden crear campañas
-      allow create: if isAuthenticated() && request.resource.data.dmId == request.auth.uid;
+      allow create: if isAuthenticated()
+        && request.resource.data.dmId == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 1
+        && request.resource.data.name.size() <= 80;
       
       // Solo el DM puede actualizar la campaña, excepto para eventos de turno donde jugadores autenticados solo pueden cambiar currentTurnIndex o lastTurnEvent
-      allow update: if isAuthenticated() && (
-        resource.data.dmId == request.auth.uid || 
-        (request.resource.data.dmId == resource.data.dmId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentTurnIndex', 'lastTurnEvent']))
-      );
+      allow update: if isAuthenticated()
+        && (!('name' in request.resource.data) || (request.resource.data.name is string && request.resource.data.name.size() >= 1 && request.resource.data.name.size() <= 80))
+        && (
+          resource.data.dmId == request.auth.uid || 
+          (request.resource.data.dmId == resource.data.dmId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentTurnIndex', 'lastTurnEvent']))
+        );
 
       // Solo el DM creador de la sala puede borrar la campaña
       allow delete: if isAuthenticated() && resource.data.dmId == request.auth.uid;
 
       // Subcolección de Personajes en la Sala
       match /players/{playerId} {
-        allow read: if true;
-        allow create: if isAuthenticated() && (
-          request.resource.data.ownerId == request.auth.uid || 
-          request.resource.data.dmId == request.auth.uid || 
-          get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
-        );
-        allow update: if isAuthenticated() && (
-          (resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId) || 
-          resource.data.dmId == request.auth.uid || 
-          (!('ownerId' in resource.data) || resource.data.ownerId == null || resource.data.ownerId == '') || 
-          get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
-        );
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.keys().size() <= 45
+          && (
+            (request.resource.data.ownerId == request.auth.uid
+              && (!('dmId' in request.resource.data) || request.resource.data.dmId != request.auth.uid || get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid))
+            || get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
+          );
+        allow update: if isAuthenticated()
+          && request.resource.data.keys().size() <= 45
+          && (
+            (resource.data.ownerId == request.auth.uid
+              && request.resource.data.ownerId == resource.data.ownerId
+              && (request.resource.data.get('dmId', resource.data.get('dmId', '')) == resource.data.get('dmId', '')
+                  || get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid))
+            || ('dmId' in resource.data && resource.data.dmId == request.auth.uid)
+            || get(/databases/$(database)/documents/rooms/$(roomId)).data.dmId == request.auth.uid
+          );
         allow delete: if isAuthenticated() && (
           resource == null ||
           !('ownerId' in resource.data) ||
@@ -88,7 +114,9 @@ service cloud.firestore {
       // Subcolección de Logs de Acciones
       match /logs/{logId} {
         allow read: if true;
-        allow create: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.message is string
+          && request.resource.data.message.size() <= 600;
       }
     }
   }

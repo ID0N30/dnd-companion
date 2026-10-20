@@ -65,6 +65,7 @@ export type Room = {
   isPublic: boolean;
   hasPassword: boolean;
   password?: string;
+  passwordHash?: string;
   allowGuests: boolean;
   isCombatMode: boolean;
   inCombat?: boolean;
@@ -80,6 +81,35 @@ export type Room = {
   directMessages?: DirectMessage[];
   createdAt?: any;
 };
+
+// Cryptographic SHA-256 Room Password Hasher (Zero plain-text passwords stored)
+export const hashRoomPassword = async (password: string): Promise<string> => {
+  const clean = (password || "").trim();
+  if (!clean) return "";
+  const salted = `dnd_salt_v1:${clean}`;
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    try {
+      const encoded = new TextEncoder().encode(salted);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", encoded);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+      // Fallback below
+    }
+  }
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < salted.length; i++) {
+    const ch = salted.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(16, '0');
+};
+
+const roomPasswordAttempts = new Map<string, { count: number; firstAttempt: number }>();
+
 
 export const cleanFirebaseData = <T>(obj: T): T => {
   if (obj === undefined) return null as any;
@@ -128,11 +158,11 @@ export const subscribePublicRooms = (callback: (rooms: Room[]) => void) => {
         .filter(docSnap => !isDemoRoom(docSnap.id))
         .map(docSnap => {
           const data = docSnap.data() as Room;
-          const { password, id: _dataId, ...safeRoom } = data;
+          const { password, passwordHash, id: _dataId, ...safeRoom } = data;
           return {
             id: docSnap.id,
             ...safeRoom,
-            hasPassword: Boolean(data.hasPassword || data.password)
+            hasPassword: Boolean(data.hasPassword || data.password || data.passwordHash)
           } as Room;
         });
       callback(rooms);
@@ -184,11 +214,11 @@ export const fetchPublicRooms = async (forceRefresh: boolean = false): Promise<R
       .filter(d => !isDemoRoom(d.id))
       .map(d => {
         const data = d.data() as Room;
-        const { password, id: _dataId, ...safeRoom } = data;
+        const { password, passwordHash, id: _dataId, ...safeRoom } = data;
         return {
           id: d.id,
           ...safeRoom,
-          hasPassword: Boolean(data.hasPassword || data.password)
+          hasPassword: Boolean(data.hasPassword || data.password || data.passwordHash)
         } as Room;
       });
 
@@ -207,19 +237,50 @@ export const fetchPublicRooms = async (forceRefresh: boolean = false): Promise<R
   }
 };
 
-// 1.5 Verify Room Password Securely
+// 1.5 Verify Room Password Securely (Rate-limited against brute force)
 export const verifyRoomPassword = async (roomId: string, inputPassword: string): Promise<boolean> => {
   if (!roomId) return false;
   if (isDemoRoom(roomId)) return true;
   if (!db) return false;
+
+  const now = Date.now();
+  const attemptData = roomPasswordAttempts.get(roomId);
+  if (attemptData) {
+    if (now - attemptData.firstAttempt < 60000) {
+      if (attemptData.count >= 5) {
+        throw new Error("⚠️ Demasiados intentos fallidos de contraseña. Por favor espera 60 segundos antes de volver a intentar.");
+      }
+    } else {
+      roomPasswordAttempts.delete(roomId);
+    }
+  }
+
   try {
     const roomRef = doc(db, "rooms", roomId);
     const snap = await withRetry(() => getDoc(roomRef), { context: 'verifyRoomPassword' });
     if (!snap.exists()) return false;
     const data = snap.data() as Room;
-    if (!data.hasPassword && !data.password) return true;
-    return (data.password || "").trim() === inputPassword.trim();
-  } catch (err) {
+    if (!data.hasPassword && !data.password && !data.passwordHash) return true;
+
+    let isValid = false;
+    if (data.passwordHash) {
+      const inputHash = await hashRoomPassword(inputPassword);
+      isValid = (data.passwordHash === inputHash);
+    } else if (data.password) {
+      // Legacy backwards-compatibility for unhashed passwords
+      isValid = ((data.password || "").trim() === inputPassword.trim());
+    }
+
+    if (isValid) {
+      roomPasswordAttempts.delete(roomId);
+      return true;
+    } else {
+      const cur = roomPasswordAttempts.get(roomId) || { count: 0, firstAttempt: now };
+      roomPasswordAttempts.set(roomId, { count: cur.count + 1, firstAttempt: cur.firstAttempt });
+      return false;
+    }
+  } catch (err: any) {
+    if (err.message?.includes("Demasiados intentos fallidos")) throw err;
     logError(err, 'verifyRoomPassword', 'WARNING');
     return false;
   }
@@ -270,6 +331,10 @@ export const createRoom = async (data: {
     }
 
     const roomRef = doc(collection(db, "rooms"));
+    const rawPass = (data.password || "").trim();
+    const hasPass = rawPass.length > 0;
+    const passHash = hasPass ? await hashRoomPassword(rawPass) : undefined;
+
     const newRoom: Room = {
       id: roomRef.id,
       name: trimmedName,
@@ -277,8 +342,9 @@ export const createRoom = async (data: {
       dmId: data.dmId,
       dmName: data.dmName,
       isPublic: data.isPublic,
-      hasPassword: Boolean(data.password),
-      password: data.password || "",
+      hasPassword: hasPass,
+      password: "",
+      passwordHash: passHash,
       allowGuests: data.allowGuests,
       isCombatMode: false,
       initiativeOrder: [],
@@ -370,11 +436,16 @@ export const subscribeRoom = (roomId: string, callback: (room: Room | null) => v
         const activeRtdb = rtdb;
 
         // Progressive hydration for /rooms/{roomId}/meta/dmId in existing rooms
-        if (activeRtdb && auth?.currentUser?.uid === data.dmId && !hydratedRoomMetaSet.has(roomId)) {
+        if (activeRtdb && !hydratedRoomMetaSet.has(roomId)) {
           hydratedRoomMetaSet.add(roomId);
-          rtdbUpdate(ref(activeRtdb, `rooms/${roomId}/meta`), {
-            dmId: data.dmId,
-            updatedAt: Date.now()
+          const metaRef = ref(activeRtdb, `rooms/${roomId}/meta`);
+          rtdbGet(metaRef).then((metaSnap) => {
+            if (!metaSnap.exists() || (auth?.currentUser?.uid === data.dmId && metaSnap.val()?.dmId !== data.dmId)) {
+              rtdbUpdate(metaRef, {
+                dmId: data.dmId,
+                updatedAt: Date.now()
+              }).catch(() => {});
+            }
           }).catch(() => {});
         }
 
@@ -705,11 +776,14 @@ export const savePlayerInRoom = async (roomId: string, character: CharacterState
   lastWriteTimeMap.set(writeKey, Date.now());
   lastSavedDataMap.set(writeKey, dataString);
 
+  // Strip private notes so they never leak into public room documents
+  const { notes: _privNotes, personalNotes: _privPersonalNotes, ...publicCharacterData } = characterToSave as any;
+
   try {
     const playerRef = doc(db, "rooms", roomId, "players", character.id);
     useStore.getState().setSyncState?.('saving');
     await withRetry(
-      () => setDoc(playerRef, cleanFirebaseData(characterToSave), { merge: true }),
+      () => setDoc(playerRef, cleanFirebaseData(publicCharacterData), { merge: true }),
       { context: 'savePlayerInRoom' }
     );
     useStore.getState().setSyncState?.('synced');
@@ -738,8 +812,9 @@ export async function batchUpdatePlayersInRoom(
     for (const update of updates) {
       if (!update.id || isDemoCharacterId(update.id)) continue;
       const playerRef = doc(db, "rooms", roomId, "players", update.id);
+      const { notes: _n, personalNotes: _pn, ...safeFields } = update.fields as any;
       const cleaned = cleanFirebaseData({
-        ...update.fields,
+        ...safeFields,
         ...(denormalizedDmId ? { dmId: denormalizedDmId } : {}),
         lastSeen: Date.now()
       });
@@ -766,8 +841,9 @@ export const updatePlayerFieldsInRoom = async (
   const denormalizedDmId = roomDmIdCache.get(roomId);
   const playerRef = doc(db, "rooms", roomId, "players", playerId);
 
+  const { notes: _n, personalNotes: _pn, ...safeFields } = fields as any;
   const cleanedFields = cleanFirebaseData({
-    ...fields,
+    ...safeFields,
     ...(denormalizedDmId ? { dmId: denormalizedDmId } : {}),
     lastSeen: Date.now()
   });
@@ -784,6 +860,58 @@ export const updatePlayerFieldsInRoom = async (
     logError(err, 'updatePlayerFieldsInRoom', 'WARNING');
     useStore.getState().setSyncState?.('offline');
   }
+};
+
+// 6.25 Private Character Notes (Isolated in user subcollection /users/{uid}/privateNotes/{charId})
+export const savePrivateCharacterNotes = async (uid: string, characterId: string, notes: any): Promise<void> => {
+  if (!uid || !characterId) return;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(`dnd_private_notes_${characterId}`, JSON.stringify(notes));
+    } catch (e) {}
+  }
+  if (!db) return;
+  try {
+    const notesRef = doc(db, "users", uid, "privateNotes", characterId);
+    await withRetry(
+      () => setDoc(notesRef, { notes: cleanFirebaseData(notes), updatedAt: Date.now() }, { merge: true }),
+      { context: 'savePrivateCharacterNotes' }
+    );
+  } catch (err) {
+    logError(err, 'savePrivateCharacterNotes', 'WARNING');
+  }
+};
+
+export const fetchPrivateCharacterNotes = async (uid: string, characterId: string): Promise<any | null> => {
+  if (!uid || !characterId) return null;
+  let localNotes: any = null;
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem(`dnd_private_notes_${characterId}`);
+      if (stored) {
+        localNotes = JSON.parse(stored);
+      }
+    } catch (e) {}
+  }
+  if (!db) return localNotes;
+  try {
+    const notesRef = doc(db, "users", uid, "privateNotes", characterId);
+    const snap = await withRetry(() => getDoc(notesRef), { context: 'fetchPrivateCharacterNotes' });
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data && data.notes !== undefined) {
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(`dnd_private_notes_${characterId}`, JSON.stringify(data.notes));
+          } catch (e) {}
+        }
+        return data.notes;
+      }
+    }
+  } catch (err) {
+    logError(err, 'fetchPrivateCharacterNotes', 'WARNING');
+  }
+  return localNotes;
 };
 
 // 6.3 Lightweight presence tracking with RTDB
@@ -975,6 +1103,18 @@ export const updateCampaignDetails = async (roomId: string, updates: Partial<Roo
   try {
     if (updates.name) {
       updates.nameLower = updates.name.trim().toLowerCase();
+    }
+    if (updates.password !== undefined) {
+      const rawPass = (updates.password || "").trim();
+      if (rawPass.length > 0) {
+        updates.passwordHash = await hashRoomPassword(rawPass);
+        updates.hasPassword = true;
+        updates.password = "";
+      } else {
+        updates.hasPassword = false;
+        updates.passwordHash = "";
+        updates.password = "";
+      }
     }
     const roomRef = doc(db, "rooms", roomId);
     await withRetry(
@@ -1610,7 +1750,26 @@ export const deleteDirectMessage = async (roomId: string, messageId: string, pla
 
   if (rtdb) {
     try {
-      const targetUid = playerUid || whisperMsgThreadMap.get(`${roomId}_${messageId}`) || auth?.currentUser?.uid;
+      let targetUid = playerUid || whisperMsgThreadMap.get(`${roomId}_${messageId}`);
+      if (!targetUid) {
+        const currentUid = auth?.currentUser?.uid;
+        const isDM = Boolean(currentUid && roomDmIdCache.get(roomId) === currentUid);
+        if (isDM) {
+          const snap = await rtdbGet(ref(rtdb, `rooms/${roomId}/whispers`));
+          if (snap.exists()) {
+            const allThreads = snap.val();
+            for (const pUid of Object.keys(allThreads)) {
+              if (allThreads[pUid] && allThreads[pUid][messageId]) {
+                targetUid = pUid;
+                whisperMsgThreadMap.set(`${roomId}_${messageId}`, pUid);
+                break;
+              }
+            }
+          }
+        } else {
+          targetUid = currentUid;
+        }
+      }
       if (targetUid) {
         await rtdbRemove(ref(rtdb, `rooms/${roomId}/whispers/${targetUid}/${messageId}`));
       }
@@ -1647,7 +1806,26 @@ export const markDirectMessageAsRead = async (roomId: string, messageId: string,
 
   if (rtdb) {
     try {
-      const targetUid = playerUid || whisperMsgThreadMap.get(`${roomId}_${messageId}`) || auth?.currentUser?.uid;
+      let targetUid = playerUid || whisperMsgThreadMap.get(`${roomId}_${messageId}`);
+      if (!targetUid) {
+        const currentUid = auth?.currentUser?.uid;
+        const isDM = Boolean(currentUid && roomDmIdCache.get(roomId) === currentUid);
+        if (isDM) {
+          const snap = await rtdbGet(ref(rtdb, `rooms/${roomId}/whispers`));
+          if (snap.exists()) {
+            const allThreads = snap.val();
+            for (const pUid of Object.keys(allThreads)) {
+              if (allThreads[pUid] && allThreads[pUid][messageId]) {
+                targetUid = pUid;
+                whisperMsgThreadMap.set(`${roomId}_${messageId}`, pUid);
+                break;
+              }
+            }
+          }
+        } else {
+          targetUid = currentUid;
+        }
+      }
       if (targetUid) {
         await rtdbUpdate(ref(rtdb, `rooms/${roomId}/whispers/${targetUid}/${messageId}`), { read: true });
         return;
@@ -1722,7 +1900,7 @@ export const markAllDirectMessagesAsRead = async (roomId: string, senderFilter?:
             if (thread && typeof thread === 'object') {
               Object.keys(thread).forEach(msgId => {
                 const m = thread[msgId];
-                if (m && !m.read && (isAll || m.senderId === senderFilter || (m.characterName || m.senderName) === senderFilter)) {
+                if (m && !m.read && !m.isFromDM && (isAll || m.senderId === senderFilter || (m.characterName || m.senderName) === senderFilter)) {
                   updates[`${pUid}/${msgId}/read`] = true;
                 }
               });

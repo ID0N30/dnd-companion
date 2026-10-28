@@ -69,7 +69,7 @@ export default function CustomNotificationModal() {
           initial={{ scale: 0.9, y: 20 }}
           animate={{ scale: 1, y: 0 }}
           exit={{ scale: 0.9, y: 20 }}
-          className="bg-parchment-dark border-4 border-magic-gold rounded-xl p-5 sm:p-6 max-w-md w-full shadow-2xl space-y-4 text-ink relative"
+          className="bg-parchment-dark border-4 border-magic-gold rounded-xl p-4 sm:p-5 max-w-sm sm:max-w-md max-h-[85vh] flex flex-col w-full shadow-2xl text-ink relative"
         >
           {/* Close Button */}
           <button
@@ -80,7 +80,7 @@ export default function CustomNotificationModal() {
           </button>
 
           {/* Header */}
-          <div className="flex items-start gap-3 border-b border-ink/20 pb-3 pr-6">
+          <div className="flex items-start gap-3 border-b border-ink/20 pb-3 pr-6 shrink-0">
             {getIcon()}
             <div>
               <h3 className={`text-xl sm:text-2xl font-bold font-cinzel ${getHeaderColor()}`}>
@@ -90,12 +90,14 @@ export default function CustomNotificationModal() {
           </div>
 
           {/* Message Content */}
-          <p className="text-sm text-ink/90 leading-relaxed font-sans whitespace-pre-wrap">
-            {message}
-          </p>
+          <div className="overflow-y-auto max-h-[45vh] pr-1 flex-1 my-3">
+            <p className="text-sm text-ink/90 leading-relaxed font-sans whitespace-pre-wrap">
+              {message}
+            </p>
+          </div>
 
           {/* Action Buttons */}
-          <div className="flex justify-end items-center gap-2.5 pt-3 border-t border-ink/20 font-bold text-xs sm:text-sm">
+          <div className="flex justify-end items-center gap-2.5 pt-3 border-t border-ink/20 font-bold text-xs sm:text-sm shrink-0">
             {showCancel && (
               <button
                 onClick={handleCancel}

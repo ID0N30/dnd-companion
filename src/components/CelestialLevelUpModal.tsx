@@ -115,7 +115,7 @@ export default function CelestialLevelUpModal({ isDM }: { isDM?: boolean }) {
             initial={{ scale: 0.85, y: 30 }} 
             animate={{ scale: 1, y: 0 }} 
             exit={{ scale: 0.85, y: 30 }} 
-            className="bg-gradient-to-b from-sky-950 via-slate-900 to-amber-950 border-4 border-amber-400 shadow-[0_0_80px_rgba(250,204,21,0.95)] text-white rounded-3xl p-6 sm:p-10 max-w-xl w-full text-center relative overflow-hidden my-auto"
+            className="bg-gradient-to-b from-sky-950 via-slate-900 to-amber-950 border-4 border-amber-400 shadow-[0_0_80px_rgba(250,204,21,0.95)] text-white rounded-2xl p-4 sm:p-6 max-w-md sm:max-w-lg max-h-[88vh] flex flex-col overflow-y-auto w-full text-center relative my-auto"
           >
             {/* GLOW RAYS */}
             <div className="absolute -top-32 -left-32 w-64 h-64 rounded-full bg-amber-400/25 blur-3xl pointer-events-none"></div>
@@ -123,44 +123,46 @@ export default function CelestialLevelUpModal({ isDM }: { isDM?: boolean }) {
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-yellow-500/10 blur-3xl pointer-events-none"></div>
 
             {/* VICTORIOUS HEADER */}
-            <div className="relative z-10 space-y-4">
-              <div className="inline-flex items-center justify-center p-4 bg-gradient-to-tr from-amber-500 to-sky-400 rounded-full shadow-[0_0_30px_rgba(250,204,21,0.8)] border-2 border-white mb-2">
-                <Award className="w-12 h-12 text-slate-950" />
+            <div className="relative z-10 space-y-3 flex-1 flex flex-col justify-between">
+              <div>
+                <div className="inline-flex items-center justify-center p-3 bg-gradient-to-tr from-amber-500 to-sky-400 rounded-full shadow-[0_0_30px_rgba(250,204,21,0.8)] border-2 border-white mb-1">
+                  <Award className="w-8 h-8 text-slate-950" />
+                </div>
+
+                <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-amber-300 tracking-wider drop-shadow-[0_0_15px_rgba(245,208,97,0.8)]">
+                  ASCENSO CELESTIAL
+                </h2>
+                <p className="text-[10px] sm:text-xs text-sky-200 uppercase tracking-widest font-semibold border-b border-amber-400/30 pb-2">
+                  PODER DIVINO Y VICTORIA EN LA CAMPAÑA
+                </p>
               </div>
 
-              <h2 className="text-3xl sm:text-5xl font-bold font-cinzel text-amber-300 tracking-wider drop-shadow-[0_0_15px_rgba(245,208,97,0.8)]">
-                ASCENSO CELESTIAL
-              </h2>
-              <p className="text-xs sm:text-sm text-sky-200 uppercase tracking-widest font-semibold border-b border-amber-400/30 pb-3">
-                PODER DIVINO Y VICTORIA EN LA CAMPAÑA
-              </p>
-
-              <div className="py-3 bg-slate-950/70 rounded-xl border border-amber-400/40 shadow-inner">
-                <span className="text-xs text-amber-200 uppercase tracking-wider block font-bold">Héroe Ascendido</span>
-                <h3 className="text-2xl sm:text-3xl font-bold font-cinzel text-white drop-shadow">
+              <div className="py-2.5 px-3 bg-slate-950/70 rounded-xl border border-amber-400/40 shadow-inner">
+                <span className="text-[10px] text-amber-200 uppercase tracking-wider block font-bold">Héroe Ascendido</span>
+                <h3 className="text-xl sm:text-2xl font-bold font-cinzel text-white drop-shadow">
                   {character.name}
                 </h3>
-                <span className="text-sm font-bold text-sky-300">
+                <span className="text-xs sm:text-sm font-bold text-sky-300">
                   {character.race} {character.charClass} • Nivel {newLevel}
                 </span>
               </div>
 
               {/* AUTOMATED STATS UPGRADE GRID */}
-              <div className="grid grid-cols-2 gap-3 text-left pt-2">
+              <div className="grid grid-cols-2 gap-2.5 text-left">
                 
-                <div className="p-3 bg-amber-950/40 border border-amber-400/40 rounded-xl">
-                  <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase mb-1">
-                    <Zap className="w-4 h-4 text-amber-400" /> Puntos de Vida
+                <div className="p-2.5 bg-amber-950/40 border border-amber-400/40 rounded-xl">
+                  <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px] uppercase mb-0.5">
+                    <Zap className="w-3.5 h-3.5 text-amber-400" /> Puntos de Vida
                   </div>
-                  <span className="text-lg font-bold text-white block">+ {hpGain} {hpTerminology} Máximos</span>
+                  <span className="text-base font-bold text-white block">+ {hpGain} {hpTerminology} Máximos</span>
                   <span className="text-[10px] text-amber-200/80">Nuevo Máximo: {character.hp.max} {hpTerminology}</span>
                 </div>
 
-                <div className="p-3 bg-sky-950/40 border border-sky-400/40 rounded-xl">
-                  <div className="flex items-center gap-2 text-sky-400 font-bold text-xs uppercase mb-1">
-                    <Award className="w-4 h-4 text-sky-400" /> Competencia
+                <div className="p-2.5 bg-sky-950/40 border border-sky-400/40 rounded-xl">
+                  <div className="flex items-center gap-1.5 text-sky-400 font-bold text-[11px] uppercase mb-0.5">
+                    <Award className="w-3.5 h-3.5 text-sky-400" /> Competencia
                   </div>
-                  <span className="text-lg font-bold text-white block">+ {profBonus} Bonificador</span>
+                  <span className="text-base font-bold text-white block">+ {profBonus} Bonificador</span>
                   <span className="text-[10px] text-sky-200/80">Aplicado a salvaciones y habilidades</span>
                 </div>
 
@@ -168,11 +170,11 @@ export default function CelestialLevelUpModal({ isDM }: { isDM?: boolean }) {
 
               {/* NEW CLASS FEATURES UNLOCKED */}
               {newFeatures.length > 0 && (
-                <div className="p-4 bg-slate-950/80 border border-amber-400/40 rounded-xl text-left space-y-2">
-                  <span className="text-xs font-bold text-amber-300 uppercase flex items-center gap-1.5 border-b border-amber-400/20 pb-1">
-                    <Sparkles className="w-4 h-4 text-amber-400" /> Nuevos Rasgos de Clase Desbloqueados (Nivel {newLevel})
+                <div className="p-3 bg-slate-950/80 border border-amber-400/40 rounded-xl text-left space-y-1.5">
+                  <span className="text-[11px] font-bold text-amber-300 uppercase flex items-center gap-1.5 border-b border-amber-400/20 pb-1">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Nuevos Rasgos de Clase Desbloqueados (Nivel {newLevel})
                   </span>
-                  <div className="space-y-1.5">
+                  <div className="space-y-1">
                     {newFeatures.map((feat, idx) => (
                       <div key={idx} className="text-xs">
                         <span className="font-bold text-sky-300">{feat.name}</span>
@@ -184,16 +186,16 @@ export default function CelestialLevelUpModal({ isDM }: { isDM?: boolean }) {
               )}
 
               {/* DM INSTRUCTIONS REMINDER */}
-              <div className="p-3 bg-sky-950/60 border border-sky-400/30 rounded-xl text-xs text-sky-200 leading-relaxed text-left">
+              <div className="p-2.5 bg-sky-950/60 border border-sky-400/30 rounded-xl text-[11px] text-sky-200 leading-relaxed text-left">
                 <span className="font-bold text-amber-300 block mb-0.5">Indicación del Maestro de la Mazmorra (DM):</span>
                 El DM indicará los incrementos permanentes de características (Fuerza, Destreza, etc.), dotes o selección de nuevos conjuros para actualizar en la pestaña de edición.
               </div>
 
               {/* ACCEPT BUTTON */}
-              <div className="pt-2">
+              <div className="pt-2 shrink-0">
                 <button
                   onClick={handleAccept}
-                  className="w-full py-3.5 bg-gradient-to-r from-amber-400 via-yellow-400 to-sky-400 text-slate-950 font-bold text-base rounded-xl shadow-[0_0_25px_rgba(250,204,21,0.9)] hover:scale-[1.02] transition cursor-pointer font-cinzel tracking-wider uppercase"
+                  className="w-full py-2.5 sm:py-3 bg-gradient-to-r from-amber-400 via-yellow-400 to-sky-400 text-slate-950 font-bold text-sm sm:text-base rounded-xl shadow-[0_0_25px_rgba(250,204,21,0.9)] hover:scale-[1.02] transition cursor-pointer font-cinzel tracking-wider uppercase shrink-0"
                 >
                   Aceptar y Celebrar Ascenso
                 </button>

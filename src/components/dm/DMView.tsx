@@ -2,14 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useStore, CharacterState, ItemType, Item, Spell, Currency, SKILLS_5E, syncAllLocalPlayersToStorage, isDemoPlayer, isCharacterOnline } from "@/store/useStore";
+import { useStore, CharacterState, ItemType, Item, Spell, Currency, SKILLS_5E, syncAllLocalPlayersToStorage, isDemoPlayer, isCharacterOnline, BestiaryLibraryItem, CombatMonster } from "@/store/useStore";
 import { kickPlayerFromRoom, updateCampaignDetails, savePlayerInRoom, updatePlayerFieldsInRoom, subscribeRoom, Room, getLogCategory, LogCategory, DirectMessage, deleteRoom } from "@/lib/rooms";
 import { triggerDiceRoll } from "@/components/DiceRoller";
 import TutorialModal from "@/components/TutorialModal";
 import DMInboxFloatingButton from "@/components/DMInboxFloatingButton";
 import SyncStatusBadge from "@/components/SyncStatusBadge";
 import { 
-  Swords, Shield, Heart, Clock, Users, ScrollText, Eye, X, Zap, Package, BookOpen, Sparkles, ChevronDown, ChevronUp, UserX, Settings, Lock, Award, Plus, Trash2, CheckCircle2, Circle, ShieldAlert, FlaskConical, Scroll, Briefcase, Sword, HelpCircle, Mail, Search, Maximize2, Filter, Coins, Pin, Skull
+  Swords, Shield, Heart, Clock, Users, ScrollText, Eye, X, Zap, Package, BookOpen, Sparkles, ChevronDown, ChevronUp, UserX, Settings, Lock, Award, Plus, Trash2, CheckCircle2, Circle, ShieldAlert, FlaskConical, Scroll, Briefcase, Sword, HelpCircle, Mail, Search, Maximize2, Filter, Coins, Pin, Skull, Bookmark, Pencil, Minus
 } from "lucide-react";
 import { ASSETS } from "@/lib/assets";
 
@@ -26,7 +26,8 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
   const { 
     players, isCombatMode, initiativeOrder, currentTurnIndex, toggleCombatMode, advanceTurn, togglePlayerDeath, togglePlayerDeathState, logs, lastTurnEvent, rollDeathSave, stabilizePlayer, levelUpPlayer, levelUpParty,
     toggleInspiration, updatePlayerStatsByDM, updatePlayerHPByDM, addItemToPlayer, removeItemFromPlayer, addSpellToPlayer, removeSpellToPlayer, convertPlayerCurrencyToStandard, updateCurrency, toggleEquipItem, togglePinSkill, addModifier, removeModifier, showAlert, showConfirm,
-    combatMonsters, addCombatMonster, updateCombatMonsterHP, removeCombatMonster, clearCombatMonsters
+    combatMonsters, addCombatMonster, updateCombatMonsterHP, removeCombatMonster, clearCombatMonsters,
+    dmBestiaryLibrary, addBestiaryLibraryItem, updateBestiaryLibraryItem, deleteBestiaryLibraryItem, updateCombatMonster
   } = useStore();
   const [turnToast, setTurnToast] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -42,6 +43,27 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
   const [customMonsterAC, setCustomMonsterAC] = useState<number | string>(12);
   const [customMonsterInitBonus, setCustomMonsterInitBonus] = useState<number | string>(0);
   const [customMonsterType, setCustomMonsterType] = useState<"enemy" | "ally">("enemy");
+
+  // Bestiary Library Local UI State
+  const [libraryFilter, setLibraryFilter] = useState<'all' | 'enemy' | 'ally'>('all');
+  const [editingLibraryId, setEditingLibraryId] = useState<string | null>(null);
+  const [editLibraryForm, setEditLibraryForm] = useState<{
+    name: string;
+    hp: number;
+    ac: number;
+    initiativeBonus: number;
+    type: 'enemy' | 'ally';
+  }>({ name: "", hp: 10, ac: 10, initiativeBonus: 0, type: "enemy" });
+
+  // Active Combat Monster Local Edit State
+  const [editingCombatMonsterId, setEditingCombatMonsterId] = useState<string | null>(null);
+  const [editCombatMonsterForm, setEditCombatMonsterForm] = useState<{
+    name: string;
+    ac: number;
+    initiativeBonus: number;
+    hpMax: number;
+    type: 'enemy' | 'ally';
+  }>({ name: "", ac: 10, initiativeBonus: 0, hpMax: 10, type: "enemy" });
 
   const [onlyPresentFilter, setOnlyPresentFilter] = useState(false);
   const [room, setRoom] = useState<Room | null>(null);
@@ -165,8 +187,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
     }, roomId);
   };
 
-  const handleAddCustomMonster = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateCustomMonster = (putInCombat: boolean) => {
     const trimmed = customMonsterName.trim();
     if (!trimmed) {
       showAlert("Ingresa un nombre para la criatura o PNJ.", "Nombre Requerido", "warning");
@@ -176,18 +197,112 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
     const acVal = Math.max(1, Number(customMonsterAC) || 10);
     const initVal = Number(customMonsterInitBonus) || 0;
 
-    const count = combatMonsters.filter(m => m.name === trimmed || m.name.startsWith(`${trimmed} #`)).length;
-    const finalName = count === 0 ? trimmed : `${trimmed} #${count + 1}`;
-
-    addCombatMonster({
-      name: finalName,
-      hp: { current: hpVal, max: hpVal },
+    const savedItem = addBestiaryLibraryItem({
+      name: trimmed,
+      hp: hpVal,
       ac: acVal,
       initiativeBonus: initVal,
       type: customMonsterType
-    }, roomId);
+    });
+
+    if (putInCombat) {
+      const count = combatMonsters.filter(m => m.libraryId === savedItem.id || m.name === trimmed || m.name.startsWith(`${trimmed} #`)).length;
+      const finalName = count === 0 ? trimmed : `${trimmed} #${count + 1}`;
+
+      addCombatMonster({
+        name: finalName,
+        hp: { current: hpVal, max: hpVal },
+        ac: acVal,
+        initiativeBonus: initVal,
+        type: customMonsterType,
+        libraryId: savedItem.id
+      }, roomId);
+      showAlert(`"${trimmed}" guardado en la biblioteca y añadido al encuentro.`, "Criatura Lista", "success");
+    } else {
+      showAlert(`"${trimmed}" guardado exitosamente en tu Biblioteca de Personajes del DM.`, "Guardado en Biblioteca", "success");
+    }
 
     setCustomMonsterName("");
+  };
+
+  const handleAddLibraryItemToCombat = (item: BestiaryLibraryItem) => {
+    const count = combatMonsters.filter(m => m.libraryId === item.id || m.name === item.name || m.name.startsWith(`${item.name} #`)).length;
+    const finalName = count === 0 ? item.name : `${item.name} #${count + 1}`;
+
+    addCombatMonster({
+      name: finalName,
+      hp: { current: item.hp, max: item.hp },
+      ac: item.ac,
+      initiativeBonus: item.initiativeBonus,
+      type: item.type,
+      libraryId: item.id
+    }, roomId);
+  };
+
+  const handleRemoveLibraryItemFromCombat = (item: BestiaryLibraryItem) => {
+    const instances = combatMonsters.filter(m => m.libraryId === item.id || (!m.libraryId && (m.name === item.name || m.name.startsWith(`${item.name} #`))));
+    if (instances.length === 0) return;
+    instances.forEach(inst => removeCombatMonster(inst.id, roomId));
+  };
+
+  const handleStartEditLibraryItem = (item: BestiaryLibraryItem) => {
+    setEditingLibraryId(item.id);
+    setEditLibraryForm({
+      name: item.name,
+      hp: item.hp,
+      ac: item.ac,
+      initiativeBonus: item.initiativeBonus,
+      type: item.type
+    });
+  };
+
+  const handleSaveEditLibraryItem = (id: string) => {
+    if (!editLibraryForm.name.trim()) {
+      showAlert("El nombre no puede estar vacío.", "Campo Inválido", "warning");
+      return;
+    }
+    updateBestiaryLibraryItem(id, editLibraryForm, roomId);
+    setEditingLibraryId(null);
+    showAlert("Personaje de la biblioteca actualizado con éxito.", "Guardado", "success");
+  };
+
+  const handleDeleteLibraryItem = (item: BestiaryLibraryItem) => {
+    showConfirm(
+      `¿Deseas eliminar permanentemente a "${item.name}" de tu biblioteca personal del DM?`,
+      () => {
+        deleteBestiaryLibraryItem(item.id, roomId);
+        showAlert(`"${item.name}" eliminado de la biblioteca.`, "Personaje Eliminado", "success");
+      },
+      "Eliminar de Biblioteca",
+      "Sí, Eliminar",
+      "Cancelar"
+    );
+  };
+
+  const handleStartEditCombatMonster = (m: CombatMonster) => {
+    setEditingCombatMonsterId(m.id);
+    setEditCombatMonsterForm({
+      name: m.name,
+      ac: m.ac,
+      initiativeBonus: m.initiativeBonus,
+      hpMax: m.hp.max,
+      type: m.type
+    });
+  };
+
+  const handleSaveEditCombatMonster = (monsterId: string) => {
+    if (!editCombatMonsterForm.name.trim()) {
+      showAlert("El nombre no puede estar vacío.", "Campo Inválido", "warning");
+      return;
+    }
+    updateCombatMonster(monsterId, {
+      name: editCombatMonsterForm.name.trim(),
+      ac: editCombatMonsterForm.ac,
+      initiativeBonus: editCombatMonsterForm.initiativeBonus,
+      hpMax: editCombatMonsterForm.hpMax,
+      type: editCombatMonsterForm.type
+    }, roomId);
+    setEditingCombatMonsterId(null);
   };
 
   // DM Inspect Edit Forms State
@@ -763,11 +878,17 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                 </div>
 
                 {/* Formulario Personalizado Compacto */}
-                <form onSubmit={handleAddCustomMonster} className="bg-parchment p-3 rounded-lg border border-ink/20 space-y-2">
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleCreateCustomMonster(true);
+                  }} 
+                  className="bg-parchment p-3 rounded-lg border border-ink/20 space-y-3"
+                >
                   <span className="font-bold text-xs text-ink-light block font-cinzel">
-                    Crear PNJ / Monstruo Personalizado:
+                    Crear Nuevo PNJ / Monstruo:
                   </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 items-end">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 items-end">
                     <div>
                       <label className="block text-[10px] text-ink-light font-bold mb-0.5">Nombre</label>
                       <input 
@@ -784,7 +905,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                       <input 
                         type="number" 
                         min={1}
-                        max={999}
+                        max={9999}
                         value={customMonsterHP}
                         onChange={e => setCustomMonsterHP(e.target.value)}
                         className="w-full px-2 py-1.5 bg-parchment-dark border border-ink/20 rounded text-xs text-ink focus:outline-none focus:border-magic-gold"
@@ -795,7 +916,7 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                       <input 
                         type="number" 
                         min={1}
-                        max={30}
+                        max={40}
                         value={customMonsterAC}
                         onChange={e => setCustomMonsterAC(e.target.value)}
                         className="w-full px-2 py-1.5 bg-parchment-dark border border-ink/20 rounded text-xs text-ink focus:outline-none focus:border-magic-gold"
@@ -805,8 +926,8 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                       <label className="block text-[10px] text-ink-light font-bold mb-0.5">Bono de Iniciativa</label>
                       <input 
                         type="number" 
-                        min={-10}
-                        max={20}
+                        min={-20}
+                        max={30}
                         value={customMonsterInitBonus}
                         onChange={e => setCustomMonsterInitBonus(e.target.value)}
                         className="w-full px-2 py-1.5 bg-parchment-dark border border-ink/20 rounded text-xs text-ink focus:outline-none focus:border-magic-gold"
@@ -823,19 +944,275 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                         <option value="ally">Aliado PNJ</option>
                       </select>
                     </div>
-                    <div>
-                      <button
-                        type="submit"
-                        className="w-full py-1.5 bg-magic-gold text-black rounded text-xs font-bold hover:bg-yellow-500 transition shadow flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Añadir Criatura
-                      </button>
-                    </div>
+                  </div>
+
+                  {/* Botones de Guardado y Poner en Combate */}
+                  <div className="flex flex-col sm:flex-row items-center gap-2 pt-1 border-t border-ink/10">
+                    <button
+                      type="button"
+                      onClick={() => handleCreateCustomMonster(true)}
+                      className="w-full sm:w-auto px-4 py-2 bg-magic-gold text-black hover:bg-yellow-500 rounded text-xs font-bold transition shadow flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Swords className="w-3.5 h-3.5" />
+                      <span>Guardar en Biblioteca y Poner en Combate</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCreateCustomMonster(false)}
+                      className="w-full sm:w-auto px-4 py-2 bg-parchment-dark text-ink hover:text-magic-gold border border-ink/30 rounded text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer hover:bg-black/5"
+                    >
+                      <Bookmark className="w-3.5 h-3.5 text-magic-gold" />
+                      <span>Solo Guardar en Biblioteca</span>
+                    </button>
                   </div>
                 </form>
 
+                {/* BIBLIOTECA DE PERSONAJES CREADOS POR EL DM */}
+                <div className="space-y-3 pt-3 border-t border-ink/15">
+                  <div className="flex justify-between items-center flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Bookmark className="w-4 h-4 text-magic-gold" />
+                      <h4 className="font-bold text-xs sm:text-sm text-ink font-cinzel">
+                        Biblioteca de Personajes Creados por el DM
+                      </h4>
+                      <span className="text-[10px] bg-magic-gold/20 text-magic-gold border border-magic-gold/30 px-1.5 py-0.5 rounded font-bold">
+                        {dmBestiaryLibrary.length} Guardado{dmBestiaryLibrary.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+
+                    {/* Filter Tabs */}
+                    <div className="flex items-center gap-1 bg-parchment p-0.5 rounded border border-ink/20 text-[10px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setLibraryFilter('all')}
+                        className={`px-2 py-0.5 rounded transition cursor-pointer ${libraryFilter === 'all' ? 'bg-magic-gold text-black shadow-xs' : 'text-ink-light hover:text-ink'}`}
+                      >
+                        Todos ({dmBestiaryLibrary.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLibraryFilter('enemy')}
+                        className={`px-2 py-0.5 rounded transition cursor-pointer ${libraryFilter === 'enemy' ? 'bg-magic-gold text-black shadow-xs' : 'text-ink-light hover:text-ink'}`}
+                      >
+                        Enemigos ({dmBestiaryLibrary.filter(i => i.type === 'enemy').length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLibraryFilter('ally')}
+                        className={`px-2 py-0.5 rounded transition cursor-pointer ${libraryFilter === 'ally' ? 'bg-magic-gold text-black shadow-xs' : 'text-ink-light hover:text-ink'}`}
+                      >
+                        Aliados ({dmBestiaryLibrary.filter(i => i.type === 'ally').length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const filteredLibrary = dmBestiaryLibrary.filter(item => {
+                      if (libraryFilter === 'enemy') return item.type === 'enemy';
+                      if (libraryFilter === 'ally') return item.type === 'ally';
+                      return true;
+                    });
+
+                    if (filteredLibrary.length === 0) {
+                      return (
+                        <div className="p-4 bg-parchment/60 border border-dashed border-ink/25 rounded-lg text-center text-xs text-ink-light italic">
+                          {dmBestiaryLibrary.length === 0
+                            ? "Aún no tienes personajes guardados en tu biblioteca. Crea uno con el formulario superior para conservarlo para esta y futuras sesiones."
+                            : "No hay personajes que coincidan con el filtro seleccionado."}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                        {filteredLibrary.map(item => {
+                          const inCombatCount = combatMonsters.filter(m => m.libraryId === item.id || (!m.libraryId && (m.name === item.name || m.name.startsWith(`${item.name} #`)))).length;
+                          const isEditing = editingLibraryId === item.id;
+
+                          if (isEditing) {
+                            return (
+                              <div key={item.id} className="p-3 bg-parchment rounded-lg border-2 border-magic-gold shadow-md space-y-2">
+                                <span className="text-[10px] uppercase font-bold text-magic-gold font-cinzel block">
+                                  Editando Personaje de Biblioteca
+                                </span>
+                                <div className="space-y-1.5 text-xs">
+                                  <div>
+                                    <label className="text-[9px] font-bold text-ink-light block">Nombre</label>
+                                    <input
+                                      type="text"
+                                      maxLength={60}
+                                      value={editLibraryForm.name}
+                                      onChange={e => setEditLibraryForm(prev => ({ ...prev, name: e.target.value }))}
+                                      className="w-full px-2 py-1 bg-parchment-dark border border-ink/30 rounded text-ink font-bold text-xs focus:outline-none focus:border-magic-gold"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-1.5">
+                                    <div>
+                                      <label className="text-[9px] font-bold text-ink-light block">HP Máx</label>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={9999}
+                                        value={editLibraryForm.hp}
+                                        onChange={e => setEditLibraryForm(prev => ({ ...prev, hp: Math.max(1, Number(e.target.value) || 1) }))}
+                                        className="w-full px-1.5 py-1 bg-parchment-dark border border-ink/30 rounded text-ink text-xs text-center font-bold focus:outline-none focus:border-magic-gold"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-ink-light block">CA</label>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={40}
+                                        value={editLibraryForm.ac}
+                                        onChange={e => setEditLibraryForm(prev => ({ ...prev, ac: Math.max(1, Number(e.target.value) || 1) }))}
+                                        className="w-full px-1.5 py-1 bg-parchment-dark border border-ink/30 rounded text-ink text-xs text-center font-bold focus:outline-none focus:border-magic-gold"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-ink-light block">Bono Inic</label>
+                                      <input
+                                        type="number"
+                                        min={-20}
+                                        max={30}
+                                        value={editLibraryForm.initiativeBonus}
+                                        onChange={e => setEditLibraryForm(prev => ({ ...prev, initiativeBonus: Number(e.target.value) || 0 }))}
+                                        className="w-full px-1.5 py-1 bg-parchment-dark border border-ink/30 rounded text-ink text-xs text-center font-bold focus:outline-none focus:border-magic-gold"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] font-bold text-ink-light block">Bando</label>
+                                    <select
+                                      value={editLibraryForm.type}
+                                      onChange={e => setEditLibraryForm(prev => ({ ...prev, type: e.target.value as 'enemy' | 'ally' }))}
+                                      className="w-full px-2 py-1 bg-parchment-dark border border-ink/30 rounded text-ink text-xs font-bold focus:outline-none focus:border-magic-gold"
+                                    >
+                                      <option value="enemy">Enemigo</option>
+                                      <option value="ally">Aliado PNJ</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="flex justify-end gap-1.5 pt-1.5 border-t border-ink/10">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingLibraryId(null)}
+                                    className="px-2 py-1 bg-ink/10 hover:bg-ink/20 text-ink rounded text-[10px] font-bold cursor-pointer"
+                                  >
+                                    Cancelar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveEditLibraryItem(item.id)}
+                                    className="px-2.5 py-1 bg-magic-gold hover:bg-yellow-500 text-black rounded text-[10px] font-bold cursor-pointer shadow-xs"
+                                  >
+                                    Guardar Cambios
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div
+                              key={item.id}
+                              className={`p-3 rounded-lg border-2 transition shadow-sm space-y-2 ${
+                                item.type === 'enemy' ? 'bg-parchment border-red-500/30' : 'bg-parchment border-emerald-500/30'
+                              }`}
+                            >
+                              <div className="flex justify-between items-start gap-1">
+                                <div className="min-w-0 flex-1">
+                                  <h5 className="font-bold text-xs sm:text-sm text-ink truncate flex items-center gap-1.5">
+                                    <span className="truncate">{item.name}</span>
+                                    <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${
+                                      item.type === 'enemy' ? 'bg-magic-red text-white' : 'bg-emerald-600 text-white'
+                                    }`}>
+                                      {item.type === 'enemy' ? 'Enemigo' : 'Aliado'}
+                                    </span>
+                                  </h5>
+                                  <div className="text-[10px] text-ink-light flex gap-2 mt-0.5">
+                                    <span>HP: <strong className="text-ink">{item.hp}</strong></span>
+                                    <span>CA: <strong className="text-ink">{item.ac}</strong></span>
+                                    <span>Inic: <strong className="text-ink">{item.initiativeBonus >= 0 ? `+${item.initiativeBonus}` : item.initiativeBonus}</strong></span>
+                                  </div>
+                                </div>
+
+                                {/* In Combat Status Pill */}
+                                {inCombatCount > 0 ? (
+                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-800 border border-emerald-500/40 px-1.5 py-0.5 rounded font-bold flex items-center gap-1 shrink-0">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                    En Combate ({inCombatCount})
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] bg-ink/10 text-ink-light px-1.5 py-0.5 rounded font-bold shrink-0">
+                                    En Reserva
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Actions */}
+                              <div className="flex items-center justify-between gap-1 pt-2 border-t border-ink/10">
+                                <div className="flex items-center gap-1">
+                                  {inCombatCount === 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddLibraryItemToCombat(item)}
+                                      className="px-2 py-1 bg-magic-gold text-black hover:bg-yellow-500 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shadow-xs"
+                                      title="Poner criatura en combate"
+                                    >
+                                      <Swords className="w-3 h-3" /> Poner en Combate
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveLibraryItemFromCombat(item)}
+                                        className="px-2 py-1 bg-red-950/20 text-red-700 hover:bg-magic-red hover:text-white border border-red-500/30 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                                        title="Quitar criatura(s) del combate"
+                                      >
+                                        <UserX className="w-3 h-3" /> Quitar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAddLibraryItemToCombat(item)}
+                                        className="px-1.5 py-1 bg-magic-gold/20 text-ink hover:bg-magic-gold hover:text-black border border-magic-gold/40 rounded text-[10px] font-bold transition cursor-pointer"
+                                        title="Añadir una copia adicional (+1) al encuentro"
+                                      >
+                                        +1
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartEditLibraryItem(item)}
+                                    className="p-1 text-ink-light hover:text-magic-gold rounded hover:bg-black/5 transition cursor-pointer"
+                                    title="Editar personaje en biblioteca"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteLibraryItem(item)}
+                                    className="p-1 text-ink-light hover:text-magic-red rounded hover:bg-black/5 transition cursor-pointer"
+                                    title="Eliminar personaje de biblioteca"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+
                 {/* Tarjetas de Control de PNJs/Monstruos Activos */}
-                <div className="space-y-2">
+                <div className="space-y-2 pt-3 border-t border-ink/15">
                   <div className="flex justify-between items-center text-xs">
                     <span className="font-bold text-ink-light font-cinzel">
                       Monstruos y PNJs en el Encuentro ({combatMonsters.length}):
@@ -849,11 +1226,97 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
 
                   {combatMonsters.length === 0 ? (
                     <div className="text-center py-6 border-2 border-dashed border-ink/20 rounded-lg text-ink-light text-xs italic">
-                      No hay monstruos o PNJs activos en el encuentro. Utiliza las plantillas rápidas de 1 clic o el formulario para invocar enemigos y aliados.
+                      No hay monstruos o PNJs activos en el encuentro. Utiliza las plantillas rápidas de 1 clic o tu Biblioteca de Personajes para invocar enemigos y aliados.
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {combatMonsters.map(m => {
+                        const isEditingMonster = editingCombatMonsterId === m.id;
+
+                        if (isEditingMonster) {
+                          return (
+                            <div key={m.id} className="p-3 rounded-lg border-2 border-magic-gold bg-parchment shadow-md space-y-2">
+                              <span className="text-[10px] uppercase font-bold text-magic-gold font-cinzel block">
+                                Editando Criatura en Encuentro
+                              </span>
+                              <div className="space-y-1.5 text-xs">
+                                <div>
+                                  <label className="text-[9px] font-bold text-ink-light block">Nombre</label>
+                                  <input
+                                    type="text"
+                                    maxLength={60}
+                                    value={editCombatMonsterForm.name}
+                                    onChange={e => setEditCombatMonsterForm(prev => ({ ...prev, name: e.target.value }))}
+                                    className="w-full px-2 py-1 bg-parchment-dark border border-ink/30 rounded text-ink font-bold text-xs focus:outline-none focus:border-magic-gold"
+                                  />
+                                </div>
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  <div>
+                                    <label className="text-[9px] font-bold text-ink-light block">HP Máx</label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={9999}
+                                      value={editCombatMonsterForm.hpMax}
+                                      onChange={e => setEditCombatMonsterForm(prev => ({ ...prev, hpMax: Math.max(1, Number(e.target.value) || 1) }))}
+                                      className="w-full px-1.5 py-1 bg-parchment-dark border border-ink/30 rounded text-ink text-xs text-center font-bold focus:outline-none focus:border-magic-gold"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] font-bold text-ink-light block">CA</label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={40}
+                                      value={editCombatMonsterForm.ac}
+                                      onChange={e => setEditCombatMonsterForm(prev => ({ ...prev, ac: Math.max(1, Number(e.target.value) || 1) }))}
+                                      className="w-full px-1.5 py-1 bg-parchment-dark border border-ink/30 rounded text-ink text-xs text-center font-bold focus:outline-none focus:border-magic-gold"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] font-bold text-ink-light block">Bono Inic</label>
+                                    <input
+                                      type="number"
+                                      min={-20}
+                                      max={30}
+                                      value={editCombatMonsterForm.initiativeBonus}
+                                      onChange={e => setEditCombatMonsterForm(prev => ({ ...prev, initiativeBonus: Number(e.target.value) || 0 }))}
+                                      className="w-full px-1.5 py-1 bg-parchment-dark border border-ink/30 rounded text-ink text-xs text-center font-bold focus:outline-none focus:border-magic-gold"
+                                    />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-ink-light block">Bando</label>
+                                  <select
+                                    value={editCombatMonsterForm.type}
+                                    onChange={e => setEditCombatMonsterForm(prev => ({ ...prev, type: e.target.value as 'enemy' | 'ally' }))}
+                                    className="w-full px-2 py-1 bg-parchment-dark border border-ink/30 rounded text-ink text-xs font-bold focus:outline-none focus:border-magic-gold"
+                                  >
+                                    <option value="enemy">Enemigo</option>
+                                    <option value="ally">Aliado PNJ</option>
+                                  </select>
+                                </div>
+                              </div>
+                              <div className="flex justify-end gap-1.5 pt-1.5 border-t border-ink/10">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingCombatMonsterId(null)}
+                                  className="px-2 py-1 bg-ink/10 hover:bg-ink/20 text-ink rounded text-[10px] font-bold cursor-pointer"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveEditCombatMonster(m.id)}
+                                  className="px-2.5 py-1 bg-magic-gold hover:bg-yellow-500 text-black rounded text-[10px] font-bold cursor-pointer shadow-xs"
+                                >
+                                  Guardar
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+
                         const hpPercent = Math.max(0, Math.min(100, Math.round((m.hp.current / m.hp.max) * 100)));
                         const hpColor = hpPercent > 50 ? 'bg-emerald-500' : hpPercent > 25 ? 'bg-yellow-500' : 'bg-magic-red';
 
@@ -870,15 +1333,15 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                           >
                             {/* Card Header */}
                             <div className="flex justify-between items-start gap-1">
-                              <div>
+                              <div className="min-w-0 flex-1">
                                 <h4 className="font-bold text-sm text-ink flex items-center gap-1.5 truncate">
-                                  {m.name}
+                                  <span className="truncate">{m.name}</span>
                                   {m.isDead ? (
-                                    <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-bold uppercase">
+                                    <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
                                       Derrotado
                                     </span>
                                   ) : (
-                                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${
                                       m.type === 'enemy' ? 'bg-magic-red text-white' : 'bg-emerald-600 text-white'
                                     }`}>
                                       {m.type === 'enemy' ? 'Enemigo' : 'Aliado'}
@@ -894,13 +1357,24 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                                 </div>
                               </div>
 
-                              <button
-                                onClick={() => removeCombatMonster(m.id, roomId)}
-                                className="p-1 text-ink-light hover:text-magic-red transition rounded hover:bg-black/10 cursor-pointer"
-                                title={`Eliminar ${m.name}`}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditCombatMonster(m)}
+                                  className="p-1 text-ink-light hover:text-magic-gold transition rounded hover:bg-black/10 cursor-pointer"
+                                  title={`Editar ${m.name}`}
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeCombatMonster(m.id, roomId)}
+                                  className="p-1 text-ink-light hover:text-magic-red transition rounded hover:bg-black/10 cursor-pointer"
+                                  title={`Eliminar ${m.name}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
 
                             {/* HP Bar */}
@@ -919,23 +1393,26 @@ export function DMView({ roomId, insideRoom = false }: { roomId?: string; inside
                               </div>
                             </div>
 
-                            {/* Live HP Adjustment Controls */}
-                            <div className="flex items-center gap-1 flex-wrap pt-1 border-t border-ink/10">
-                              <span className="text-[10px] text-ink-light font-bold mr-1">Ajustar:</span>
-                              {[-10, -5, -1, 1, 5, 10].map(delta => (
-                                <button
-                                  key={delta}
-                                  onClick={() => updateCombatMonsterHP(m.id, delta, true, roomId)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition cursor-pointer shadow-xs ${
-                                    delta < 0 
-                                      ? 'bg-magic-red/15 hover:bg-magic-red text-red-700 hover:text-white border border-magic-red/30' 
-                                      : 'bg-emerald-600/15 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-600/30'
-                                  }`}
-                                  title={`${delta < 0 ? 'Dañar' : 'Curar'} ${Math.abs(delta)} PG`}
-                                >
-                                  {delta > 0 ? `+${delta}` : delta}
-                                </button>
-                              ))}
+                            {/* Live Direct Numeric HP Input Control */}
+                            <div className="pt-2 border-t border-ink/10 flex items-center justify-between gap-2">
+                              <label className="text-[11px] text-ink-light font-bold flex items-center gap-1">
+                                <Heart className="w-3.5 h-3.5 text-magic-red" />
+                                <span>Vida Actual:</span>
+                              </label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={m.hp.max}
+                                  value={m.hp.current}
+                                  onChange={(e) => {
+                                    const val = Math.max(0, Math.min(m.hp.max, Number(e.target.value) || 0));
+                                    updateCombatMonsterHP(m.id, val, false, roomId);
+                                  }}
+                                  className="w-16 px-2 py-1 bg-parchment-dark border border-ink/30 rounded text-center text-xs font-bold text-ink focus:outline-none focus:border-magic-gold"
+                                />
+                                <span className="text-xs font-bold text-ink-light">/ {m.hp.max} {room?.hpTerminology || 'HP'}</span>
+                              </div>
                             </div>
                           </div>
                         );

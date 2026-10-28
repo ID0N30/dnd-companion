@@ -65,6 +65,17 @@ export interface CombatMonster {
   initiative?: { die: number; dexMod: number; total: number };
   isDead?: boolean;
   type: 'enemy' | 'ally';
+  libraryId?: string;
+}
+
+export interface BestiaryLibraryItem {
+  id: string;
+  name: string;
+  hp: number;
+  ac: number;
+  initiativeBonus: number;
+  type: 'enemy' | 'ally';
+  createdAt: number;
 }
 
 export type DeathSaves = {
@@ -227,6 +238,26 @@ export const removeLocalPlayerFromStorage = (characterId: string) => {
       const filtered = existing.filter(p => p.id !== characterId);
       localStorage.setItem('dnd_all_local_players', JSON.stringify(filtered));
     }
+  } catch (e) {}
+};
+
+// Safe LocalStorage helpers for DM Bestiary Library
+export const getStoredBestiaryLibrary = (): BestiaryLibraryItem[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('dnd_dm_bestiary_library');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const syncBestiaryLibraryToStorage = (items: BestiaryLibraryItem[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('dnd_dm_bestiary_library', JSON.stringify(items));
   } catch (e) {}
 };
 
@@ -453,8 +484,14 @@ export interface StoreState {
   advanceTurn: (targetRoomId?: string, isDM?: boolean) => void;
   addCombatMonster: (monster: Omit<CombatMonster, 'id' | 'isDead' | 'initiative'>, targetRoomId?: string) => void;
   updateCombatMonsterHP: (monsterId: string, amount: number, isDelta?: boolean, targetRoomId?: string) => void;
+  updateCombatMonster: (monsterId: string, updates: Partial<Pick<CombatMonster, 'name' | 'ac' | 'initiativeBonus' | 'type'>> & { hpCurrent?: number; hpMax?: number }, targetRoomId?: string) => void;
   removeCombatMonster: (monsterId: string, targetRoomId?: string) => void;
   clearCombatMonsters: (targetRoomId?: string) => void;
+  
+  dmBestiaryLibrary: BestiaryLibraryItem[];
+  addBestiaryLibraryItem: (item: Omit<BestiaryLibraryItem, 'id' | 'createdAt'>) => BestiaryLibraryItem;
+  updateBestiaryLibraryItem: (id: string, updates: Partial<Omit<BestiaryLibraryItem, 'id' | 'createdAt'>>, targetRoomId?: string) => void;
+  deleteBestiaryLibraryItem: (id: string, targetRoomId?: string) => void;
   
   players: CharacterState[];
   activePlayerId: string;
@@ -571,6 +608,7 @@ export const useStore = create<StoreState>((set, get) => ({
   initiativeOrder: [],
   currentTurnIndex: 0,
   combatMonsters: [],
+  dmBestiaryLibrary: typeof window !== 'undefined' ? getStoredBestiaryLibrary() : [],
 
   addCombatMonster: (monster, targetRoomId) => {
     let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
@@ -757,6 +795,139 @@ export const useStore = create<StoreState>((set, get) => ({
         currentTurnIndex: newTurnIndex,
       });
     }
+  },
+
+  updateCombatMonster: (monsterId, updates, targetRoomId) => {
+    let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
+    if (!activeRoomId && typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/room\/([^\/]+)/);
+      if (match && match[1]) {
+        activeRoomId = match[1];
+      }
+    }
+
+    const currentMonsters = get().combatMonsters;
+    const targetMonster = currentMonsters.find(m => m.id === monsterId);
+    if (!targetMonster) return;
+
+    const newMaxHP = updates.hpMax !== undefined ? Math.max(1, Math.min(9999, Math.round(Number(updates.hpMax) || 1))) : targetMonster.hp.max;
+    const rawCurrentHP = updates.hpCurrent !== undefined ? Number(updates.hpCurrent) : targetMonster.hp.current;
+    const newCurrentHP = Math.max(0, Math.min(newMaxHP, Math.round(rawCurrentHP)));
+    const isDead = newCurrentHP === 0;
+
+    const updatedMonsters = currentMonsters.map(m => {
+      if (m.id !== monsterId) return m;
+      return {
+        ...m,
+        name: updates.name !== undefined ? updates.name.trim().slice(0, 60) : m.name,
+        ac: updates.ac !== undefined ? Math.max(1, Math.min(40, Math.round(Number(updates.ac) || 10))) : m.ac,
+        initiativeBonus: updates.initiativeBonus !== undefined ? Math.max(-20, Math.min(30, Math.round(Number(updates.initiativeBonus) || 0))) : m.initiativeBonus,
+        type: updates.type !== undefined ? updates.type : m.type,
+        hp: {
+          current: newCurrentHP,
+          max: newMaxHP,
+        },
+        isDead,
+      };
+    });
+
+    set({ combatMonsters: updatedMonsters });
+
+    if (activeRoomId && !isDemoRoom(activeRoomId)) {
+      updateRoomState(activeRoomId, {
+        combatMonsters: updatedMonsters,
+      });
+    }
+  },
+
+  addBestiaryLibraryItem: (item) => {
+    const newItem: BestiaryLibraryItem = {
+      id: 'lib_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      name: item.name.trim().slice(0, 60),
+      hp: Math.max(1, Math.min(9999, Number(item.hp) || 10)),
+      ac: Math.max(1, Math.min(40, Number(item.ac) || 10)),
+      initiativeBonus: Math.max(-20, Math.min(30, Number(item.initiativeBonus) || 0)),
+      type: item.type,
+      createdAt: Date.now(),
+    };
+    const updatedLibrary = [...get().dmBestiaryLibrary, newItem];
+    set({ dmBestiaryLibrary: updatedLibrary });
+    syncBestiaryLibraryToStorage(updatedLibrary);
+    return newItem;
+  },
+
+  updateBestiaryLibraryItem: (id, updates, targetRoomId) => {
+    let activeRoomId = typeof targetRoomId === 'string' ? targetRoomId : undefined;
+    if (!activeRoomId && typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/room\/([^\/]+)/);
+      if (match && match[1]) {
+        activeRoomId = match[1];
+      }
+    }
+
+    const updatedLibrary = get().dmBestiaryLibrary.map(item => {
+      if (item.id !== id) return item;
+      return {
+        ...item,
+        name: updates.name !== undefined ? updates.name.trim().slice(0, 60) : item.name,
+        hp: updates.hp !== undefined ? Math.max(1, Math.min(9999, Number(updates.hp) || 10)) : item.hp,
+        ac: updates.ac !== undefined ? Math.max(1, Math.min(40, Number(updates.ac) || 10)) : item.ac,
+        initiativeBonus: updates.initiativeBonus !== undefined ? Math.max(-20, Math.min(30, Number(updates.initiativeBonus) || 0)) : item.initiativeBonus,
+        type: updates.type !== undefined ? updates.type : item.type,
+      };
+    });
+
+    set({ dmBestiaryLibrary: updatedLibrary });
+    syncBestiaryLibraryToStorage(updatedLibrary);
+
+    const currentMonsters = get().combatMonsters;
+    const hasLinkedMonsters = currentMonsters.some(m => m.libraryId === id);
+
+    if (hasLinkedMonsters) {
+      const updatedMonsters = currentMonsters.map(m => {
+        if (m.libraryId !== id) return m;
+
+        let newMax = m.hp.max;
+        let newCurrent = m.hp.current;
+        if (updates.hp !== undefined) {
+          newMax = Math.max(1, Math.min(9999, Number(updates.hp) || 10));
+          if (m.hp.current >= m.hp.max || m.hp.current > newMax) {
+            newCurrent = newMax;
+          } else {
+            newCurrent = Math.min(m.hp.current, newMax);
+          }
+        }
+
+        const isDead = newCurrent === 0;
+
+        return {
+          ...m,
+          name: updates.name !== undefined ? updates.name.trim().slice(0, 60) : m.name,
+          ac: updates.ac !== undefined ? Math.max(1, Math.min(40, Number(updates.ac) || 10)) : m.ac,
+          initiativeBonus: updates.initiativeBonus !== undefined ? Math.max(-20, Math.min(30, Number(updates.initiativeBonus) || 0)) : m.initiativeBonus,
+          type: updates.type !== undefined ? updates.type : m.type,
+          hp: {
+            current: newCurrent,
+            max: newMax,
+          },
+          isDead,
+        };
+      });
+
+      set({ combatMonsters: updatedMonsters });
+
+      if (activeRoomId && !isDemoRoom(activeRoomId)) {
+        updateRoomState(activeRoomId, {
+          combatMonsters: updatedMonsters,
+        });
+      }
+    }
+  },
+
+  deleteBestiaryLibraryItem: (id, targetRoomId) => {
+    const updatedLibrary = get().dmBestiaryLibrary.filter(item => item.id !== id);
+    set({ dmBestiaryLibrary: updatedLibrary });
+    syncBestiaryLibraryToStorage(updatedLibrary);
   },
   
   toggleCombatMode: (status, targetRoomId, selectedPlayerIds) => {
@@ -1021,6 +1192,16 @@ export const useStore = create<StoreState>((set, get) => ({
               const nextActive = merged.some(p => p.id === state.activePlayerId) ? state.activePlayerId : (merged[0]?.id || '');
               return { players: merged, activePlayerId: nextActive };
             });
+          }
+        }
+      } catch (e) {}
+
+      try {
+        const storedLibrary = localStorage.getItem('dnd_dm_bestiary_library');
+        if (storedLibrary) {
+          const parsedLib = JSON.parse(storedLibrary);
+          if (Array.isArray(parsedLib)) {
+            set({ dmBestiaryLibrary: parsedLib });
           }
         }
       } catch (e) {}

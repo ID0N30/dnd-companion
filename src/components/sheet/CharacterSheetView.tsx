@@ -13,7 +13,7 @@ import { subscribeRoom, subscribeRoomWhispers, Room, DirectMessage, markDirectMe
 import { useAuth } from "@/context/AuthContext";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
 import { 
-  PenTool, Shield, Zap, Sparkles, BookOpen, Clock, Scroll, HelpCircle, User, Home, MessageSquare
+  PenTool, Shield, Zap, Sparkles, BookOpen, Clock, Scroll, HelpCircle, User, Home, MessageSquare, Compass, Swords
 } from "lucide-react";
 import { ASSETS } from "@/lib/assets";
 import { CombatStatusBanners } from "@/components/sheet/CombatStatusBanners";
@@ -474,53 +474,53 @@ export function CharacterSheetView({ isDM = false, isDemoOverride = false, insid
               initial={{ scale: 0.85, y: 30 }} 
               animate={{ scale: 1, y: 0 }} 
               exit={{ scale: 0.85, y: 30 }} 
-              className="w-full max-w-xl sm:max-w-2xl rounded-3xl overflow-hidden border-4 border-magic-gold shadow-[0_0_80px_rgba(245,208,97,0.85)] bg-gradient-to-b from-stone-950 via-zinc-900 to-black text-white relative text-center"
+              className="w-full max-w-md sm:max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border-4 border-magic-gold shadow-[0_0_80px_rgba(245,208,97,0.85)] bg-gradient-to-b from-stone-950 via-zinc-900 to-black text-white relative text-center"
             >
-              <div className="relative w-full h-48 sm:h-64 border-b-2 border-magic-gold/50 overflow-hidden">
+              <div className="relative w-full h-32 sm:h-40 border-b-2 border-magic-gold/50 overflow-hidden shrink-0">
                 <img 
                   src={ASSETS.banners.dmGift} 
                   alt="Tesoro del DM" 
-                  className="w-full h-full object-cover" 
+                  className="w-full h-full object-cover object-top" 
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/40 to-transparent" />
               </div>
 
-              <div className="p-6 sm:p-8 space-y-6">
+              <div className="p-4 sm:p-5 text-center space-y-3 overflow-y-auto flex-1">
                 <div>
-                  <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-gold tracking-widest drop-shadow-[0_2px_15px_rgba(245,208,97,0.6)] uppercase">
+                  <h2 className="text-xl sm:text-2xl font-bold font-cinzel text-magic-gold tracking-wider drop-shadow-[0_2px_15px_rgba(245,208,97,0.6)] uppercase">
                     TESORO DEL MAESTRO DE LA MAZMORRA
                   </h2>
-                  <p className="text-sm sm:text-base text-zinc-300 font-sans mt-2">
+                  <p className="text-xs sm:text-sm text-zinc-300 font-sans mt-1">
                     El Dungeon Master ha otorgado una nueva recompensa a tu inventario.
                   </p>
                 </div>
 
                 {/* Object Showcase Box */}
-                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/90 border-2 border-magic-gold/60 shadow-inner flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="p-3 sm:p-4 rounded-xl bg-zinc-900/90 border-2 border-magic-gold/60 shadow-inner flex flex-col sm:flex-row items-center justify-between gap-3">
                   <div className="flex items-center gap-3 text-left">
                     <img 
                       src={ASSETS.icons.potion} 
                       alt="Recompensa" 
-                      className="w-12 h-12 object-contain shrink-0 filter drop-shadow" 
+                      className="w-10 h-10 object-contain shrink-0 filter drop-shadow" 
                     />
                     <div>
                       <span className="text-[10px] sm:text-xs uppercase tracking-widest text-magic-gold/80 block font-cinzel font-bold">
                         Objeto Recibido
                       </span>
-                      <h3 className="text-xl sm:text-2xl font-bold font-cinzel text-white leading-tight">
+                      <h3 className="text-lg sm:text-xl font-bold font-cinzel text-white leading-tight">
                         {itemToast.itemName}
                       </h3>
                     </div>
                   </div>
-                  <span className="px-4 py-1.5 rounded-full bg-magic-gold/20 border border-magic-gold text-magic-gold font-bold text-base shrink-0 font-cinzel">
+                  <span className="px-3 py-1 rounded-full bg-magic-gold/20 border border-magic-gold text-magic-gold font-bold text-sm shrink-0 font-cinzel">
                     x{itemToast.quantity}
                   </span>
                 </div>
 
-                <div>
+                <div className="pt-1 shrink-0">
                   <button 
                     onClick={() => setItemToast(null)}
-                    className="w-full bg-gradient-to-r from-yellow-500 via-magic-gold to-yellow-600 text-black font-cinzel font-bold text-base py-3 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02]"
+                    className="w-full bg-gradient-to-r from-yellow-500 via-magic-gold to-yellow-600 text-black font-cinzel font-bold text-sm py-2.5 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02] shrink-0"
                   >
                     RECLAMAR RECOMPENSA
                   </button>
@@ -531,22 +531,142 @@ export function CharacterSheetView({ isDM = false, isDemoOverride = false, insid
         )}
       </AnimatePresence>
 
+      {/* ========================================================================= */}
+      {/* NIVEL 1: BARRA DE NAVEGACIÓN SUPERIOR GLOBAL (Top App Navbar)             */}
+      {/* ========================================================================= */}
+      {!insideRoom && (
+        <header className="w-full max-w-[1300px] mx-auto mb-3 sm:mb-4 bg-parchment-dark/95 backdrop-blur-md border border-magic-gold/40 hover:border-magic-gold/60 transition-colors rounded-xl p-2.5 sm:p-3 shadow-xl flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm font-sans z-20">
+          {/* Izquierda: Identidad y Navegación Principal */}
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+            <Link 
+              href="/" 
+              className="flex items-center gap-2 group cursor-pointer"
+              title="Ir a la portada de ArcanaLobby"
+            >
+              <img 
+                src={ASSETS.icons.d20} 
+                className="w-6 h-6 sm:w-7 sm:h-7 object-contain drop-shadow group-hover:rotate-12 transition-transform duration-300" 
+                alt="ArcanaLobby D20" 
+              />
+              <span className="font-cinzel font-bold text-base sm:text-lg text-magic-gold tracking-wide">
+                ArcanaLobby
+              </span>
+            </Link>
+
+            <div className="h-4 w-px bg-ink/20 hidden sm:block" />
+
+            <nav className="flex items-center gap-1.5 sm:gap-2">
+              <Link
+                href="/"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-ink/5 hover:bg-ink/15 text-ink hover:text-magic-gold rounded-lg border border-ink/15 text-xs font-bold transition shadow-xs cursor-pointer"
+                title="Volver a la página principal"
+              >
+                <Home className="w-3.5 h-3.5 text-magic-gold" />
+                <span>Inicio</span>
+              </Link>
+
+              <Link
+                href="/campaigns"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-ink/5 hover:bg-ink/15 text-ink hover:text-magic-gold rounded-lg border border-ink/15 text-xs font-bold transition shadow-xs cursor-pointer"
+                title="Ir al Salón de Campañas multijugador"
+              >
+                <Compass className="w-3.5 h-3.5 text-magic-gold" />
+                <span className="hidden sm:inline">Salón de </span>Campañas
+              </Link>
+
+              {isDemoMode && (
+                <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 bg-magic-gold/15 text-magic-gold border border-magic-gold/30 rounded-lg text-[11px] font-bold tracking-wide uppercase select-none">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Modo Sandbox Local
+                </span>
+              )}
+            </nav>
+          </div>
+
+          {/* Centro: Conmutador Principal de Vista (Segmented Control Prominente) */}
+          <div className="order-last md:order-none w-full md:w-auto flex justify-center">
+            {(isDemoMode || isDM) ? (
+              <div 
+                className="flex items-center bg-black/60 p-1 rounded-xl border border-magic-gold/40 shadow-inner w-full sm:w-auto justify-center"
+                role="tablist"
+                aria-label="Conmutador de perspectiva de juego"
+              >
+                <button
+                  type="button"
+                  onClick={() => setViewMode("sheet")}
+                  className={`flex-1 sm:flex-initial px-3 sm:px-4 py-1.5 rounded-lg flex items-center justify-center gap-2 text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer ${
+                    viewMode === "sheet"
+                      ? "bg-gradient-to-r from-magic-gold to-amber-500 text-black shadow-[0_0_15px_rgba(245,208,97,0.35)]"
+                      : "text-zinc-300 hover:text-white hover:bg-white/5"
+                  }`}
+                  title="Ver y editar la Hoja de Personaje del Jugador"
+                >
+                  <User className="w-4 h-4 shrink-0" />
+                  <span>Hoja de Personaje</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode("dm")}
+                  className={`flex-1 sm:flex-initial px-3 sm:px-4 py-1.5 rounded-lg flex items-center justify-center gap-2 text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer ${
+                    viewMode === "dm"
+                      ? "bg-gradient-to-r from-magic-gold to-amber-500 text-black shadow-[0_0_15px_rgba(245,208,97,0.35)]"
+                      : "text-zinc-300 hover:text-white hover:bg-white/5"
+                  }`}
+                  title="Abrir el Panel de Control del Dungeon Master"
+                >
+                  <Shield className="w-4 h-4 shrink-0" />
+                  <span>Panel del DM</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-ink-light bg-black/20 px-3 py-1.5 rounded-lg border border-ink/20">
+                <User className="w-3.5 h-3.5 text-magic-gold" />
+                <span className="font-bold text-ink">{character.name}</span>
+                <span className="text-[11px] opacity-75">({character.charClass} Nv.{character.level})</span>
+              </div>
+            )}
+          </div>
+
+          {/* Derecha: Utilidades de Sesión, Mensajes al DM y Tutorial */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <SyncStatusBadge />
+
+            <button
+              onClick={() => setDmMessageModal({ 
+                open: true, 
+                content: '', 
+                tab: unreadFromDMCount > 0 ? 'history' : 'compose' 
+              })}
+              className="relative flex items-center gap-1.5 bg-ink/5 hover:bg-ink/15 text-ink hover:text-magic-gold px-2.5 sm:px-3 py-1.5 rounded-lg font-bold text-xs shadow-xs border border-ink/20 transition cursor-pointer"
+              title="Enviar mensaje directo o consultar conversación con el DM"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-magic-gold" />
+              <span className="hidden sm:inline">Mensaje al </span>DM
+              {unreadFromDMCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 bg-magic-red text-white text-[10px] font-extrabold rounded-full border border-white animate-bounce shadow">
+                  {unreadFromDMCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setTutorialOpen(true)}
+              className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-2.5 sm:px-3.5 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition cursor-pointer border border-white/40"
+              title="Abrir la guía interactiva paso a paso"
+            >
+              <HelpCircle className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Tutorial</span>
+            </button>
+          </div>
+        </header>
+      )}
+
       <div className="w-full max-w-[1300px] mx-auto bg-parchment-dark min-h-[90vh] rounded-sm border-4 md:border-[12px] border-ink/90 shadow-2xl relative p-3 sm:p-6 md:p-10 flex flex-col font-sans">
         
-        {/* COMBAT AND HEALTH STATUS BANNERS */}
-        <CombatStatusBanners
-          character={character}
-          hpTerminology={hpTerminology}
-          isCombatMode={isCombatMode}
-          isMyTurn={isMyTurn}
-          currentTurnPlayer={currentTurnPlayer}
-          currentTurnMonster={currentTurnMonster}
-          rollDeathSave={rollDeathSave}
-          stabilizePlayer={stabilizePlayer}
-          setSalvationModal={setSalvationModal}
-        />
-
-        {/* DEMO / SHOWCASE SANDBOX CONTROL BAR */}
+        {/* ========================================================================= */}
+        {/* NIVEL 2: DEMO / SHOWCASE SANDBOX CONTROL BAR                             */}
+        {/* ========================================================================= */}
         {isDemoMode && (
           <DemoSandboxToolbar
             character={character}
@@ -564,68 +684,60 @@ export function CharacterSheetView({ isDM = false, isDemoOverride = false, insid
           />
         )}
 
-        {/* Header Navigation Bar */}
-        <div className="flex justify-between items-center mb-4 flex-wrap gap-2 font-sans border-b border-ink/10 pb-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Link
-              href="/"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-parchment-dark text-ink hover:text-magic-gold rounded-lg border border-ink/20 text-xs font-bold transition shadow-sm"
-              title="Volver a la página principal"
-            >
-              <Home className="w-3.5 h-3.5 text-magic-gold" /> Inicio
-            </Link>
-
-            {!isDemoMode && (
-              <div className="flex bg-parchment-dark p-1 rounded-lg border border-ink/20 text-xs font-bold">
-                <button
-                  onClick={() => setViewMode("sheet")}
-                  className={`px-3 py-1.5 rounded flex items-center gap-1.5 transition cursor-pointer ${viewMode === 'sheet' ? 'bg-magic-gold text-black shadow' : 'text-ink hover:text-magic-gold'}`}
-                >
-                  <User className="w-3.5 h-3.5" /> Mi Hoja
-                </button>
-                {isDM && (
-                  <button
-                    onClick={() => setViewMode("dm")}
-                    className={`px-3 py-1.5 rounded flex items-center gap-1.5 transition cursor-pointer ${viewMode === 'dm' ? 'bg-magic-gold text-black shadow' : 'text-ink hover:text-magic-gold'}`}
-                  >
-                    <Shield className="w-3.5 h-3.5" /> Panel DM (Maestro)
-                  </button>
+        {/* Sub-barra de utilidades dentro de campaña real */}
+        {insideRoom && (
+          <div className="flex justify-between items-center mb-4 flex-wrap gap-2 font-sans border-b border-ink/10 pb-3">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-bold text-ink">{character.name}</span>
+              <span className="text-ink-light">({character.charClass} Nv.{character.level})</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <SyncStatusBadge />
+              <button
+                onClick={() => setDmMessageModal({ 
+                  open: true, 
+                  content: '', 
+                  tab: unreadFromDMCount > 0 ? 'history' : 'compose' 
+                })}
+                className="relative flex items-center gap-1.5 bg-parchment-dark text-ink hover:text-magic-gold px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm border border-ink/20 transition cursor-pointer"
+                title="Enviar mensaje directo o consultar conversación con el DM"
+              >
+                <MessageSquare className="w-3.5 h-3.5" /> Mensaje al DM
+                {unreadFromDMCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 bg-magic-red text-white text-[10px] font-extrabold rounded-full border border-white animate-bounce shadow">
+                    {unreadFromDMCount}
+                  </span>
                 )}
-              </div>
-            )}
+              </button>
+              <button
+                onClick={() => setTutorialOpen(true)}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-3.5 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition cursor-pointer border border-white/40"
+              >
+                <HelpCircle className="w-4 h-4" /> Tutorial
+              </button>
+            </div>
           </div>
+        )}
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <SyncStatusBadge />
-            <button
-              onClick={() => setDmMessageModal({ 
-                open: true, 
-                content: '', 
-                tab: unreadFromDMCount > 0 ? 'history' : 'compose' 
-              })}
-              className="relative flex items-center gap-1.5 bg-parchment-dark text-ink hover:text-magic-gold px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm border border-ink/20 transition cursor-pointer"
-              title="Enviar mensaje directo o consultar conversación con el DM"
-            >
-              <MessageSquare className="w-3.5 h-3.5" /> Mensaje al DM
-              {unreadFromDMCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 bg-magic-red text-white text-[10px] font-extrabold rounded-full border border-white animate-bounce shadow">
-                  {unreadFromDMCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setTutorialOpen(true)}
-              className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black px-3.5 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition cursor-pointer border border-white/40"
-            >
-              <HelpCircle className="w-4 h-4" /> Tutorial de Inicio
-            </button>
-          </div>
-        </div>
-
+        {/* ========================================================================= */}
+        {/* NIVEL 3: VISTA PRINCIPAL (Panel del DM vs Hoja de Personaje)              */}
+        {/* ========================================================================= */}
         {viewMode === "dm" && <DMPage />}
         {viewMode === "sheet" && (
           <div key="sheet-view">
+            {/* COMBAT AND HEALTH STATUS BANNERS */}
+            <CombatStatusBanners
+              character={character}
+              hpTerminology={hpTerminology}
+              isCombatMode={isCombatMode}
+              isMyTurn={isMyTurn}
+              currentTurnPlayer={currentTurnPlayer}
+              currentTurnMonster={currentTurnMonster}
+              rollDeathSave={rollDeathSave}
+              stabilizePlayer={stabilizePlayer}
+              setSalvationModal={setSalvationModal}
+            />
+
             {/* Header */}
             <CombatHeader
               character={character}
@@ -726,34 +838,34 @@ export function CharacterSheetView({ isDM = false, isDemoOverride = false, insid
                     initial={{ scale: 0.85, y: 30 }} 
                     animate={{ scale: 1, y: 0 }} 
                     exit={{ scale: 0.85, y: 30 }} 
-                    className="w-full max-w-xl sm:max-w-2xl rounded-3xl overflow-hidden border-4 border-magic-red shadow-[0_0_80px_rgba(217,56,41,0.85)] bg-gradient-to-b from-black via-zinc-950 to-black text-white relative text-center"
+                    className="w-full max-w-md sm:max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border-4 border-magic-red shadow-[0_0_80px_rgba(217,56,41,0.85)] bg-gradient-to-b from-black via-zinc-950 to-black text-white relative text-center"
                   >
-                    <div className="relative w-full h-52 sm:h-64 border-b-2 border-magic-red/50 overflow-hidden">
+                    <div className="relative w-full h-32 sm:h-40 border-b-2 border-magic-red/50 overflow-hidden shrink-0">
                       <img 
                         src={ASSETS.banners.death} 
                         alt="El Velo de la Muerte" 
-                        className="w-full h-full object-cover" 
+                        className="w-full h-full object-cover object-top" 
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
                     </div>
 
-                    <div className="p-6 sm:p-8 space-y-5">
-                      <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-red tracking-wider drop-shadow-[0_2px_15px_rgba(217,56,41,0.9)] uppercase">
+                    <div className="p-4 sm:p-5 text-center space-y-3 overflow-y-auto flex-1">
+                      <h2 className="text-lg sm:text-xl font-bold font-cinzel text-magic-red tracking-wider drop-shadow-[0_2px_15px_rgba(217,56,41,0.9)] uppercase">
                         EL HILO DE LA VIDA SE HA CORTADO
                       </h2>
 
-                      <p className="text-sm sm:text-base text-zinc-300 font-sans leading-relaxed">
+                      <p className="text-xs sm:text-sm text-zinc-300 font-sans leading-relaxed">
                         {salvationModal.desc ? salvationModal.desc.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim() : `${character.name} ha sucumbido a sus heridas y ha fallecido.`}
                       </p>
 
-                      <div className="p-4 bg-red-950/40 border border-magic-red/40 rounded-xl text-sm sm:text-base text-red-200 italic font-serif leading-relaxed">
+                      <div className="p-3 bg-red-950/40 border border-magic-red/40 rounded-xl text-xs sm:text-sm text-red-200 italic font-serif leading-relaxed">
                         "El velo entre este mundo y el más allá se ha cerrado. Tu cuerpo cae inerte, pero tus hazañas perdurarán grabadas en la memoria de las leyendas."
                       </div>
 
-                      <div className="pt-2">
+                      <div className="pt-1 shrink-0">
                         <button
                           onClick={() => setSalvationModal({ ...salvationModal, open: false })}
-                          className="w-full bg-gradient-to-r from-red-800 via-magic-red to-red-900 text-white font-cinzel font-bold text-base py-3 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02]"
+                          className="w-full bg-gradient-to-r from-red-800 via-magic-red to-red-900 text-white font-cinzel font-bold text-sm py-2.5 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02] shrink-0"
                         >
                           ASIMILAR DESTINO
                         </button>
@@ -766,38 +878,38 @@ export function CharacterSheetView({ isDM = false, isDemoOverride = false, insid
                     initial={{ scale: 0.85, y: 30 }} 
                     animate={{ scale: 1, y: 0 }} 
                     exit={{ scale: 0.85, y: 30 }} 
-                    className="w-full max-w-xl sm:max-w-2xl rounded-3xl overflow-hidden border-4 border-magic-gold shadow-[0_0_80px_rgba(245,208,97,0.85)] bg-gradient-to-b from-sky-950 via-slate-950 to-amber-950 text-white relative text-center"
+                    className="w-full max-w-md sm:max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border-4 border-magic-gold shadow-[0_0_80px_rgba(245,208,97,0.85)] bg-gradient-to-b from-sky-950 via-slate-950 to-amber-950 text-white relative text-center"
                   >
-                    <div className="relative w-full h-52 sm:h-64 border-b-2 border-magic-gold/50 overflow-hidden">
+                    <div className="relative w-full h-32 sm:h-40 border-b-2 border-magic-gold/50 overflow-hidden shrink-0">
                       <img 
                         src={ASSETS.banners.revive} 
                         alt="Milagro Divino" 
-                        className="w-full h-full object-cover" 
+                        className="w-full h-full object-cover object-top" 
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-sky-950/90 via-sky-950/40 to-transparent" />
                     </div>
 
-                    <div className="p-6 sm:p-8 space-y-5">
-                      <h2 className="text-2xl sm:text-3xl font-bold font-cinzel text-magic-gold tracking-wider drop-shadow-[0_2px_15px_rgba(245,208,97,0.9)] uppercase">
+                    <div className="p-4 sm:p-5 text-center space-y-3 overflow-y-auto flex-1">
+                      <h2 className="text-lg sm:text-xl font-bold font-cinzel text-magic-gold tracking-wider drop-shadow-[0_2px_15px_rgba(245,208,97,0.9)] uppercase">
                         RESURRECCIÓN CELESTIAL Y MILAGRO DIVINO
                       </h2>
 
-                      <p className="text-sm sm:text-base text-sky-100 font-sans leading-relaxed">
+                      <p className="text-xs sm:text-sm text-sky-100 font-sans leading-relaxed">
                         {salvationModal.desc ? salvationModal.desc.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim() : `La chispa de la vida regresa al cuerpo de ${character.name}.`}
                       </p>
 
-                      <div className="p-4 bg-amber-950/40 border border-magic-gold/40 rounded-xl text-sm sm:text-base text-amber-200 italic font-serif leading-relaxed">
+                      <div className="p-3 bg-amber-950/40 border border-magic-gold/40 rounded-xl text-xs sm:text-sm text-amber-200 italic font-serif leading-relaxed">
                         "La gracia divina envuelve tu alma. Recuperas el aliento y la llama de la vida renace ardiente en tu pecho."
                       </div>
 
-                      <div className="inline-block px-4 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-500 text-emerald-300 text-xs sm:text-sm font-bold uppercase tracking-wider font-sans">
+                      <div className="inline-block px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500 text-emerald-300 text-xs font-bold uppercase tracking-wider font-sans">
                         Puntos de Golpe Restaurados: {character.hp.current} {hpTerminology || 'HP'}
                       </div>
 
-                      <div className="pt-2">
+                      <div className="pt-1 shrink-0">
                         <button
                           onClick={() => setSalvationModal({ ...salvationModal, open: false })}
-                          className="w-full bg-gradient-to-r from-yellow-500 via-magic-gold to-yellow-600 text-black font-cinzel font-bold text-base py-3 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02]"
+                          className="w-full bg-gradient-to-r from-yellow-500 via-magic-gold to-yellow-600 text-black font-cinzel font-bold text-sm py-2.5 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02] shrink-0"
                         >
                           RENACER EN LA LUZ
                         </button>
@@ -810,24 +922,24 @@ export function CharacterSheetView({ isDM = false, isDemoOverride = false, insid
                     initial={{ scale: 0.85, y: 30 }} 
                     animate={{ scale: 1, y: 0 }} 
                     exit={{ scale: 0.85, y: 30 }} 
-                    className="w-full max-w-lg rounded-3xl overflow-hidden border-4 border-amber-600 shadow-[0_0_60px_rgba(217,119,6,0.6)] bg-gradient-to-b from-stone-950 via-zinc-900 to-black text-white relative text-center p-6 sm:p-8 space-y-5"
+                    className="w-full max-w-sm sm:max-w-md max-h-[85vh] flex flex-col rounded-2xl overflow-hidden border-4 border-amber-600 shadow-[0_0_60px_rgba(217,119,6,0.6)] bg-gradient-to-b from-stone-950 via-zinc-900 to-black text-white relative text-center p-4 sm:p-5 space-y-3"
                   >
-                    <div className="flex justify-center">
-                      <img src={ASSETS.icons.d20} className="w-14 h-14 object-contain filter drop-shadow" alt="Tirada d20" />
+                    <div className="flex justify-center shrink-0">
+                      <img src={ASSETS.icons.d20} className="w-10 h-10 object-contain filter drop-shadow" alt="Tirada d20" />
                     </div>
 
-                    <h2 className="text-xl sm:text-2xl font-bold font-cinzel text-amber-400 tracking-wider uppercase">
+                    <h2 className="text-lg sm:text-xl font-bold font-cinzel text-amber-400 tracking-wider uppercase shrink-0">
                       {salvationModal.title ? salvationModal.title.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim() : 'Salvación contra la Muerte'}
                     </h2>
 
-                    <p className="text-sm sm:text-base text-zinc-300 font-sans leading-relaxed">
+                    <p className="text-xs sm:text-sm text-zinc-300 font-sans leading-relaxed overflow-y-auto flex-1">
                       {salvationModal.desc ? salvationModal.desc.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim() : ''}
                     </p>
 
-                    <div className="pt-2">
+                    <div className="pt-1 shrink-0">
                       <button
                         onClick={() => setSalvationModal({ ...salvationModal, open: false })}
-                        className="w-full bg-gradient-to-r from-amber-600 via-yellow-600 to-amber-700 text-black font-cinzel font-bold text-base py-3 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02]"
+                        className="w-full bg-gradient-to-r from-amber-600 via-yellow-600 to-amber-700 text-black font-cinzel font-bold text-sm py-2.5 px-6 rounded-xl hover:brightness-110 shadow-lg cursor-pointer tracking-wider transition-all transform hover:scale-[1.02] shrink-0"
                       >
                         CONTINUAR
                       </button>
